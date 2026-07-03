@@ -17,13 +17,15 @@ sys.path.insert(0, os.path.join(RAIZ, "src"))
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from auditoria_fiscal.core.modelos import (  # noqa: E402
-    DocumentoFiscalConjunto, Empresa, NotaFiscal, Participante,
+    DocumentoFiscalConjunto, Empresa, ItemNota, NotaFiscal, Participante,
 )
 from auditoria_fiscal.core.sefaz_relacao import RegistroSefaz  # noqa: E402
 from auditoria_fiscal.ferramentas.comparador_sped_sefaz import comparar  # noqa: E402
+from auditoria_fiscal.ferramentas.comparador_sped_sped import comparar_speds  # noqa: E402
 from auditoria_fiscal.ferramentas.extracao_itens import CAMPOS  # noqa: E402
 from auditoria_fiscal.ui.app import JanelaPrincipal  # noqa: E402
 from auditoria_fiscal.ui.comparador_widget import ComparadorWidget  # noqa: E402
+from auditoria_fiscal.ui.diff_widget import DiffSpedWidget  # noqa: E402
 from auditoria_fiscal.ui.extracao_widget import ExtracaoWidget  # noqa: E402
 
 
@@ -80,6 +82,29 @@ def main() -> int:
     checar(cel is not None and cel.text() == "PRODUTO X",
            f"descricao na tabela: {cel.text() if cel else None}")
 
+    # --- Aba comparacao de SPEDs ---
+    chave_x = "5" * 44
+    chave_y = "6" * 44
+    doc_a = DocumentoFiscalConjunto(notas=[
+        NotaFiscal(chave=chave_x, ind_oper="0", situacao="00", numero="10",
+                   valor_documento=Decimal("100.00"),
+                   itens=[ItemNota(num_item="1", cfop="1102", cst_icms="000")])])
+    doc_b = DocumentoFiscalConjunto(notas=[
+        NotaFiscal(chave=chave_x, ind_oper="0", situacao="00", numero="10",
+                   valor_documento=Decimal("150.00"),
+                   itens=[ItemNota(num_item="1", cfop="5102", cst_icms="000")]),
+        NotaFiscal(chave=chave_y, ind_oper="0", situacao="00", numero="20",
+                   valor_documento=Decimal("80.00"))])
+    res_diff = comparar_speds(doc_a, doc_b, "A", "B")
+    diff = DiffSpedWidget()
+    diff._ao_concluir(res_diff)
+    checar(diff._cartoes["divergentes"].text() == "1",
+           f"diff divergentes={diff._cartoes['divergentes'].text()}")
+    checar(diff._tab_diverg.rowCount() == 2,
+           f"diff linhas={diff._tab_diverg.rowCount()} (esperado 2: valor + cfop)")
+    checar(diff._tab_so_b.rowCount() == 1,
+           f"so em B={diff._tab_so_b.rowCount()}")
+
     janela.close()
     app.quit()
 
@@ -88,7 +113,7 @@ def main() -> int:
         for f in falhas:
             print("  -", f)
         return 1
-    print("OK - janela principal + abas (comparador e extracao) constroem e populam.")
+    print("OK - janela principal + 3 abas (comparador, diff SPEDs, extracao) OK.")
     return 0
 
 

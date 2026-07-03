@@ -9,11 +9,12 @@ SPED Fiscal e XML de NF-e, indexado pela **chave de acesso de 44 dígitos**.
 | # | Ferramenta | Situação |
 |---|------------|----------|
 | 1 | **Comparador SPED × SEFAZ** (notas faltantes) | ✅ funcional (app, aba 1) |
-| 2 | Comparador de versões de SPED (diff campo a campo) | ⏳ planejado |
+| 2 | **Comparador de versões de SPED** (diff campo a campo) | ✅ funcional (app, aba 2) |
 | 3 | Livro Digital de Conferência Fiscal | ⏳ planejado |
-| 4 | **Extração de itens para auditoria tributária** | ✅ funcional (app, aba 2) |
+| 4 | **Extração de itens para auditoria tributária** | ✅ funcional (app, aba 3) |
 
-O app desktop tem **duas abas**: *Comparador SPED × SEFAZ* e *Extração de Itens*.
+O app desktop tem **três abas**: *Comparador SPED × SEFAZ*, *Comparar versões de
+SPED* e *Extração de Itens*.
 
 > A leitura da relação da SEFAZ (item 1) usa **detecção automática de colunas** —
 > validada contra o formato real do cliente (aba "Arquivo Sefaz").
@@ -39,10 +40,13 @@ auditoria-fiscal/
 │   ├── ferramentas/
 │   │   ├── comparador_sped_sefaz.py   # motor do item 1
 │   │   ├── relatorio_excel.py         # relatorio de conferencia (item 1)
+│   │   ├── comparador_sped_sped.py    # motor do item 2 (diff)
+│   │   ├── relatorio_diff_excel.py    # relatorio de diff (item 2)
 │   │   └── extracao_itens.py          # extracao de itens (item 4)
 │   └── ui/
 │       ├── app.py                     # janela principal (abas)
 │       ├── comparador_widget.py       # aba do item 1
+│       ├── diff_widget.py             # aba do item 2
 │       └── extracao_widget.py         # aba do item 4
 └── tests/                      # testes com dados sinteticos
 ```
