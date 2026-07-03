@@ -1,0 +1,11 @@
+# Interface desktop (Qt para Python)
+PySide6>=6.7
+
+# Leitura de XML da NF-e (rapido e tolerante a namespaces)
+lxml>=5.0
+
+# Leitura/escrita de planilhas Excel (.xlsx)
+openpyxl>=3.1
+
+# Manipulacao tabular e exportacao (relacao SEFAZ, planilhas de auditoria)
+pandas>=2.2

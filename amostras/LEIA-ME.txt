@@ -1,0 +1,9 @@
+Coloque aqui os arquivos de exemplo para validacao (podem ser anonimizados):
+
+1) SPED Fiscal .......... um arquivo .txt do EFD ICMS/IPI
+2) Relacao da SEFAZ ..... a planilha/relatorio (.xlsx ou .csv) de notas
+                          emitidas contra o CNPJ do cliente
+3) XMLs de NF-e ......... um ou mais arquivos .xml (pode ser uma subpasta)
+
+Esses arquivos NAO sao versionados (ver .gitignore) e servem apenas para
+ajustar os leitores ao formato real usado pelo cliente.
