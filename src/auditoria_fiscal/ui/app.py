@@ -17,6 +17,7 @@ from .comparador_widget import ComparadorWidget
 from .conferencia_widget import ConferenciaWidget
 from .diff_widget import DiffSpedWidget
 from .extracao_widget import ExtracaoWidget
+from .tema import aplicar_tema
 
 
 class JanelaPrincipal(QMainWindow):
@@ -48,7 +49,7 @@ class JanelaPrincipal(QMainWindow):
 
 def main() -> int:
     app = QApplication(sys.argv)
-    app.setStyle("Fusion")
+    aplicar_tema(app)
     janela = JanelaPrincipal()
     janela.show()
     return app.exec()

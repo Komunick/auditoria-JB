@@ -32,11 +32,13 @@ from auditoria_fiscal.ui.conferencia_widget import (  # noqa: E402
 )
 from auditoria_fiscal.ui.diff_widget import DiffSpedWidget  # noqa: E402
 from auditoria_fiscal.ui.extracao_widget import ExtracaoWidget  # noqa: E402
+from auditoria_fiscal.ui.tema import aplicar_tema  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 
 
 def main() -> int:
     app = QApplication.instance() or QApplication(sys.argv)
+    aplicar_tema(app)   # exercita paleta/QSS do tema
     falhas = []
 
     def checar(cond, msg):
