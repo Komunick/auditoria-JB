@@ -84,13 +84,16 @@ auditoria-fiscal/
 .\.venv\Scripts\python.exe tests\diff_real.py         # item 2 em escala real
 ```
 
-## Gerar o .exe (depois de validado)
+## Gerar o .exe (executável Windows)
 
 ```powershell
-.\.venv\Scripts\pip.exe install pyinstaller
-.\.venv\Scripts\pyinstaller.exe --noconfirm --windowed --name "AuditoriaFiscal" `
-  --paths src executar.py
+.\empacotar.ps1
 ```
+
+Gera um único arquivo **`dist\AuditoriaFiscal.exe`** (~85 MB), sem necessidade de
+Python instalado — é só dar duplo clique. O script usa PyInstaller com
+`--collect-all brazilfiscalreport` para incluir as fontes usadas na geração do
+DANFE. (O `.exe` e as pastas `build/`/`dist/` não são versionados.)
 
 ## Registros do SPED lidos
 
