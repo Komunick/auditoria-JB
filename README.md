@@ -8,13 +8,19 @@ SPED Fiscal e XML de NF-e, indexado pela **chave de acesso de 44 dígitos**.
 
 | # | Ferramenta | Situação |
 |---|------------|----------|
-| 1 | **Comparador SPED × SEFAZ** (notas faltantes) | ✅ funcional (app desktop) |
+| 1 | **Comparador SPED × SEFAZ** (notas faltantes) | ✅ funcional (app, aba 1) |
 | 2 | Comparador de versões de SPED (diff campo a campo) | ⏳ planejado |
 | 3 | Livro Digital de Conferência Fiscal | ⏳ planejado |
-| 4 | Extração de itens para auditoria tributária | ⏳ planejado (núcleo pronto) |
+| 4 | **Extração de itens para auditoria tributária** | ✅ funcional (app, aba 2) |
 
-> A leitura da relação da SEFAZ (item 1) usa **detecção automática de colunas**.
-> O mapeamento deve ser **confirmado com um arquivo real** do cliente.
+O app desktop tem **duas abas**: *Comparador SPED × SEFAZ* e *Extração de Itens*.
+
+> A leitura da relação da SEFAZ (item 1) usa **detecção automática de colunas** —
+> validada contra o formato real do cliente (aba "Arquivo Sefaz").
+>
+> Na extração (item 4), o SPED só traz itens das notas que têm registro **C170**
+> (tipicamente NF-e de entrada, modelo 55). Vendas em **NFC-e (modelo 65)** não
+> têm C170 — para o detalhe de itens dessas, use os **XMLs** como fonte.
 
 ## Estrutura
 
@@ -32,8 +38,12 @@ auditoria-fiscal/
 │   │   └── utils.py            # conversoes (decimal BR, data, encoding)
 │   ├── ferramentas/
 │   │   ├── comparador_sped_sefaz.py   # motor do item 1
-│   │   └── relatorio_excel.py         # exportacao do relatorio
-│   └── ui/app.py               # interface PySide6
+│   │   ├── relatorio_excel.py         # relatorio de conferencia (item 1)
+│   │   └── extracao_itens.py          # extracao de itens (item 4)
+│   └── ui/
+│       ├── app.py                     # janela principal (abas)
+│       ├── comparador_widget.py       # aba do item 1
+│       └── extracao_widget.py         # aba do item 4
 └── tests/                      # testes com dados sinteticos
 ```
 
