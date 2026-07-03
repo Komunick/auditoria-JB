@@ -10,11 +10,16 @@ SPED Fiscal e XML de NF-e, indexado pela **chave de acesso de 44 dígitos**.
 |---|------------|----------|
 | 1 | **Comparador SPED × SEFAZ** (notas faltantes) | ✅ funcional (app, aba 1) |
 | 2 | **Comparador de versões de SPED** (diff campo a campo) | ✅ funcional (app, aba 2) |
-| 3 | Livro Digital de Conferência Fiscal | ⏳ planejado |
-| 4 | **Extração de itens para auditoria tributária** | ✅ funcional (app, aba 3) |
+| 3 | **Livro Digital de Conferência Fiscal** | ✅ funcional (app, aba 3) |
+| 4 | **Extração de itens para auditoria tributária** | ✅ funcional (app, aba 4) |
 
-O app desktop tem **três abas**: *Comparador SPED × SEFAZ*, *Comparar versões de
-SPED* e *Extração de Itens*.
+O app desktop tem **quatro abas**: *Comparador SPED × SEFAZ*, *Comparar versões
+de SPED*, *Livro de Conferência* e *Extração de Itens*.
+
+No **Livro de Conferência**, importe uma **pasta de XMLs** (habilita gerar o
+**DANFE** de cada nota) ou um SPED; marque cada nota como *conferida*, registre
+*observações* e filtre por pendentes/conferidas. O estado é salvo em SQLite
+(`%LOCALAPPDATA%\AuditoriaFiscal\conferencia.db`), persistindo entre sessões.
 
 > A leitura da relação da SEFAZ (item 1) usa **detecção automática de colunas** —
 > validada contra o formato real do cliente (aba "Arquivo Sefaz").
@@ -42,11 +47,14 @@ auditoria-fiscal/
 │   │   ├── relatorio_excel.py         # relatorio de conferencia (item 1)
 │   │   ├── comparador_sped_sped.py    # motor do item 2 (diff)
 │   │   ├── relatorio_diff_excel.py    # relatorio de diff (item 2)
+│   │   ├── conferencia_store.py       # persistencia SQLite (item 3)
+│   │   ├── danfe.py                   # geracao de DANFE do XML (item 3)
 │   │   └── extracao_itens.py          # extracao de itens (item 4)
 │   └── ui/
 │       ├── app.py                     # janela principal (abas)
 │       ├── comparador_widget.py       # aba do item 1
 │       ├── diff_widget.py             # aba do item 2
+│       ├── conferencia_widget.py      # aba do item 3
 │       └── extracao_widget.py         # aba do item 4
 └── tests/                      # testes com dados sinteticos
 ```
@@ -61,10 +69,19 @@ auditoria-fiscal/
 ## Rodar os testes
 
 ```powershell
-.\.venv\Scripts\python.exe tests\test_nucleo.py
-.\.venv\Scripts\python.exe tests\test_xml.py
-.\.venv\Scripts\python.exe tests\test_comparador.py
-.\.venv\Scripts\python.exe tests\test_ui_smoke.py
+# nucleo e ferramentas (dados sinteticos)
+.\.venv\Scripts\python.exe tests\test_nucleo.py       # leitor SPED
+.\.venv\Scripts\python.exe tests\test_xml.py          # leitor XML NF-e
+.\.venv\Scripts\python.exe tests\test_comparador.py   # item 1
+.\.venv\Scripts\python.exe tests\test_diff_sped.py    # item 2
+.\.venv\Scripts\python.exe tests\test_conferencia.py  # item 3 (persistencia)
+.\.venv\Scripts\python.exe tests\test_danfe.py        # item 3 (DANFE do XML)
+.\.venv\Scripts\python.exe tests\test_extracao.py     # item 4
+.\.venv\Scripts\python.exe tests\test_ui_smoke.py     # interface (4 abas)
+
+# validacoes com o SPED real (ajuste o caminho nos scripts)
+.\.venv\Scripts\python.exe tests\validacao_real.py    # pipeline item 1
+.\.venv\Scripts\python.exe tests\diff_real.py         # item 2 em escala real
 ```
 
 ## Gerar o .exe (depois de validado)

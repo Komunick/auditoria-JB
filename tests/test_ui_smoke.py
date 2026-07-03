@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from decimal import Decimal
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -22,11 +23,16 @@ from auditoria_fiscal.core.modelos import (  # noqa: E402
 from auditoria_fiscal.core.sefaz_relacao import RegistroSefaz  # noqa: E402
 from auditoria_fiscal.ferramentas.comparador_sped_sefaz import comparar  # noqa: E402
 from auditoria_fiscal.ferramentas.comparador_sped_sped import comparar_speds  # noqa: E402
+from auditoria_fiscal.ferramentas.conferencia_store import ConferenciaStore  # noqa: E402
 from auditoria_fiscal.ferramentas.extracao_itens import CAMPOS  # noqa: E402
 from auditoria_fiscal.ui.app import JanelaPrincipal  # noqa: E402
 from auditoria_fiscal.ui.comparador_widget import ComparadorWidget  # noqa: E402
+from auditoria_fiscal.ui.conferencia_widget import (  # noqa: E402
+    COL_CONF, COL_OBS, ConferenciaWidget,
+)
 from auditoria_fiscal.ui.diff_widget import DiffSpedWidget  # noqa: E402
 from auditoria_fiscal.ui.extracao_widget import ExtracaoWidget  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
 
 
 def main() -> int:
@@ -105,6 +111,37 @@ def main() -> int:
     checar(diff._tab_so_b.rowCount() == 1,
            f"so em B={diff._tab_so_b.rowCount()}")
 
+    # --- Aba livro de conferencia ---
+    fd, db = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    os.unlink(db)
+    store = ConferenciaStore(db)
+    conf = ConferenciaWidget(store=store)
+    ch_c1, ch_c2 = "7" * 44, "8" * 44
+    notas_conf = [
+        NotaFiscal(chave=ch_c1, numero="1", situacao="00",
+                   valor_documento=Decimal("100.00"),
+                   participante=Participante(nome="FORN C1"),
+                   itens=[ItemNota(cfop="1102", cst_icms="000",
+                                   aliq_icms=Decimal("18.00"))]),
+        NotaFiscal(chave=ch_c2, numero="2", situacao="00",
+                   valor_documento=Decimal("200.00")),
+    ]
+    conf._ao_carregar(notas_conf, "XML DEMO")
+    checar(conf._tabela.rowCount() == 2, f"conf rowCount={conf._tabela.rowCount()}")
+    checar("0 de 2" in conf._lbl_progresso.text(),
+           f"progresso inicial: {conf._lbl_progresso.text()}")
+    # Marca a primeira como conferida -> persiste
+    conf._tabela.item(0, COL_CONF).setCheckState(Qt.Checked)
+    checar(store.obter(ch_c1).conferida, "conferida nao persistiu no store")
+    checar("1 de 2" in conf._lbl_progresso.text(),
+           f"progresso apos conferir: {conf._lbl_progresso.text()}")
+    # Edita observacao -> persiste
+    conf._tabela.item(0, COL_OBS).setText("CFOP ok")
+    checar(store.obter(ch_c1).observacao == "CFOP ok", "observacao nao persistiu")
+    store.fechar()
+    os.unlink(db)
+
     janela.close()
     app.quit()
 
@@ -113,7 +150,7 @@ def main() -> int:
         for f in falhas:
             print("  -", f)
         return 1
-    print("OK - janela principal + 3 abas (comparador, diff SPEDs, extracao) OK.")
+    print("OK - janela principal + 4 abas (comparador, diff, conferencia, extracao) OK.")
     return 0
 
 

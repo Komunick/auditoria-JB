@@ -9,3 +9,6 @@ openpyxl>=3.1
 
 # Manipulacao tabular e exportacao (relacao SEFAZ, planilhas de auditoria)
 pandas>=2.2
+
+# Geracao do DANFE (PDF) a partir do XML da NF-e (Livro de Conferencia)
+brazilfiscalreport>=1.0

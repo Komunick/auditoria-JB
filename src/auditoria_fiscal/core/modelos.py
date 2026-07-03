@@ -83,6 +83,7 @@ class NotaFiscal:
     """Documento fiscal normalizado (registro C100 do SPED / infNFe do XML)."""
 
     origem: str = ""            # ORIGEM_SPED / ORIGEM_XML / ORIGEM_SEFAZ
+    xml_path: str = ""          # caminho do XML de origem (habilita gerar DANFE)
     chave: str = ""             # 44 digitos (chave de acesso da NF-e)
     modelo: str = ""            # COD_MOD (55 = NF-e)
     serie: str = ""

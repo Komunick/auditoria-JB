@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
 )
 
 from .comparador_widget import ComparadorWidget
+from .conferencia_widget import ConferenciaWidget
 from .diff_widget import DiffSpedWidget
 from .extracao_widget import ExtracaoWidget
 
@@ -40,6 +41,7 @@ class JanelaPrincipal(QMainWindow):
         abas = QTabWidget()
         abas.addTab(ComparadorWidget(), "1. Comparador SPED x SEFAZ")
         abas.addTab(DiffSpedWidget(), "2. Comparar versoes de SPED")
+        abas.addTab(ConferenciaWidget(), "3. Livro de Conferencia")
         abas.addTab(ExtracaoWidget(), "4. Extracao de Itens")
         layout.addWidget(abas)
 

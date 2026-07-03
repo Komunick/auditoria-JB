@@ -139,6 +139,7 @@ def ler_xml_nfe(caminho: str) -> Optional[NotaFiscal]:
 
     nota = NotaFiscal(
         origem=ORIGEM_XML,
+        xml_path=os.path.abspath(caminho),
         chave=chave,
         modelo=_texto(ide, "mod"),
         serie=_texto(ide, "serie"),
