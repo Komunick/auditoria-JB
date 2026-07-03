@@ -94,11 +94,40 @@ _MAPA_COLUNAS = {
 }
 
 
+def _melhor_aba(xls: "pd.ExcelFile") -> str:
+    """Escolhe a aba com os dados da SEFAZ em planilhas de varias abas.
+
+    Prioriza abas cujo nome remete a SEFAZ; senao, a que tem mais palavras-chave
+    de cabecalho. Evita, por exemplo, a aba auxiliar 'Sped' de planilhas manuais.
+    """
+    nomes = xls.sheet_names
+    if len(nomes) == 1:
+        return nomes[0]
+    for nome in nomes:
+        if any(p in _sem_acento(nome)
+               for p in ("sefaz", "relacao", "destinada", "emitida", "nfe")):
+            return nome
+    palavras = {"chave", "numero", "valor", "emitente", "situacao", "cnpj", "razao"}
+    melhor, melhor_pont = nomes[0], -1
+    for nome in nomes:
+        df = pd.read_excel(xls, sheet_name=nome, header=None, dtype=str, nrows=30)
+        pont = 0
+        for idx in range(len(df)):
+            celulas = [_sem_acento(c) for c in df.iloc[idx].tolist() if c is not None]
+            pont = max(pont, sum(1 for cel in celulas
+                                 if any(p in cel for p in palavras)))
+        if pont > melhor_pont:
+            melhor_pont, melhor = pont, nome
+    return melhor
+
+
 def _carregar_dataframe(caminho: str) -> pd.DataFrame:
     """Carrega o arquivo como DataFrame de strings, sem assumir cabecalho."""
     lower = caminho.lower()
     if lower.endswith((".xlsx", ".xlsm", ".xls")):
-        return pd.read_excel(caminho, header=None, dtype=str)
+        xls = pd.ExcelFile(caminho)
+        aba = _melhor_aba(xls)
+        return pd.read_excel(xls, sheet_name=aba, header=None, dtype=str)
     # CSV/TXT: tenta ; depois ,  (SEFAZ costuma usar ; e latin-1).
     for sep in (";", ",", "\t"):
         try:

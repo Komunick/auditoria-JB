@@ -28,18 +28,27 @@ def para_decimal(valor: Optional[str]) -> Decimal:
         return Decimal("0")
 
 
-def para_data(valor: Optional[str]) -> Optional[date]:
+def para_data(valor) -> Optional[date]:
     """Converte data do SPED (ddmmaaaa) ou formatos comuns para date.
 
-    Retorna None se vazio ou invalido.
+    Aceita str, datetime/date ja prontos, e strings com hora
+    ("2026-05-05 00:00:00" / "2026-05-05T10:00:00"). Retorna None se invalido.
     """
-    if not valor:
+    if valor is None:
         return None
-    texto = valor.strip()
-    if not texto:
-        return None
+    # Objetos ja tipados (ex.: planilha lida como datetime pelo pandas).
+    if isinstance(valor, datetime):
+        return valor.date()
+    if isinstance(valor, date):
+        return valor
 
-    formatos = ("%d%m%Y", "%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y")
+    texto = str(valor).strip()
+    if not texto or texto.lower() == "nan":
+        return None
+    # Remove a parte de hora, se houver.
+    texto = texto.split(" ")[0].split("T")[0]
+
+    formatos = ("%d%m%Y", "%d/%m/%Y", "%Y-%m-%d", "%d-%m-%Y", "%d/%m/%y")
     for fmt in formatos:
         try:
             return datetime.strptime(texto, fmt).date()
