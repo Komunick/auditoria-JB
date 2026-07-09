@@ -10,17 +10,12 @@ import sys
 
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QApplication, QHBoxLayout, QLabel, QMainWindow, QTabWidget, QVBoxLayout,
-    QWidget,
+    QApplication, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QPushButton,
+    QTabWidget, QVBoxLayout, QWidget,
 )
 
-from .comparador_widget import ComparadorWidget
-from .conferencia_widget import ConferenciaWidget
-from .diff_widget import DiffSpedWidget
-from .extracao_widget import ExtracaoWidget
+from . import tema
 from .logo import icone, pixmap
-from .produtos_widget import ProdutosWidget
-from .tema import DOURADO_ESCURO, TINTA, aplicar_tema
 
 
 class JanelaPrincipal(QMainWindow):
@@ -29,9 +24,13 @@ class JanelaPrincipal(QMainWindow):
         self.setWindowTitle("Auditoria Fiscal — JB Fraga Contabilidade")
         self.setWindowIcon(icone())
         self.resize(1160, 760)
+        self._montar()
 
+    # ------------------------------------------------------------------
+    def _montar(self) -> None:
+        """(Re)constroi todo o conteudo — chamado tambem ao trocar o tema."""
         central = QWidget()
-        self.setCentralWidget(central)
+        self.setCentralWidget(central)   # descarta o conteudo anterior
         layout = QVBoxLayout(central)
         layout.setContentsMargins(14, 12, 14, 12)
 
@@ -49,19 +48,32 @@ class JanelaPrincipal(QMainWindow):
         f.setPointSize(15)
         f.setBold(True)
         titulo.setFont(f)
-        titulo.setStyleSheet(f"color:{TINTA};")
+        titulo.setStyleSheet(f"color:{tema.COR_DESTAQUE};")
         subtitulo = QLabel("JB FRAGA CONTABILIDADE")
         fs = QFont()
         fs.setPointSize(9)
         fs.setBold(True)
         fs.setLetterSpacing(QFont.AbsoluteSpacing, 2.0)
         subtitulo.setFont(fs)
-        subtitulo.setStyleSheet(f"color:{DOURADO_ESCURO};")
+        subtitulo.setStyleSheet(f"color:{tema.DOURADO_TEXTO};")
         textos.addWidget(titulo)
         textos.addWidget(subtitulo)
         cab.addLayout(textos)
         cab.addStretch(1)
+
+        btn_tema = QPushButton("☀  Modo claro" if tema.escuro_ativo() else "🌙  Modo escuro")
+        btn_tema.setToolTip("Alternar entre modo claro e modo escuro.\n"
+                            "A escolha fica salva para as proximas aberturas.")
+        btn_tema.clicked.connect(self._alternar_tema)
+        cab.addWidget(btn_tema)
         layout.addLayout(cab)
+
+        # Import tardio: os widgets leem as cores do tema ao serem construidos.
+        from .comparador_widget import ComparadorWidget
+        from .conferencia_widget import ConferenciaWidget
+        from .diff_widget import DiffSpedWidget
+        from .extracao_widget import ExtracaoWidget
+        from .produtos_widget import ProdutosWidget
 
         abas = QTabWidget()
         abas.addTab(ComparadorWidget(), "1. Comparador SPED x SEFAZ")
@@ -71,10 +83,24 @@ class JanelaPrincipal(QMainWindow):
         abas.addTab(ProdutosWidget(), "5. Auditoria de Produtos")
         layout.addWidget(abas)
 
+    # ------------------------------------------------------------------
+    def _alternar_tema(self) -> None:
+        """Troca claro/escuro; as abas sao recarregadas com o novo visual."""
+        resposta = QMessageBox.question(
+            self, "Trocar o tema",
+            "Trocar o tema recarrega as abas — arquivos ja processados na "
+            "tela precisarao ser carregados de novo.\n\nContinuar?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+        if resposta != QMessageBox.Yes:
+            return
+        tema.definir_modo(not tema.escuro_ativo())
+        tema.aplicar_tema(QApplication.instance())
+        self._montar()
+
 
 def main() -> int:
     app = QApplication(sys.argv)
-    aplicar_tema(app)
+    tema.aplicar_tema(app)
     app.setWindowIcon(icone())   # barra de tarefas e dialogos
     janela = JanelaPrincipal()
     janela.show()

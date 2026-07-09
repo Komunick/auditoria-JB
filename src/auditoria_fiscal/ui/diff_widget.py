@@ -18,7 +18,7 @@ from ..core.filtro_sped import (
 from ..core.sped_parser import ler_sped
 from ..ferramentas.comparador_sped_sped import ResultadoDiffSped, comparar_speds
 from ..ferramentas.relatorio_diff_excel import gerar_relatorio_diff
-from .tema import QSS_BOTAO_PRIMARIO, TINTA
+from . import tema
 
 LIMITE_PREVIA = 5000
 ROTULO_A = "A (contabilidade)"
@@ -107,7 +107,7 @@ class DiffSpedWidget(QWidget):
         h.setContentsMargins(0, 0, 0, 0)
         self._btn_comparar = QPushButton("Comparar")
         self._btn_comparar.setMinimumHeight(34)
-        self._btn_comparar.setStyleSheet(QSS_BOTAO_PRIMARIO)
+        self._btn_comparar.setStyleSheet(tema.QSS_BOTAO_PRIMARIO)
         self._btn_comparar.clicked.connect(self._comparar)
         h.addWidget(self._btn_comparar)
 
@@ -125,8 +125,8 @@ class DiffSpedWidget(QWidget):
         grid = QGridLayout(caixa)
         self._cartoes: dict[str, QLabel] = {}
         definicoes = [
-            ("total_a", "Notas em A", TINTA),
-            ("total_b", "Notas em B", TINTA),
+            ("total_a", "Notas em A", tema.COR_DESTAQUE),
+            ("total_b", "Notas em B", tema.COR_DESTAQUE),
             ("iguais", "Identicas", "#2E7D32"),
             ("divergentes", "DIVERGENTES", "#C00000"),
             ("apenas_em_a", "So em A", "#B7791F"),
