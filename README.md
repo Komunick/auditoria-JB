@@ -34,10 +34,20 @@ layout do arquivo original (pronta para reimportar no sistema do cliente).
 > projeto). Para atualizar Anexo I, TIPI, alíquota padrão etc., basta editar
 > esses arquivos — **sem alterar código**. Veja `dados/LEIA-ME.txt`.
 
-No **Livro de Conferência**, importe uma **pasta de XMLs** (habilita gerar o
-**DANFE** de cada nota) ou um SPED; marque cada nota como *conferida*, registre
-*observações* e filtre por pendentes/conferidas. O estado é salvo em SQLite
-(`%LOCALAPPDATA%\AuditoriaFiscal\conferencia.db`), persistindo entre sessões.
+No **Livro de Conferência**, importe o **SPED Fiscal** do cliente (por padrão,
+somente as **notas de entrada**) ou uma pasta de XMLs; marque cada nota como
+*conferida*, registre *observações* e filtre por pendentes/conferidas. O estado
+é salvo em SQLite (`%LOCALAPPDATA%\AuditoriaFiscal\conferencia.db`),
+persistindo entre sessões.
+
+- **DANFE a partir do SPED**: o DANFE (PDF) é gerado a partir do **XML** da
+  NF-e. Na fonte SPED, informe a pasta com os XMLs no campo **"XMLs p/
+  DANFE"** — cada XML é **vinculado à sua nota pela chave de acesso** (busca
+  recursiva na pasta). Se a pasta não for informada e o usuário pedir um
+  DANFE, o sistema pergunta a pasta na hora e faz o vínculo de todas as notas.
+- **Livro de Inconsistências (PDF)**: gera um relatório em PDF contendo
+  **exclusivamente as notas com observação** registrada (número, série, data,
+  fornecedor, CNPJ, valor, CFOPs, observação e situação de conferência).
 
 > A leitura da relação da SEFAZ (item 1) usa **detecção automática de colunas** —
 > validada contra o formato real do cliente (aba "Arquivo Sefaz").
@@ -55,7 +65,7 @@ As quatro ferramentas que leem SPED permitem restringir a análise aos
 |---|---|---|
 | 1 · SPED × SEFAZ | checkbox na seleção de arquivos | **marcada** (a relação da SEFAZ só traz entradas) |
 | 2 · Comparar SPEDs | checkbox na seleção de arquivos | desmarcada (todas as operações) |
-| 3 · Livro de Conferência | checkbox (habilita ao escolher a fonte SPED) | desmarcada |
+| 3 · Livro de Conferência | checkbox (habilita ao escolher a fonte SPED) | **marcada** (conferência foca as entradas) |
 | 4 · Extração de Itens | operação **"Apenas entradas"** com fonte SPED | "Todas" |
 
 - **Classificação** (dados do próprio SPED, nesta ordem): `IND_OPER` do C100
@@ -104,6 +114,7 @@ auditoria-fiscal/
 │   │   ├── relatorio_diff_excel.py    # relatorio de diff (item 2)
 │   │   ├── conferencia_store.py       # persistencia SQLite (item 3)
 │   │   ├── danfe.py                   # geracao de DANFE do XML (item 3)
+│   │   ├── livro_inconsistencias.py   # livro de inconsistencias em PDF (item 3)
 │   │   ├── extracao_itens.py          # extracao de itens (item 4)
 │   │   ├── auditoria_produtos.py      # motor de auditoria (item 5)
 │   │   ├── correcao_produtos.py       # correcoes + historico (item 5)
@@ -135,6 +146,8 @@ auditoria-fiscal/
 .\.venv\Scripts\python.exe tests\test_diff_sped.py    # item 2
 .\.venv\Scripts\python.exe tests\test_conferencia.py  # item 3 (persistencia)
 .\.venv\Scripts\python.exe tests\test_danfe.py        # item 3 (DANFE do XML)
+.\.venv\Scripts\python.exe tests\test_associar_xml.py # item 3 (XML x SPED por chave)
+.\.venv\Scripts\python.exe tests\test_livro_inconsistencias.py  # item 3 (livro PDF)
 .\.venv\Scripts\python.exe tests\test_extracao.py     # item 4
 .\.venv\Scripts\python.exe tests\test_filtro_entradas.py  # filtro de entradas (SPED)
 .\.venv\Scripts\python.exe tests\test_cadastro_produtos.py   # item 5 (leitor da base)

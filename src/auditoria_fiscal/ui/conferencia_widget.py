@@ -18,11 +18,14 @@ from ..core.filtro_sped import (
     filtrar_entradas,
 )
 from ..core.modelos import NotaFiscal
-from ..core.nfe_xml import ler_pasta_xml
+from ..core.nfe_xml import associar_xmls, ler_pasta_xml
 from ..core.sped_parser import ler_sped
 from ..ferramentas.conferencia_store import ConferenciaStore
-from ..ferramentas.danfe import abrir_danfe
-from .tema import QSS_BOTAO_PRIMARIO, TINTA
+from ..ferramentas.danfe import abrir_arquivo, abrir_danfe
+from ..ferramentas.livro_inconsistencias import (
+    gerar_livro_inconsistencias, notas_com_observacao,
+)
+from . import tema
 
 # Colunas da tabela
 COL_CONF, COL_NUM, COL_SERIE, COL_DATA, COL_FORN, COL_CNPJ = 0, 1, 2, 3, 4, 5
@@ -67,11 +70,13 @@ class WorkerCarga(QObject):
     concluido = Signal(object, object)   # notas, contexto
     erro = Signal(str)
 
-    def __init__(self, fonte: str, caminho: str, apenas_entradas: bool = False):
+    def __init__(self, fonte: str, caminho: str, apenas_entradas: bool = False,
+                 pasta_xml: str = ""):
         super().__init__()
         self.fonte = fonte
         self.caminho = caminho
         self.apenas_entradas = apenas_entradas
+        self.pasta_xml = pasta_xml
 
     def executar(self) -> None:
         try:
@@ -86,6 +91,9 @@ class WorkerCarga(QObject):
                 contexto = doc.empresa.nome or "SPED"
             # So notas com chave de 44 digitos (rastreaveis por chave)
             notas = [n for n in notas if len(n.chave_normalizada) == 44]
+            # Fonte SPED com pasta de XMLs: associa pela chave p/ habilitar DANFE
+            if self.fonte == "sped" and self.pasta_xml:
+                associar_xmls(notas, self.pasta_xml)
             self.concluido.emit(notas, contexto)
         except Exception as exc:  # noqa: BLE001
             self.erro.emit(f"{type(exc).__name__}: {exc}")
@@ -100,6 +108,7 @@ class ConferenciaWidget(QWidget):
         self._nota_por_chave: dict[str, NotaFiscal] = {}
         self._carregando = False
         self._filtro_entradas = False   # filtro usado na ultima carga
+        self._contexto = ""             # origem da ultima carga (p/ relatorios)
         self._thread: QThread | None = None
         self._worker: WorkerCarga | None = None
 
@@ -109,7 +118,9 @@ class ConferenciaWidget(QWidget):
         layout.addWidget(self._montar_acoes())
         layout.addWidget(self._montar_tabela(), stretch=1)
 
-        self._status = QLabel("Importe uma pasta de XMLs (habilita o DANFE) ou um SPED.")
+        self._status = QLabel(
+            "Importe um SPED (com a pasta de XMLs para abrir o DANFE) "
+            "ou uma pasta de XMLs de NF-e.")
         self._status.setStyleSheet("color:#555;")
         layout.addWidget(self._status)
 
@@ -121,7 +132,7 @@ class ConferenciaWidget(QWidget):
         grid.addWidget(QLabel("Fonte:"), 0, 0)
         self._combo_fonte = QComboBox()
         self._combo_fonte.addItems(["Pasta de XMLs de NF-e", "SPED Fiscal (.txt)"])
-        self._combo_fonte.currentIndexChanged.connect(lambda _: self._edit_caminho.clear())
+        self._combo_fonte.currentIndexChanged.connect(self._ao_trocar_fonte)
         grid.addWidget(self._combo_fonte, 0, 1)
 
         grid.addWidget(QLabel("Caminho:"), 1, 0)
@@ -132,20 +143,38 @@ class ConferenciaWidget(QWidget):
         btn.clicked.connect(self._procurar)
         grid.addWidget(btn, 1, 2)
 
+        # Fonte SPED: pasta opcional com os XMLs das NF-e. Cada nota do SPED e
+        # vinculada ao seu XML pela chave de acesso, o que habilita o DANFE.
+        self._lbl_pasta_xml = QLabel("XMLs p/ DANFE:")
+        grid.addWidget(self._lbl_pasta_xml, 2, 0)
+        self._edit_pasta_xml = QLineEdit()
+        self._edit_pasta_xml.setPlaceholderText(
+            "Opcional: pasta com os XMLs das notas do SPED (vincula pela chave de acesso)")
+        grid.addWidget(self._edit_pasta_xml, 2, 1)
+        self._btn_pasta_xml = QPushButton("Procurar...")
+        self._btn_pasta_xml.clicked.connect(self._procurar_pasta_xml)
+        grid.addWidget(self._btn_pasta_xml, 2, 2)
+
         # So faz sentido para a fonte SPED; fica desabilitada para XMLs.
         self._chk_entradas = QCheckBox(TEXTO_OPCAO_ENTRADAS)
-        self._chk_entradas.setChecked(False)  # padrao: todas as operacoes
-        self._chk_entradas.setEnabled(False)  # fonte inicial e a pasta de XMLs
+        self._chk_entradas.setChecked(True)   # padrao: notas de entrada do SPED
         self._chk_entradas.setToolTip(
             "Marcado: somente as notas de entrada do SPED sao carregadas\n"
             "(IND_OPER = 0; sem IND_OPER, decide pelo CFOP dos itens).\n"
-            "Desmarcado: comportamento padrao, todas as notas do arquivo.")
-        self._combo_fonte.currentIndexChanged.connect(
-            lambda i: self._chk_entradas.setEnabled(i == 1))
-        grid.addWidget(self._chk_entradas, 2, 1)
+            "Desmarcado: todas as notas do arquivo.")
+        grid.addWidget(self._chk_entradas, 3, 1)
 
         grid.setColumnStretch(1, 1)
+        self._ao_trocar_fonte(self._combo_fonte.currentIndex())
         return caixa
+
+    def _ao_trocar_fonte(self, indice: int) -> None:
+        self._edit_caminho.clear()
+        eh_sped = indice == 1
+        self._chk_entradas.setEnabled(eh_sped)
+        self._lbl_pasta_xml.setEnabled(eh_sped)
+        self._edit_pasta_xml.setEnabled(eh_sped)
+        self._btn_pasta_xml.setEnabled(eh_sped)
 
     def _montar_acoes(self) -> QWidget:
         caixa = QWidget()
@@ -154,7 +183,7 @@ class ConferenciaWidget(QWidget):
 
         self._btn_carregar = QPushButton("Carregar notas")
         self._btn_carregar.setMinimumHeight(32)
-        self._btn_carregar.setStyleSheet(QSS_BOTAO_PRIMARIO)
+        self._btn_carregar.setStyleSheet(tema.QSS_BOTAO_PRIMARIO)
         self._btn_carregar.clicked.connect(self._carregar)
         h.addWidget(self._btn_carregar)
 
@@ -162,6 +191,13 @@ class ConferenciaWidget(QWidget):
         self._btn_danfe.setMinimumHeight(32)
         self._btn_danfe.clicked.connect(self._abrir_danfe)
         h.addWidget(self._btn_danfe)
+
+        self._btn_livro = QPushButton("Livro de Inconsistencias (PDF)")
+        self._btn_livro.setMinimumHeight(32)
+        self._btn_livro.setToolTip(
+            "Gera um PDF somente com as notas carregadas que tem observacao.")
+        self._btn_livro.clicked.connect(self._gerar_livro)
+        h.addWidget(self._btn_livro)
 
         h.addWidget(QLabel("Filtro:"))
         self._combo_filtro = QComboBox()
@@ -171,7 +207,7 @@ class ConferenciaWidget(QWidget):
 
         h.addStretch(1)
         self._lbl_progresso = QLabel("")
-        self._lbl_progresso.setStyleSheet(f"font-weight:bold; color:{TINTA};")
+        self._lbl_progresso.setStyleSheet(f"font-weight:bold; color:{tema.COR_DESTAQUE};")
         h.addWidget(self._lbl_progresso)
         return caixa
 
@@ -197,6 +233,12 @@ class ConferenciaWidget(QWidget):
         if caminho:
             self._edit_caminho.setText(caminho)
 
+    def _procurar_pasta_xml(self) -> None:
+        pasta = QFileDialog.getExistingDirectory(
+            self, "Pasta com os XMLs das notas do SPED (para DANFE)")
+        if pasta:
+            self._edit_pasta_xml.setText(pasta)
+
     def _carregar(self) -> None:
         caminho = self._edit_caminho.text().strip()
         fonte = "xml" if self._combo_fonte.currentIndex() == 0 else "sped"
@@ -206,12 +248,17 @@ class ConferenciaWidget(QWidget):
         if fonte == "sped" and not os.path.isfile(caminho):
             QMessageBox.warning(self, "Atencao", "Selecione um arquivo SPED valido.")
             return
+        pasta_xml = self._edit_pasta_xml.text().strip() if fonte == "sped" else ""
+        if pasta_xml and not os.path.isdir(pasta_xml):
+            QMessageBox.warning(self, "Atencao",
+                                "A pasta de XMLs (para DANFE) nao existe.")
+            return
 
         self._btn_carregar.setEnabled(False)
         self._status.setText("Carregando notas...")
         self._filtro_entradas = fonte == "sped" and self._chk_entradas.isChecked()
         self._thread = QThread()
-        self._worker = WorkerCarga(fonte, caminho, self._filtro_entradas)
+        self._worker = WorkerCarga(fonte, caminho, self._filtro_entradas, pasta_xml)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.executar)
         self._worker.concluido.connect(self._ao_carregar)
@@ -228,6 +275,7 @@ class ConferenciaWidget(QWidget):
     def _ao_carregar(self, notas, contexto) -> None:
         self._btn_carregar.setEnabled(True)
         self._notas = notas
+        self._contexto = contexto
         self._nota_por_chave = {n.chave_normalizada: n for n in notas}
         self._chaves = [n.chave_normalizada for n in notas]
         estados = self._store.carregar()
@@ -351,12 +399,12 @@ class ConferenciaWidget(QWidget):
             QMessageBox.information(self, "DANFE", "Selecione uma nota na tabela.")
             return
         nota = self._nota_por_chave.get(self._chaves[linha])
-        if nota is None or not nota.xml_path or not os.path.isfile(nota.xml_path):
-            QMessageBox.information(
-                self, "DANFE indisponivel",
-                "Esta nota nao tem XML associado.\n\nPara gerar o DANFE, carregue "
-                "as notas a partir de uma pasta de XMLs de NF-e.")
+        if nota is None:
             return
+        if not nota.xml_path or not os.path.isfile(nota.xml_path):
+            # Nota veio do SPED sem XML: oferece vincular os XMLs agora.
+            if not self._associar_xmls_interativo(nota):
+                return
         self._status.setText("Gerando DANFE...")
         try:
             abrir_danfe(nota.xml_path)
@@ -366,3 +414,66 @@ class ConferenciaWidget(QWidget):
             self._status.setText("Erro ao gerar DANFE.")
             return
         self._status.setText(f"DANFE aberto (NF {nota.numero}).")
+
+    def _associar_xmls_interativo(self, nota: NotaFiscal) -> bool:
+        """Pede a pasta de XMLs e vincula pela chave. True se a nota ganhou XML."""
+        resp = QMessageBox.question(
+            self, "DANFE precisa do XML",
+            "O DANFE e gerado a partir do XML da NF-e, e esta nota (carregada "
+            "do SPED) ainda nao tem XML vinculado.\n\n"
+            "Deseja indicar agora a pasta com os XMLs? Todas as notas serao "
+            "vinculadas pela chave de acesso.",
+            QMessageBox.Yes | QMessageBox.No)
+        if resp != QMessageBox.Yes:
+            return False
+        pasta = QFileDialog.getExistingDirectory(self, "Pasta com XMLs de NF-e")
+        if not pasta:
+            return False
+        self._status.setText("Vinculando XMLs pela chave de acesso...")
+        associadas = associar_xmls(self._notas, pasta)
+        self._edit_pasta_xml.setText(pasta)
+        sem_xml = sum(1 for n in self._notas if not n.xml_path)
+        extra = f" ({sem_xml} ainda sem XML)" if sem_xml else ""
+        self._status.setText(f"{associadas} nota(s) vinculadas ao XML{extra}.")
+        if not nota.xml_path or not os.path.isfile(nota.xml_path):
+            QMessageBox.information(
+                self, "XML nao encontrado",
+                "O XML desta nota nao foi encontrado na pasta informada.\n\n"
+                f"Chave de acesso: {nota.chave_normalizada}")
+            return False
+        return True
+
+    def _gerar_livro(self) -> None:
+        if not self._notas:
+            QMessageBox.information(
+                self, "Livro de Inconsistencias",
+                "Carregue as notas antes de gerar o livro.")
+            return
+        estados = self._store.carregar()
+        com_obs = notas_com_observacao(self._notas, estados)
+        if not com_obs:
+            QMessageBox.information(
+                self, "Livro de Inconsistencias",
+                "Nenhuma nota carregada tem observacao registrada.\n\n"
+                "O livro lista somente as notas com observacao — registre as "
+                "inconsistencias na coluna Observacao e gere novamente.")
+            return
+        caminho, _ = QFileDialog.getSaveFileName(
+            self, "Salvar Livro de Inconsistencias",
+            "livro_inconsistencias.pdf", "PDF (*.pdf)")
+        if not caminho:
+            return
+        self._status.setText("Gerando Livro de Inconsistencias...")
+        filtro = f"{ROTULO_FILTRO_ENTRADAS}." if self._filtro_entradas else ""
+        try:
+            gerar_livro_inconsistencias(self._notas, estados, caminho,
+                                        contexto=self._contexto, filtro=filtro)
+            abrir_arquivo(caminho)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(
+                self, "Erro",
+                f"Nao foi possivel gerar o Livro de Inconsistencias:\n\n{exc}")
+            self._status.setText("Erro ao gerar o Livro de Inconsistencias.")
+            return
+        self._status.setText(
+            f"Livro de Inconsistencias gerado com {len(com_obs)} nota(s).")

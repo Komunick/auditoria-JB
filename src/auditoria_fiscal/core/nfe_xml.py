@@ -212,3 +212,48 @@ def ler_pasta_xml(pasta: str) -> list[NotaFiscal]:
         if nota is not None:
             notas.append(nota)
     return notas
+
+
+def chave_do_xml(caminho: str) -> str:
+    """Extrai a chave de acesso (44 digitos) de um XML de NF-e, ou ""."""
+    try:
+        arvore = etree.parse(caminho)
+    except (etree.XMLSyntaxError, OSError):
+        return ""
+    inf = _no(arvore.getroot(), "infNFe")
+    if inf is None:
+        return ""
+    chave = so_digitos(inf.get("Id", ""))
+    if len(chave) > 44:
+        chave = chave[-44:]
+    return chave if len(chave) == 44 else ""
+
+
+def indexar_pasta_xml(pasta: str) -> dict[str, str]:
+    """Mapeia chave de acesso -> caminho do XML (busca recursiva na pasta)."""
+    indice: dict[str, str] = {}
+    padrao = os.path.join(pasta, "**", "*.xml")
+    for caminho in glob.glob(padrao, recursive=True):
+        chave = chave_do_xml(caminho)
+        if chave and chave not in indice:
+            indice[chave] = os.path.abspath(caminho)
+    return indice
+
+
+def associar_xmls(notas: list[NotaFiscal], pasta: str) -> int:
+    """Preenche xml_path das notas localizando o XML pela chave de acesso.
+
+    Usado quando as notas vieram do SPED (que nao traz o XML): com o XML
+    associado, o DANFE passa a poder ser gerado tambem para essas notas.
+    Retorna quantas notas ganharam XML nesta chamada.
+    """
+    indice = indexar_pasta_xml(pasta)
+    associadas = 0
+    for nota in notas:
+        if nota.xml_path:
+            continue
+        caminho = indice.get(nota.chave_normalizada)
+        if caminho:
+            nota.xml_path = caminho
+            associadas += 1
+    return associadas
