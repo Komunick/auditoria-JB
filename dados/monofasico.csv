@@ -1,0 +1,14 @@
+﻿# ============================================================================
+# monofasico.csv - combustiveis sujeitos ao ICMS MONOFASICO (LC 192/2022;
+# Conv. ICMS 199/22 - diesel/GLP; Conv. ICMS 15/23 - gasolina/etanol anidro).
+# Regime em vigor desde 2023 - nao se confunde com a antiga ST de combustiveis.
+# CONFIRA os NCMs e o alcance (ex.: etanol hidratado) na legislacao vigente.
+# Formato: separador ';', linhas '#' ignoradas, NCM prefixo (com ou sem pontos).
+# ============================================================================
+ncm;descricao;fundamentacao;detalhe
+2710.12.5;Gasolinas automotivas (exceto de aviacao);LC 192/2022, Conv. ICMS 15/23;ICMS monofasico - aliquota ad rem por litro, recolhimento concentrado no produtor/importador
+2710.19.2;Oleo diesel (S10/S500) e outros oleos combustiveis;LC 192/2022, Conv. ICMS 199/22;ICMS monofasico - aliquota ad rem por litro, recolhimento concentrado no produtor/importador
+2711.19.10;Gas liquefeito de petroleo (GLP);LC 192/2022, Conv. ICMS 199/22;ICMS monofasico - aliquota ad rem por kg, inclusive GLGN
+2711.11.00;Gas natural liquefeito (GLGN);LC 192/2022, Conv. ICMS 199/22;ICMS monofasico - aliquota ad rem por kg
+2207.10;Etanol combustivel (alcool etilico nao desnaturado);LC 192/2022, Conv. ICMS 15/23;Etanol anidro (EAC) monofasico junto com a gasolina C - para etanol hidratado (EHC) conferir o tratamento vigente na SEFAZ/BA
+3826.00.00;Biodiesel (B100);LC 192/2022, Conv. ICMS 199/22;ICMS monofasico - tributado junto com o oleo diesel B

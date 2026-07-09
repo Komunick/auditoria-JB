@@ -1,0 +1,40 @@
+﻿# ============================================================================
+# ncm_tipi.csv - tabela de NCMs validos (TIPI - Tabela de Incidencia do IPI).
+#
+# Este arquivo contem apenas 28 EXEMPLOS. A validacao "NCM nao encontrado
+# na TIPI" SO E ATIVADA quando o arquivo tiver 1000 linhas ou mais - para
+# isso, cole aqui a tabela TIPI oficial completa da Receita Federal
+# (ver dados/LEIA-ME.txt), mantendo o cabecalho ncm;descricao.
+#
+# Formato: separador ';', linhas '#' ignoradas, NCM de 8 digitos
+# (com ou sem pontos).
+# ============================================================================
+ncm;descricao
+0402.10.10;Leite em po, desnatado, com teor de arsenio, chumbo ou cobre inferior a 5 ppm
+0702.00.00;Tomates, frescos ou refrigerados
+0901.21.00;Cafe torrado, nao descafeinado, em grao
+1101.00.10;Farinha de trigo
+1507.90.11;Oleo de soja refinado, em recipientes com capacidade inferior ou igual a 5 litros
+1704.90.10;Chocolate branco
+1704.90.90;Outros produtos de confeitaria, sem cacau
+1806.31.10;Chocolates recheados, em tabletes, barras e paus
+1806.32.10;Chocolates nao recheados, em tabletes, barras e paus
+1806.90.00;Outros chocolates e preparacoes alimenticias contendo cacau
+1905.31.00;Bolachas e biscoitos adicionados de edulcorantes
+1905.90.20;Bolachas
+2103.20.10;Ketchup e outros molhos de tomate
+2201.10.00;Aguas minerais e aguas gaseificadas
+2202.10.00;Aguas, incluindo as minerais e gaseificadas, adicionadas de acucar ou aromatizadas (refrigerantes)
+2202.91.00;Cerveja sem alcool
+2202.99.00;Outras bebidas nao alcoolicas
+2203.00.00;Cervejas de malte
+2402.20.00;Cigarros que contenham tabaco
+2710.12.59;Outras gasolinas, exceto de aviacao
+3303.00.10;Perfumes (extratos)
+3305.10.00;Xampus
+3306.10.00;Dentifricios
+4011.10.00;Pneus novos, de borracha, dos tipos utilizados em automoveis de passageiros
+4818.10.00;Papel higienico
+7318.15.00;Outros parafusos e pinos ou pernos, mesmo com as porcas e arruelas
+8539.52.00;Lampadas de diodos emissores de luz (LED)
+9619.00.00;Absorventes e tampoes higienicos, fraldas e artigos semelhantes

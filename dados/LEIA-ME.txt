@@ -1,0 +1,72 @@
+﻿LEIA-ME - pasta dados/ (Ferramenta 5: Auditoria de Produtos)
+=============================================================
+
+Esta pasta contem as BASES LEGAIS usadas pela aba "Auditoria de Produtos".
+Todos os arquivos sao texto simples e podem ser atualizados SEM ALTERAR O
+PROGRAMA: basta editar/substituir o arquivo e importar a base de novo.
+
+Regras comuns aos arquivos .csv:
+- Separador: ponto e virgula (;)
+- Codificacao: UTF-8 (aceita tambem Latin-1)
+- Linhas iniciadas com '#' e linhas vazias sao ignoradas
+- A primeira linha que nao for comentario e o cabecalho (nao remova)
+- NAO use ';' dentro dos campos (use virgula) - o ';' e o separador
+- NCM pode ser digitado com ou sem pontos; prefixos sao aceitos
+  (ex.: "2203" casa com qualquer NCM iniciado por 2203)
+
+Arquivos
+--------
+
+1) anexo1_ba.csv  (cest;ncm;descricao;segmento;fundamentacao)
+   Relacao de mercadorias sujeitas a SUBSTITUICAO TRIBUTARIA na Bahia
+   (Anexo I do RICMS/BA, Dec. 13.780/2012). O conteudo atual e uma AMOSTRA
+   de ~200 itens reais extraidos da tabela CEST do Convenio ICMS 142/18
+   (conferida em 07/07/2026). SUBSTITUA/COMPLEMENTE pela tabela oficial:
+   - Anexo I RICMS/BA (SEFAZ/BA):
+     https://www.sefaz.ba.gov.br/  (Legislacao > Decretos > RICMS)
+     Texto do RICMS: https://mbusca.sefaz.ba.gov.br/DITRI/normas_complementares/decretos/decreto_2012_13780_ricms_texto.pdf
+   - Tabela CEST (CONFAZ, Conv. ICMS 142/18 e anexos):
+     https://www.confaz.fazenda.gov.br/legislacao/convenios/2018/CV142_18
+
+2) ncm_tipi.csv  (ncm;descricao)
+   NCMs validos segundo a TIPI. Contem so exemplos; a validacao de NCM
+   contra a TIPI SO LIGA com 1000+ linhas. Tabela oficial (Receita Federal):
+   https://www.gov.br/receitafederal/pt-br/assuntos/aduana-e-comercio-exterior/classificacao-fiscal-de-mercadorias/tipi
+   Dica: exporte a TIPI para planilha, mantenha as colunas ncm;descricao e
+   cole aqui (uma linha por NCM de 8 digitos).
+
+3) monofasico.csv  (ncm;descricao;fundamentacao;detalhe)
+   Combustiveis com ICMS MONOFASICO (LC 192/2022; Conv. ICMS 199/22 e 15/23):
+   gasolina, diesel, GLP/GLGN, etanol e biodiesel.
+
+4) isencao_ba.csv  (ncm;descricao;fundamentacao;detalhe)
+   Exemplos de ISENCAO (hortifrutigranjeiros in natura - Conv. ICM 44/75).
+   Confira o rol completo e as excecoes no RICMS/BA.
+
+5) reducao_base_ba.csv  (ncm;descricao;fundamentacao;detalhe)
+   Exemplos de REDUCAO DE BASE DE CALCULO (cesta basica BA, carga efetiva
+   de 7% - RICMS/BA art. 268; Conv. ICMS 128/94). Confira a lista vigente.
+
+6) diferimento_ba.csv  (ncm;descricao;fundamentacao;detalhe)
+   DIFERIMENTO - em branco para preenchimento conforme o cliente
+   (depende de regime especial/habilitacao).
+
+7) parametros.json
+   Parametros gerais: UF e aliquota interna padrao (modal). Valor atual:
+   20,5% (Lei 7.014/1996, art. 15, I, 'a', red. Lei 14.629/2023, vigente
+   desde 07/02/2024; conferido em 07/07/2026). Se a aliquota mudar, edite
+   "aliquota_interna_padrao" (use ponto decimal: 20.5) e atualize
+   "vigencia_confirmada_em" e "observacoes".
+
+Como o programa usa estes arquivos
+----------------------------------
+- ST: o NCM/CEST do produto e procurado no anexo1_ba.csv (CEST tem
+  prioridade; depois NCM de 8 digitos; depois prefixos).
+- Monofasico/isencao/reducao/diferimento: busca por prefixo de NCM mais
+  longo em cada arquivo (a precedencia e monofasico > ST > isencao >
+  reducao > diferimento).
+- A planilha amostras/cadastro_produtos_exemplo.xlsx serve para testar a
+  aba sem dados reais do cliente.
+
+IMPORTANTE: estas bases sao um PONTO DE PARTIDA e nao substituem a
+conferencia da legislacao vigente pelo responsavel tecnico.

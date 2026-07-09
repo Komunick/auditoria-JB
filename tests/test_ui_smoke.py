@@ -1,6 +1,6 @@
 """Smoke test da interface (headless / offscreen).
 
-Verifica que a janela principal e as duas abas constroem e populam sem erro.
+Verifica que a janela principal e as cinco abas constroem e populam sem erro.
 """
 
 from __future__ import annotations
@@ -15,12 +15,20 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(RAIZ, "src"))
 
+import pandas as pd  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
+from auditoria_fiscal.core.cadastro_produtos import (  # noqa: E402
+    BaseProdutos, LayoutBase, ProdutoCadastro,
+)
 from auditoria_fiscal.core.modelos import (  # noqa: E402
     DocumentoFiscalConjunto, Empresa, ItemNota, NotaFiscal, Participante,
 )
 from auditoria_fiscal.core.sefaz_relacao import RegistroSefaz  # noqa: E402
+from auditoria_fiscal.ferramentas.auditoria_produtos import (  # noqa: E402
+    CONF_ALTA, MSG_ST_COMO_TRIBUTADO, TIPO_ST_COMO_TRIBUTADO, TRIB_INTEGRAL,
+    TRIB_ST, Inconsistencia, ResultadoAuditoria, calcular_indicadores,
+)
 from auditoria_fiscal.ferramentas.comparador_sped_sefaz import comparar  # noqa: E402
 from auditoria_fiscal.ferramentas.comparador_sped_sped import comparar_speds  # noqa: E402
 from auditoria_fiscal.ferramentas.conferencia_store import ConferenciaStore  # noqa: E402
@@ -32,6 +40,7 @@ from auditoria_fiscal.ui.conferencia_widget import (  # noqa: E402
 )
 from auditoria_fiscal.ui.diff_widget import DiffSpedWidget  # noqa: E402
 from auditoria_fiscal.ui.extracao_widget import ExtracaoWidget  # noqa: E402
+from auditoria_fiscal.ui.produtos_widget import ProdutosWidget  # noqa: E402
 from auditoria_fiscal.ui.tema import aplicar_tema  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 
@@ -144,6 +153,56 @@ def main() -> int:
     store.fechar()
     os.unlink(db)
 
+    # --- Aba auditoria de produtos ---
+    prod_ok = ProdutoCadastro(indice=0, codigo="P1", descricao="BALA DE GOMA",
+                              ncm="17041000", cest="1703100", cfops=["5405"],
+                              cst="60")
+    prod_err = ProdutoCadastro(indice=1, codigo="P2",
+                               descricao="REFRIGERANTE COLA 2L",
+                               ncm="22021000", cfops=["5102"], cst="00",
+                               aliquota=Decimal("20.5"))
+    res_ok = ResultadoAuditoria(produto=prod_ok, situacao="OK",
+                                tributacao_atual=TRIB_ST,
+                                tributacao_sugerida=TRIB_ST)
+    res_err = ResultadoAuditoria(
+        produto=prod_err, situacao="INCONSISTENTE",
+        tributacao_atual=TRIB_INTEGRAL, tributacao_sugerida=TRIB_ST,
+        confianca=CONF_ALTA,
+        inconsistencias=[Inconsistencia(tipo=TIPO_ST_COMO_TRIBUTADO,
+                                        mensagem=MSG_ST_COMO_TRIBUTADO)],
+        correcoes={"cst": "60", "cest": "0300200"},
+        cfop_map={"5102": "5405"})
+    resultados_prod = [res_ok, res_err]
+    base_prod = BaseProdutos(caminho="cadastro_demo.xlsx",
+                             layout=LayoutBase(tipo="xlsx"),
+                             df_bruto=pd.DataFrame(),
+                             produtos=[prod_ok, prod_err], diagnostico={})
+    prod = ProdutosWidget()
+    prod._ao_concluir({"base": base_prod, "resultados": resultados_prod,
+                       "indicadores": calcular_indicadores(resultados_prod)})
+    checar(prod._tabela.rowCount() == 2,
+           f"produtos rowCount={prod._tabela.rowCount()}")
+    checar(prod._btn_relatorio.isEnabled(),
+           "botao de relatorio de produtos deveria estar habilitado")
+    checar(prod._btn_nova_base.isEnabled(),
+           "botao de nova base deveria estar habilitado")
+    marca = prod._tabela.item(1, 0)
+    checar(marca is not None and bool(marca.flags() & Qt.ItemIsUserCheckable),
+           "linha com correcao deveria ter checkbox marcavel")
+    marca_ok = prod._tabela.item(0, 0)
+    checar(marca_ok is not None
+           and not bool(marca_ok.flags() & Qt.ItemIsUserCheckable),
+           "linha sem correcao nao deveria ter checkbox marcavel")
+    cel_sit = prod._tabela.item(1, 11)   # coluna Situacao
+    checar(cel_sit is not None and cel_sit.text() == "INCONSISTENTE",
+           f"situacao na tabela: {cel_sit.text() if cel_sit else None}")
+    cel_corr = prod._tabela.item(1, 13)  # coluna Correcao sugerida
+    checar(cel_corr is not None and "CST" in cel_corr.text()
+           and "5405" in cel_corr.text(),
+           f"correcao sugerida: {cel_corr.text() if cel_corr else None}")
+    checar("Total: 2" in prod._labels_ind["total"].text(),
+           f"indicador total: {prod._labels_ind['total'].text()}")
+
     janela.close()
     app.quit()
 
@@ -152,7 +211,8 @@ def main() -> int:
         for f in falhas:
             print("  -", f)
         return 1
-    print("OK - janela principal + 4 abas (comparador, diff, conferencia, extracao) OK.")
+    print("OK - janela principal + 5 abas (comparador, diff, conferencia, "
+          "extracao, produtos) OK.")
     return 0
 
 

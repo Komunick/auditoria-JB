@@ -1,0 +1,22 @@
+﻿# ============================================================================
+# isencao_ba.csv - exemplos classicos de ISENCAO do ICMS na Bahia:
+# hortifrutigranjeiros em estado natural (Conv. ICM 44/75, internalizado
+# no RICMS/BA, Dec. 13.780/2012).
+# ATENCAO: lista EXEMPLIFICATIVA - CONFIRA o rol completo, as excecoes e a
+# redacao vigente no RICMS/BA antes de usar em producao.
+# Formato: separador ';', linhas '#' ignoradas, NCM prefixo.
+# ============================================================================
+ncm;descricao;fundamentacao;detalhe
+0701;Batatas, frescas ou refrigeradas, em estado natural;Conv. ICM 44/75, RICMS/BA (Dec. 13.780/2012);Isencao para hortifrutigranjeiros em estado natural - conferir excecoes (ex.: produtos industrializados/embalados) e condicoes no RICMS/BA
+0702;Tomates, frescos ou refrigerados, em estado natural;Conv. ICM 44/75, RICMS/BA (Dec. 13.780/2012);Isencao para hortifrutigranjeiros em estado natural - conferir excecoes (ex.: produtos industrializados/embalados) e condicoes no RICMS/BA
+0703;Cebolas, alhos e alhos-porros, frescos, em estado natural;Conv. ICM 44/75, RICMS/BA (Dec. 13.780/2012);Isencao para hortifrutigranjeiros em estado natural - conferir excecoes (ex.: produtos industrializados/embalados) e condicoes no RICMS/BA
+0704;Couves, couve-flor e repolhos, frescos, em estado natural;Conv. ICM 44/75, RICMS/BA (Dec. 13.780/2012);Isencao para hortifrutigranjeiros em estado natural - conferir excecoes (ex.: produtos industrializados/embalados) e condicoes no RICMS/BA
+0705;Alfaces e chicorias, frescas, em estado natural;Conv. ICM 44/75, RICMS/BA (Dec. 13.780/2012);Isencao para hortifrutigranjeiros em estado natural - conferir excecoes (ex.: produtos industrializados/embalados) e condicoes no RICMS/BA
+0706;Cenouras, nabos e beterrabas, frescos, em estado natural;Conv. ICM 44/75, RICMS/BA (Dec. 13.780/2012);Isencao para hortifrutigranjeiros em estado natural - conferir excecoes (ex.: produtos industrializados/embalados) e condicoes no RICMS/BA
+0709;Outros produtos horticolas, frescos, em estado natural;Conv. ICM 44/75, RICMS/BA (Dec. 13.780/2012);Isencao para hortifrutigranjeiros em estado natural - conferir excecoes (ex.: produtos industrializados/embalados) e condicoes no RICMS/BA
+0803;Bananas, frescas;Conv. ICM 44/75, RICMS/BA (Dec. 13.780/2012);Isencao para hortifrutigranjeiros em estado natural - conferir excecoes (ex.: produtos industrializados/embalados) e condicoes no RICMS/BA
+0804;Abacates, goiabas, mangas, abacaxis e figos, frescos;Conv. ICM 44/75, RICMS/BA (Dec. 13.780/2012);Isencao para hortifrutigranjeiros em estado natural - conferir excecoes (ex.: produtos industrializados/embalados) e condicoes no RICMS/BA
+0805;Citricos frescos (laranjas, limoes, tangerinas);Conv. ICM 44/75, RICMS/BA (Dec. 13.780/2012);Isencao para hortifrutigranjeiros em estado natural - conferir excecoes (ex.: produtos industrializados/embalados) e condicoes no RICMS/BA
+0807;Meloes, melancias e mamoes, frescos;Conv. ICM 44/75, RICMS/BA (Dec. 13.780/2012);Isencao para hortifrutigranjeiros em estado natural - conferir excecoes (ex.: produtos industrializados/embalados) e condicoes no RICMS/BA
+0808;Macas e peras, frescas;Conv. ICM 44/75, RICMS/BA (Dec. 13.780/2012);Isencao para hortifrutigranjeiros em estado natural - conferir excecoes (ex.: produtos industrializados/embalados) e condicoes no RICMS/BA
+0407;Ovos de aves, com casca, frescos;Conv. ICM 44/75, RICMS/BA (Dec. 13.780/2012);Isencao para hortifrutigranjeiros em estado natural - conferir excecoes (ex.: produtos industrializados/embalados) e condicoes no RICMS/BA

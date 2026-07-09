@@ -1,0 +1,13 @@
+﻿# ============================================================================
+# diferimento_ba.csv - mercadorias com DIFERIMENTO do ICMS na Bahia.
+#
+# Arquivo em branco de proposito: o diferimento na Bahia depende fortemente
+# de regime especial / habilitacao do contribuinte (ex.: insumos agropecuarios,
+# algumas operacoes com sucata, milho, soja etc. - ver RICMS/BA, Dec.
+# 13.780/2012, e o Dec. 6.284/97 quando aplicavel).
+# Preencha uma linha por NCM (prefixo) conforme a realidade do cliente.
+# Exemplo de linha (remova o '#' inicial para ativar):
+# 7204;Sucata de ferro ou aco;RICMS/BA (Dec. 13.780/2012);Diferimento nas sucessivas saidas internas - conferir condicoes
+# Formato: separador ';', linhas '#' ignoradas, NCM prefixo.
+# ============================================================================
+ncm;descricao;fundamentacao;detalhe

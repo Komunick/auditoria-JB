@@ -17,6 +17,7 @@ from .comparador_widget import ComparadorWidget
 from .conferencia_widget import ConferenciaWidget
 from .diff_widget import DiffSpedWidget
 from .extracao_widget import ExtracaoWidget
+from .produtos_widget import ProdutosWidget
 from .tema import aplicar_tema
 
 
@@ -44,6 +45,7 @@ class JanelaPrincipal(QMainWindow):
         abas.addTab(DiffSpedWidget(), "2. Comparar versoes de SPED")
         abas.addTab(ConferenciaWidget(), "3. Livro de Conferencia")
         abas.addTab(ExtracaoWidget(), "4. Extracao de Itens")
+        abas.addTab(ProdutosWidget(), "5. Auditoria de Produtos")
         layout.addWidget(abas)
 
 

@@ -1,0 +1,20 @@
+﻿# ============================================================================
+# reducao_base_ba.csv - exemplos de REDUCAO DE BASE DE CALCULO na Bahia:
+# produtos da cesta basica com carga tributaria efetiva de 7%
+# (RICMS/BA, Dec. 13.780/2012, art. 268; Conv. ICMS 128/94).
+# ATENCAO: lista EXEMPLIFICATIVA - o rol da cesta basica, os percentuais e
+# as condicoes DEVEM ser conferidos na redacao vigente do RICMS/BA.
+# Muitos itens da cesta basica tambem aparecem no Anexo I (ST) - a carga
+# reduzida repercute no calculo da ST.
+# Formato: separador ';', linhas '#' ignoradas, NCM prefixo.
+# ============================================================================
+ncm;descricao;fundamentacao;detalhe
+1006;Arroz;RICMS/BA (Dec. 13.780/2012) art. 268, Conv. ICMS 128/94;Cesta basica - reducao de base de calculo de forma que a carga tributaria efetiva resulte em 7% - CONFERIR a lista e a redacao vigentes
+0713;Feijao;RICMS/BA (Dec. 13.780/2012) art. 268, Conv. ICMS 128/94;Cesta basica - reducao de base de calculo de forma que a carga tributaria efetiva resulte em 7% - CONFERIR a lista e a redacao vigentes
+1106.20;Farinha de mandioca;RICMS/BA (Dec. 13.780/2012) art. 268, Conv. ICMS 128/94;Cesta basica - reducao de base de calculo de forma que a carga tributaria efetiva resulte em 7% - CONFERIR a lista e a redacao vigentes
+1902.1;Massas alimenticias tipo comum (macarrao);RICMS/BA (Dec. 13.780/2012) art. 268, Conv. ICMS 128/94;Cesta basica - reducao de base de calculo de forma que a carga tributaria efetiva resulte em 7% - CONFERIR a lista e a redacao vigentes
+1507.90.11;Oleo de soja refinado, ate 5 litros;RICMS/BA (Dec. 13.780/2012) art. 268, Conv. ICMS 128/94;Cesta basica - reducao de base de calculo de forma que a carga tributaria efetiva resulte em 7% - CONFERIR a lista e a redacao vigentes
+2501;Sal de cozinha;RICMS/BA (Dec. 13.780/2012) art. 268, Conv. ICMS 128/94;Cesta basica - reducao de base de calculo de forma que a carga tributaria efetiva resulte em 7% - CONFERIR a lista e a redacao vigentes
+0901.2;Cafe torrado, em grao ou moido;RICMS/BA (Dec. 13.780/2012) art. 268, Conv. ICMS 128/94;Cesta basica - reducao de base de calculo de forma que a carga tributaria efetiva resulte em 7% - CONFERIR a lista e a redacao vigentes
+1604.13;Sardinhas em conserva;RICMS/BA (Dec. 13.780/2012) art. 268, Conv. ICMS 128/94;Cesta basica - reducao de base de calculo de forma que a carga tributaria efetiva resulte em 7% - CONFERIR a lista e a redacao vigentes
+0401;Leite fluido (pasteurizado ou UHT);RICMS/BA (Dec. 13.780/2012) art. 268, Conv. ICMS 128/94;Cesta basica - reducao de base de calculo de forma que a carga tributaria efetiva resulte em 7% - CONFERIR a lista e a redacao vigentes

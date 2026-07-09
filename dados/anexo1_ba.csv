@@ -1,0 +1,227 @@
+﻿# ============================================================================
+# anexo1_ba.csv - AMOSTRA INICIAL da relacao de mercadorias sujeitas a
+# Substituicao Tributaria na Bahia (Anexo I do RICMS/BA, Dec. 13.780/2012).
+#
+# Conteudo baseado na tabela CEST do Convenio ICMS 142/18 (CONFAZ), anexos
+# II a XXVI, na redacao publicada no site do CONFAZ, conferida em
+# 07/07/2026. Sao 208 itens reais (CEST e NCM validados contra a tabela
+# oficial) cobrindo os principais segmentos.
+#
+# ATENCAO: isto e uma AMOSTRA. Antes do uso em producao, CONFIRA e
+# SUBSTITUA/COMPLEMENTE este arquivo com a tabela oficial vigente do
+# Anexo I do RICMS/BA (site da SEFAZ/BA) - ver dados/LEIA-ME.txt.
+#
+# Formato: separador ';', codificacao UTF-8; linhas iniciadas com '#' sao
+# ignoradas. CEST no formato NN.NNN.NN; NCM completo com pontos ou prefixo
+# de posicao/subposicao (ex.: 3305.10.00, 2203, 8708). NAO use ';' dentro
+# dos campos (quebra a leitura).
+# ============================================================================
+cest;ncm;descricao;segmento;fundamentacao
+01.001.00;3815.12.10;Catalisadores em colmeia ceramica ou metalica para conversao catalitica de gases de escape de veiculos;Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.001.00;3815.12.90;Outros catalisadores para conversao catalitica de gases de escape de veiculos;Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.002.00;3917;Tubos e seus acessorios (juntas, cotovelos, flanges, unioes), de plasticos;Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.005.00;3926.30.00;Frisos, decalques, molduras e acabamentos;Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.007.00;4016.93.00;Juntas, gaxetas e outros elementos com funcao semelhante de vedacao;Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.009.00;4016.99.90;Tapetes, revestimentos, batentes, buchas e coxins;Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.014.00;6813;Guarnicoes de friccao (placas, discos, pastilhas) para freios, embreagens e mecanismos de friccao;Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.015.00;7007.11.00;Vidros de dimensoes e formatos que permitam aplicacao automotiva;Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.016.00;7009.10.00;Espelhos retrovisores;Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.020.00;7320;Molas e folhas de molas, de ferro ou aco;Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.032.00;8413.30;Bombas para combustiveis, lubrificantes ou liquidos de arrefecimento, para motores;Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.037.00;8421.23.00;Aparelhos para filtrar oleos minerais nos motores (filtros de oleo);Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.041.00;8421.31.00;Filtros de entrada de ar para motores de ignicao por centelha ou por compressao;Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.049.00;8482;Rolamentos;Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.051.00;8484;Juntas metaloplasticas, jogos ou sortidos de juntas, juntas de vedacao mecanicas;Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.053.00;8507.10;Acumuladores eletricos de chumbo para arranque de motores (baterias automotivas);Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.054.00;8511;Aparelhos e dispositivos eletricos de ignicao ou arranque (velas, bobinas, motores de arranque, alternadores);Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.055.00;8512.20;Aparelhos eletricos de iluminacao ou sinalizacao, limpadores de para-brisas, degeladores;Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.070.00;8539.10;Farois e projetores, em unidades seladas;Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.075.00;8708;Partes e acessorios dos veiculos automoveis das posicoes 8701 a 8705;Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+01.076.00;8714.1;Partes e acessorios de motocicletas, incluidos os ciclomotores;Autopecas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 01
+02.004.00;2208.40.00;Cachaca e aguardentes;Bebidas alcoolicas, exceto cerveja e chope;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 02
+02.004.00;2207.20;Cachaca e aguardentes (alcool etilico desnaturado);Bebidas alcoolicas, exceto cerveja e chope;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 02
+02.006.00;2208.20.00;Conhaque, brandy e similares;Bebidas alcoolicas, exceto cerveja e chope;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 02
+02.008.00;2208.50.00;Gim (gin) e genebra;Bebidas alcoolicas, exceto cerveja e chope;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 02
+02.010.00;2208.70.00;Licores e similares;Bebidas alcoolicas, exceto cerveja e chope;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 02
+02.012.00;2208.40.00;Rum;Bebidas alcoolicas, exceto cerveja e chope;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 02
+02.016.00;2208.30;Uisque;Bebidas alcoolicas, exceto cerveja e chope;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 02
+02.017.00;2205;Vermute e similares;Bebidas alcoolicas, exceto cerveja e chope;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 02
+02.018.00;2208.60.00;Vodka;Bebidas alcoolicas, exceto cerveja e chope;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 02
+02.024.00;2204;Vinhos de uvas frescas, incluindo vinhos enriquecidos com alcool, mostos de uvas;Bebidas alcoolicas, exceto cerveja e chope;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 02
+02.999.00;2208;Outras bebidas alcoolicas nao especificadas nos itens anteriores;Bebidas alcoolicas, exceto cerveja e chope;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 02
+03.003.00;2201.10.00;Agua mineral, gasosa ou nao, ou potavel, em embalagem de vidro descartavel;Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+03.005.00;2201.10.00;Agua mineral, gasosa ou nao, ou potavel, em copo plastico descartavel;Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+03.005.04;2201.10.00;Agua mineral, gasosa ou nao, ou potavel, em demais embalagens descartaveis;Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+03.006.00;2201;Outras aguas minerais, gasosas ou nao, ou potaveis, naturais;Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+03.007.00;2202.10.00;Agua aromatizada artificialmente, exceto refrescos e refrigerantes;Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+03.010.00;2202.10.00;Refrigerante em vidro descartavel;Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+03.010.01;2202.10.00;Refrigerante em embalagem pet;Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+03.010.02;2202.10.00;Refrigerante em lata;Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+03.011.00;2202.10.00;Demais refrigerantes;Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+03.011.01;2202;Espumantes sem alcool;Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+03.012.00;2106.90.10;Xarope ou extrato concentrado para preparo de refrigerante em maquina pre-mix ou post-mix;Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+03.013.00;2202.99.00;Bebidas energeticas em lata;Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+03.015.00;2202.99.00;Bebidas hidroeletroliticas (isotonicas);Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+03.021.00;2203.00.00;Cerveja em garrafa de vidro retornavel;Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+03.021.03;2203.00.00;Cerveja em lata;Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+03.022.03;2202.91.00;Cerveja sem alcool em lata;Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+03.023.00;2203.00.00;Chope;Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+03.024.00;2201.10.00;Agua mineral em embalagens retornaveis de 10 a 20 litros;Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+03.025.00;2201.10.00;Agua mineral em embalagens retornaveis com capacidade igual ou superior a 20 litros;Cervejas, chopes, refrigerantes e aguas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 03
+04.001.00;2402;Charutos, cigarrilhas e cigarros, de tabaco ou dos seus sucedaneos;Cigarros e derivados do fumo;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 04
+04.002.00;2403.1;Tabaco para fumar, mesmo contendo sucedaneos de tabaco;Cigarros e derivados do fumo;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 04
+05.001.00;2523;Cimento;Cimentos;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 05
+08.004.00;8201;Pas, picaretas, enxadas, machados, foices e outras ferramentas manuais para agricultura;Ferramentas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 08
+08.007.00;8202;Serras manuais e outras folhas de serras;Ferramentas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 08
+08.008.00;8203;Limas, grosas, alicates, tenazes, pincas e cisalhas para metais, manuais;Ferramentas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 08
+08.009.00;8204;Chaves de porcas manuais (incluidas as dinamometricas) e chaves de caixa intercambiaveis;Ferramentas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 08
+08.010.00;8205;Ferramentas manuais nao especificadas (martelos, tornos de apertar, sargentos, bigornas);Ferramentas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 08
+08.011.00;8206.00.00;Sortidos de ferramentas das posicoes 8202 a 8205 para venda a retalho;Ferramentas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 08
+08.013.00;8207;Ferramentas intercambiaveis para ferramentas manuais ou maquinas-ferramentas (brocas, pontas, fresas);Ferramentas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 08
+08.014.00;8208;Facas e laminas cortantes para maquinas ou aparelhos mecanicos;Ferramentas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 08
+08.018.00;8213;Tesouras e suas laminas;Ferramentas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 08
+08.019.00;8467;Ferramentas pneumaticas, hidraulicas ou com motor incorporado, de uso manual;Ferramentas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 08
+08.021.00;9017.30;Metros, micrometros, paquimetros, calibres e semelhantes;Ferramentas;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 08
+09.001.00;8539;Lampadas eletricas;Lampadas, reatores e starter;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 09
+09.002.00;8540;Lampadas eletronicas;Lampadas, reatores e starter;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 09
+09.003.00;8504.10.00;Reatores para lampadas ou tubos de descargas;Lampadas, reatores e starter;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 09
+09.004.00;8536.50;Starter;Lampadas, reatores e starter;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 09
+09.005.00;8539.52.00;Lampadas de LED (diodos emissores de luz);Lampadas, reatores e starter;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 09
+10.001.00;2522;Cal;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.002.00;3824.50.00;Argamassas;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.003.00;3214.90.00;Outras argamassas;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.006.00;3917;Tubos e seus acessorios, de plasticos, para uso na construcao;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.013.00;3922;Banheiras, boxes para chuveiros, pias, lavatorios, sanitarios e semelhantes, de plasticos;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.015.00;3925.10.00;Caixa d'agua de plastico, inclusive sua tampa;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.022.00;6810.19.00;Telhas de concreto;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.027.00;6904;Tijolos para construcao, tijoleiras e tapa-vigas, de ceramica;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.028.00;6905;Telhas e outros produtos ceramicos para uso na construcao;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.030.00;6907;Ladrilhos e placas de ceramica para pavimentacao ou revestimento (pisos e azulejos);Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.031.00;6910;Pias, lavatorios, banheiras, sanitarios e semelhantes, de ceramica (loucas sanitarias);Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.035.00;7005;Vidro flotado e vidro desbastado ou polido, em chapas ou folhas;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.036.00;7007.19.00;Vidros temperados;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.042.00;7214.20.00;Vergalhoes;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.043.00;7213;Outros vergalhoes;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.046.00;7307;Acessorios para tubos (unioes, cotovelos, luvas), de ferro fundido, ferro ou aco;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.048.00;7308.40.00;Material para andaimes, armacoes (cofragens) e escoramentos;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.050.00;7308.90.90;Telhas metalicas;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.052.00;7313.00.00;Arame farpado, de ferro ou aco, para cercas;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.053.00;7314;Telas metalicas, grades e redes, de fios de ferro ou aco;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.057.00;7317.00;Tachas, pregos, percevejos, escapulas e grampos, de ferro fundido, ferro ou aco;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.058.00;7318;Parafusos, pinos, porcas, rebites, chavetas, arruelas e artigos semelhantes, de ferro ou aco;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.064.00;7411.10.10;Tubos de cobre para instalacoes de agua quente e gas, uso na construcao;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.074.00;8302.41.00;Guarnicoes, ferragens e artigos semelhantes para construcoes, inclusive puxadores;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.075.00;8301;Fechaduras e ferrolhos, de metais comuns, exceto uso automotivo;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.076.00;8302.10.00;Dobradicas de metais comuns, de qualquer tipo;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+10.079.00;8481;Torneiras, valvulas e dispositivos semelhantes para canalizacoes e reservatorios;Materiais de construcao;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 10
+11.001.00;2828.90.11;Agua sanitaria, branqueador e outros alvejantes;Materiais de limpeza;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 11
+11.002.00;3401.20.90;Saboes, desinfetantes e sanitizantes em po, flocos ou granulos, para lavar roupas;Materiais de limpeza;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 11
+11.003.00;3401.20.90;Saboes, desinfetantes e sanitizantes liquidos para lavar roupas;Materiais de limpeza;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 11
+11.004.00;3402.50.00;Detergentes em po, flocos, palhetas ou granulos;Materiais de limpeza;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 11
+11.005.00;3402.50.00;Detergentes liquidos, exceto para lavar roupa;Materiais de limpeza;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 11
+11.006.00;3402.50.00;Detergente liquido para lavar roupa;Materiais de limpeza;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 11
+11.007.00;3402;Preparacoes tensoativas para lavagem e limpeza (multiuso e limpadores), ate 50 litros ou 50 kg;Materiais de limpeza;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 11
+11.008.00;3809.91.90;Amaciante / suavizante;Materiais de limpeza;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 11
+11.009.00;3924.10.00;Esponjas para limpeza;Materiais de limpeza;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 11
+11.010.00;2207;Alcool etilico para limpeza;Materiais de limpeza;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 11
+11.011.00;7323.10.00;Esponjas e palhas de aco para limpeza ou polimento, de uso domestico;Materiais de limpeza;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 11
+11.012.00;3923.2;Sacos de lixo de conteudo igual ou inferior a 100 litros;Materiais de limpeza;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 11
+12.002.00;8516;Aquecedores eletricos de agua, chuveiros e duchas eletricos, torneiras eletricas e resistencias;Materiais eletricos;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 12
+12.004.00;8536;Interruptores, comutadores, reles, plugues e tomadas, para tensao nao superior a 1.000V;Materiais eletricos;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 12
+12.006.00;7413.00.00;Cabos e trancas de cobre, nao isolados, para usos eletricos;Materiais eletricos;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 12
+12.007.00;8544;Fios e cabos eletricos isolados, para tensao nao superior a 1.000V, uso na construcao;Materiais eletricos;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 12
+12.008.00;8546;Isoladores de qualquer materia, para usos eletricos;Materiais eletricos;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 12
+13.001.00;3003;Medicamentos de referencia - lista positiva, exceto uso veterinario;Medicamentos e produtos farmaceuticos;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 13
+13.001.00;3004;Medicamentos de referencia - lista positiva, exceto uso veterinario;Medicamentos e produtos farmaceuticos;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 13
+13.002.00;3004;Medicamentos genericos - lista positiva, exceto uso veterinario;Medicamentos e produtos farmaceuticos;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 13
+13.003.00;3004;Medicamentos similares - lista positiva, exceto uso veterinario;Medicamentos e produtos farmaceuticos;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 13
+13.004.00;3004;Outros tipos de medicamentos - lista positiva, exceto uso veterinario;Medicamentos e produtos farmaceuticos;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 13
+13.006.00;2936;Provitaminas e vitaminas, naturais ou reproduzidas por sintese;Medicamentos e produtos farmaceuticos;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 13
+13.011.00;3005;Algodao, ataduras, esparadrapos e gazes para usos medicinais, cirurgicos ou dentarios;Medicamentos e produtos farmaceuticos;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 13
+13.013.00;4014.10.00;Preservativos;Medicamentos e produtos farmaceuticos;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 13
+13.014.00;9018.31;Seringas, mesmo com agulhas;Medicamentos e produtos farmaceuticos;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 13
+13.015.00;9018.32.1;Agulhas para seringas;Medicamentos e produtos farmaceuticos;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 13
+16.001.00;4011.10.00;Pneus novos dos tipos utilizados em automoveis de passageiros;Pneumaticos e camaras de ar;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 16
+16.002.00;4011;Pneus novos dos tipos utilizados em caminhoes, onibus, avioes e maquinas agricolas;Pneumaticos e camaras de ar;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 16
+16.003.00;4011.40.00;Pneus novos para motocicletas;Pneumaticos e camaras de ar;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 16
+16.005.00;4011.50.00;Pneus novos de borracha dos tipos utilizados em bicicletas;Pneumaticos e camaras de ar;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 16
+16.006.00;4012.1;Pneus recauchutados;Pneumaticos e camaras de ar;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 16
+16.008.00;4013;Camaras de ar de borracha;Pneumaticos e camaras de ar;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 16
+17.003.00;1806.32.10;Chocolates em tabletes, barras ou paus, nao recheados, ate 2 kg;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.004.00;1806.90.00;Chocolates e outras preparacoes alimenticias contendo cacau, ate 1 kg;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.006.00;1806.90.00;Achocolatados em po, ate 1 kg;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.007.00;1806.90.00;Caixas de bombons contendo cacau, ate 1 kg;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.008.00;1704.90.90;Bombons, inclusive a base de chocolate branco sem cacau;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.009.00;1806.90.00;Bombons, balas, caramelos, confeitos e pastilhas contendo cacau;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.010.00;2009;Sucos de frutas ou de produtos horticolas, misturas de sucos;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.011.00;2009.8;Agua de coco;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.012.00;0402.1;Leite em po, blocos ou granulos, exceto creme de leite;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.020.00;0402.9;Leite condensado, em recipiente de conteudo inferior ou igual a 1 kg;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.023.00;0406;Requeijao e similares, ate 1 kg;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.029.00;1901.90.20;Doces de leite;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.030.00;1904.10.00;Produtos a base de cereais, obtidos por expansao ou torrefacao (cereais matinais);Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.031.00;1905.90.90;Salgadinhos diversos;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.032.00;2005.20.00;Batata frita, inhame e mandioca fritos;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.034.00;2103.20.10;Catchup em embalagens imediatas ate 650 g;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.035.00;2103.90.21;Condimentos e temperos compostos, incluindo molho de pimenta, ate 1 kg;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.036.00;2103.10.10;Molhos de soja preparados, em embalagens ate 650 g;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.039.00;2103.90.11;Maionese em embalagens imediatas ate 650 g;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.041.00;2103.20.10;Molhos de tomate em embalagens imediatas ate 1 kg;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.042.00;1904.20.00;Barra de cereais;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.044.00;1101.00.10;Farinha de trigo especial, em embalagem ate 1 kg;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.047.00;1902.30.00;Massas alimenticias tipo instantanea;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.049.00;1902.1;Massas alimenticias tipo comum, nao cozidas nem recheadas (macarrao);Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.053.00;1905.31.00;Biscoitos e bolachas derivados de farinha de trigo, exceto tipos populares;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.056.00;1905.90.20;Biscoitos e bolachas derivados de farinha de trigo, tipos cream cracker e agua e sal;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.062.00;1905.90.90;Outros paes, exceto pao frances ate 200 g;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.064.00;1905.90;Demais paes industrializados;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.065.00;1507.90.11;Oleo de soja refinado, em recipientes ate 5 litros;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.067.00;1509;Azeites de oliva, em recipientes com capacidade inferior a 2 litros;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.096.00;0901;Cafe torrado e moido, em embalagens ate 2 kg;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.097.00;0902;Cha, mesmo aromatizado;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.099.00;1701.99.00;Acucar refinado, em embalagens ate 2 kg;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.101.00;1701.1;Acucar cristal, em embalagens ate 2 kg;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.106.00;2008.19.00;Milho para pipoca (micro-ondas);Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.107.00;2101.1;Extratos, essencias e concentrados de cafe (cafe soluvel), ate 500 g;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.110.00;2202.10.00;Refrescos e outras bebidas prontas para beber a base de cha e mate;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.112.00;2202.99.00;Nectares de frutas e outras bebidas nao alcoolicas prontas para beber;Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+17.115.00;2202.99.00;Bebidas alimentares prontas a base de soja, leite ou cacau (bebidas lacteas);Produtos alimenticios;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 17
+19.004.00;3926.10.00;Artigos de escritorio e artigos escolares de plastico;Produtos de papelaria;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 19
+19.020.00;4820.10.00;Livros de registro, blocos de notas, agendas e artigos semelhantes;Produtos de papelaria;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 19
+19.021.00;4820.20.00;Cadernos;Produtos de papelaria;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 19
+19.027.00;9608.10.00;Canetas esferograficas;Produtos de papelaria;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 19
+19.031.00;4802.56;Papel cortado cutsize (A3, A4, oficio, carta);Produtos de papelaria;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 19
+20.007.00;3303.00.10;Perfumes (extratos);Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.008.00;3303.00.20;Aguas-de-colonia;Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.009.00;3304.10.00;Produtos de maquilagem para os labios;Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.012.00;3304.30.00;Preparacoes para manicuros e pedicuros, incluindo removedores de esmalte;Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.014.00;3304.99.10;Cremes de beleza, cremes nutritivos e locoes tonicas;Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.015.00;3304.99.90;Outros produtos de beleza ou maquilagem e preparacoes para cuidados da pele;Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.016.00;3304.99.90;Preparacoes solares e antissolares (protetor solar);Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.017.00;3305.10.00;Xampus para o cabelo;Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.021.00;3305.90.00;Condicionadores;Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.022.00;3305.90.00;Tintura para o cabelo;Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.023.00;3306.10.00;Dentifricios (cremes dentais);Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.024.00;3306.20.00;Fios dentais;Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.026.00;3307.10.00;Preparacoes para barbear (antes, durante ou apos);Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.027.00;3307.20.10;Desodorantes corporais liquidos;Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.034.00;3401.11.90;Saboes de toucador em barras, pedacos ou figuras moldados (sabonetes);Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.042.00;4818.10.00;Papel higienico - folha simples;Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.043.00;4818.10.00;Papel higienico - folha dupla e tripla;Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.048.00;9619.00.00;Fraldas;Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.050.00;9619.00.00;Absorventes higienicos externos;Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.058.00;9603.21.00;Escovas de dentes, incluidas as escovas para dentaduras;Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+20.064.00;8212.10.20;Aparelhos e laminas de barbear;Perfumaria e higiene pessoal;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 20
+22.001.00;2309;Racao tipo pet para animais domesticos;Racoes pet;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 22
+23.001.00;2105.00;Sorvetes de qualquer especie;Sorvetes;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 23
+23.002.00;1806;Preparados para fabricacao de sorvete em maquina;Sorvetes;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 23
+23.002.00;2106;Preparados para fabricacao de sorvete em maquina;Sorvetes;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 23
+24.001.00;3208;Tintas e vernizes, em meio nao aquoso;Tintas e vernizes;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 24
+24.001.00;3209;Tintas e vernizes, em meio aquoso;Tintas e vernizes;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 24
+24.001.00;3210.00;Outras tintas e vernizes;Tintas e vernizes;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 24
+24.002.00;3206;Xadrez e pos assemelhados, em embalagem ate 1 kg;Tintas e vernizes;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 24
+24.003.00;3204;Corantes para aplicacao em bases, tintas e vernizes;Tintas e vernizes;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 24
+28.001.00;3303.00.10;Perfumes (extratos) - venda porta a porta;Venda porta a porta;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 28
+28.004.00;3304.20.10;Sombra, delineador, lapis para sobrancelhas e rimel - venda porta a porta;Venda porta a porta;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 28
+28.011.00;3305.10.00;Xampus para o cabelo - venda porta a porta;Venda porta a porta;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 28
+28.022.00;3401.20.10;Saboes de toucador sob outras formas - venda porta a porta;Venda porta a porta;Anexo I RICMS/BA - Conv. ICMS 142/18, seg. 28
