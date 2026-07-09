@@ -7,11 +7,14 @@ import os
 from PySide6.QtCore import Qt, QObject, QThread, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import (
-    QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
-    QLineEdit, QMessageBox, QPushButton, QTabWidget, QTableWidget,
+    QCheckBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
+    QLabel, QLineEdit, QMessageBox, QPushButton, QTabWidget, QTableWidget,
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from ..core.filtro_sped import (
+    MSG_SEM_ENTRADAS, ROTULO_FILTRO_ENTRADAS, TEXTO_OPCAO_ENTRADAS,
+)
 from ..core.sped_parser import ler_sped
 from ..ferramentas.comparador_sped_sped import ResultadoDiffSped, comparar_speds
 from ..ferramentas.relatorio_diff_excel import gerar_relatorio_diff
@@ -30,16 +33,18 @@ class WorkerDiff(QObject):
     concluido = Signal(object)
     erro = Signal(str)
 
-    def __init__(self, caminho_a, caminho_b):
+    def __init__(self, caminho_a, caminho_b, apenas_entradas=False):
         super().__init__()
         self.caminho_a = caminho_a
         self.caminho_b = caminho_b
+        self.apenas_entradas = apenas_entradas
 
     def executar(self) -> None:
         try:
             doc_a = ler_sped(self.caminho_a)
             doc_b = ler_sped(self.caminho_b)
-            res = comparar_speds(doc_a, doc_b, ROTULO_A, ROTULO_B)
+            res = comparar_speds(doc_a, doc_b, ROTULO_A, ROTULO_B,
+                                 apenas_entradas=self.apenas_entradas)
             self.concluido.emit(res)
         except Exception as exc:  # noqa: BLE001
             self.erro.emit(f"{type(exc).__name__}: {exc}")
@@ -83,6 +88,14 @@ class DiffSpedWidget(QWidget):
         bb = QPushButton("Procurar...")
         bb.clicked.connect(lambda: self._escolher(self._edit_b))
         grid.addWidget(bb, 1, 2)
+
+        self._chk_entradas = QCheckBox(TEXTO_OPCAO_ENTRADAS)
+        self._chk_entradas.setChecked(False)  # padrao: todas as operacoes
+        self._chk_entradas.setToolTip(
+            "Marcado: somente as notas de entrada dos dois SPEDs entram na\n"
+            "comparacao (IND_OPER = 0; sem IND_OPER, decide pelo CFOP dos itens).\n"
+            "Desmarcado: comportamento padrao, todas as operacoes.")
+        grid.addWidget(self._chk_entradas, 2, 1)
 
         grid.setColumnStretch(1, 1)
         return caixa
@@ -193,7 +206,7 @@ class DiffSpedWidget(QWidget):
         self._status.setText("Processando... lendo e comparando os dois SPEDs.")
 
         self._thread = QThread()
-        self._worker = WorkerDiff(ca, cb)
+        self._worker = WorkerDiff(ca, cb, self._chk_entradas.isChecked())
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.executar)
         self._worker.concluido.connect(self._ao_concluir)
@@ -224,9 +237,16 @@ class DiffSpedWidget(QWidget):
         self._abas.setTabText(1, f"So em A ({r['apenas_em_a']})")
         self._abas.setTabText(2, f"So em B ({r['apenas_em_b']})")
 
+        filtro = f" {ROTULO_FILTRO_ENTRADAS}." if resultado.apenas_entradas else ""
         self._status.setText(
             f"Comparacao concluida: {r['divergentes']} nota(s) divergente(s), "
-            f"{r['total_diferencas']} campo(s) com diferenca.")
+            f"{r['total_diferencas']} campo(s) com diferenca." + filtro)
+
+        # O filtro de entradas nao achou nenhum documento nos dois arquivos:
+        # avisa em vez de deixar o resultado vazio sem explicacao.
+        if resultado.apenas_entradas and r["total_a"] == 0 and r["total_b"] == 0:
+            QMessageBox.information(self, "Sem documentos de entrada",
+                                    MSG_SEM_ENTRADAS)
 
     def _preencher_divergencias(self, res: ResultadoDiffSped) -> None:
         tab = self._tab_diverg

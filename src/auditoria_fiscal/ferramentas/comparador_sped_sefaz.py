@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Optional
 
+from ..core.filtro_sped import e_entrada
 from ..core.modelos import DocumentoFiscalConjunto, NotaFiscal
 from ..core.sefaz_relacao import RegistroSefaz
 
@@ -56,6 +57,9 @@ class ResultadoComparacao:
     total_sefaz: int = 0
     total_sped: int = 0
     total_conciliadas: int = 0
+    # True quando a comparacao considerou apenas documentos de entrada do SPED
+    # (usado pelas telas e relatorios para indicar o filtro aplicado).
+    apenas_entradas: bool = False
 
     def tem_pendencias(self) -> bool:
         return bool(self.faltantes_no_sped or self.canceladas_escrituradas
@@ -82,7 +86,8 @@ def comparar(
     """Compara o SPED com a relacao da SEFAZ e retorna o resultado.
 
     apenas_entradas: quando True, a comparacao considera no SPED apenas os
-    documentos de entrada (IND_OPER = 0), pois a relacao da SEFAZ lista as notas
+    documentos de entrada (criterio em core.filtro_sped.e_entrada: IND_OPER,
+    com CFOP dos itens como reserva), pois a relacao da SEFAZ lista as notas
     emitidas CONTRA o CNPJ do cliente (entradas). Notas de saida escrituradas
     ficam de fora do cruzamento.
     """
@@ -92,7 +97,7 @@ def comparar(
         chave = nota.chave_normalizada
         if len(chave) != 44:
             continue
-        if apenas_entradas and nota.ind_oper not in ("0", ""):
+        if apenas_entradas and not e_entrada(nota):
             continue
         sped_por_chave[chave] = nota
 
@@ -105,6 +110,7 @@ def comparar(
     resultado = ResultadoComparacao(
         total_sefaz=len(sefaz_por_chave),
         total_sped=len(sped_por_chave),
+        apenas_entradas=apenas_entradas,
     )
 
     conciliadas = 0

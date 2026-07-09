@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from ..core.filtro_sped import MSG_SEM_ENTRADAS, ROTULO_FILTRO_ENTRADAS
 from ..core.sped_parser import ler_sped
 from ..core.nfe_xml import ler_pasta_xml
 from ..ferramentas.extracao_itens import (
@@ -52,6 +53,7 @@ class ExtracaoWidget(QWidget):
         super().__init__()
         self._linhas: list[dict] = []
         self._contexto = ""
+        self._filtro_entradas_sped = False   # filtro usado na ultima extracao
         self._thread: QThread | None = None
         self._worker: WorkerExtracao | None = None
 
@@ -87,6 +89,10 @@ class ExtracaoWidget(QWidget):
         grid.addWidget(QLabel("Operacao:"), 2, 0)
         self._combo_oper = QComboBox()
         self._combo_oper.addItems(list(_OPERACOES.keys()))
+        self._combo_oper.setToolTip(
+            '"Apenas entradas" com a fonte SPED = considerar apenas documentos\n'
+            "de entrada no SPED (IND_OPER = 0). Saidas e demais operacoes\n"
+            'ficam de fora. "Todas" mantem o comportamento padrao.')
         grid.addWidget(self._combo_oper, 2, 1)
 
         grid.setColumnStretch(1, 1)
@@ -147,6 +153,9 @@ class ExtracaoWidget(QWidget):
             return
 
         operacao = _OPERACOES[self._combo_oper.currentText()]
+        # Registra se esta extracao usa o filtro de entradas do SPED, para o
+        # status, a validacao de vazio e a indicacao na planilha exportada.
+        self._filtro_entradas_sped = fonte == "sped" and operacao == "0"
         self._btn_extrair.setEnabled(False)
         self._btn_exportar.setEnabled(False)
         self._status.setText("Extraindo itens...")
@@ -184,7 +193,15 @@ class ExtracaoWidget(QWidget):
 
         aviso = "" if total <= LIMITE_PREVIA else \
             f" (previa: {LIMITE_PREVIA} de {total} — exportacao inclui tudo)"
-        self._status.setText(f"{total} item(ns) extraido(s) de {contexto}.{aviso}")
+        filtro = f" {ROTULO_FILTRO_ENTRADAS}." if self._filtro_entradas_sped else ""
+        self._status.setText(f"{total} item(ns) extraido(s) de {contexto}.{aviso}"
+                             + filtro)
+
+        # O filtro de entradas nao achou nenhum documento: avisa em vez de
+        # deixar a previa vazia sem explicacao.
+        if self._filtro_entradas_sped and total == 0:
+            QMessageBox.information(self, "Sem documentos de entrada",
+                                    MSG_SEM_ENTRADAS)
 
     def _exportar(self) -> None:
         if not self._linhas:
@@ -194,8 +211,9 @@ class ExtracaoWidget(QWidget):
             "Planilha Excel (*.xlsx)")
         if not caminho:
             return
+        filtro = ROTULO_FILTRO_ENTRADAS if self._filtro_entradas_sped else ""
         try:
-            exportar_itens_excel(self._linhas, caminho)
+            exportar_itens_excel(self._linhas, caminho, filtro_aplicado=filtro)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(self, "Erro", f"Nao foi possivel salvar:\n{exc}")
             return

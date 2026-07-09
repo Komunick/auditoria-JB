@@ -12,6 +12,9 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from ..core.filtro_sped import (
+    MSG_SEM_ENTRADAS, ROTULO_FILTRO_ENTRADAS, TEXTO_OPCAO_ENTRADAS,
+)
 from ..core.sped_parser import ler_sped
 from ..core.sefaz_relacao import ler_relacao_sefaz
 from ..ferramentas.comparador_sped_sefaz import ResultadoComparacao, comparar
@@ -88,9 +91,12 @@ class ComparadorWidget(QWidget):
         b2.clicked.connect(self._escolher_sefaz)
         grid.addWidget(b2, 1, 2)
 
-        self._chk_entradas = QCheckBox(
-            "Considerar apenas documentos de entrada no SPED (recomendado)")
+        self._chk_entradas = QCheckBox(TEXTO_OPCAO_ENTRADAS + " (recomendado)")
         self._chk_entradas.setChecked(True)
+        self._chk_entradas.setToolTip(
+            "Marcado: somente notas de entrada do SPED entram no cruzamento\n"
+            "(IND_OPER = 0; sem IND_OPER, decide pelo CFOP dos itens).\n"
+            "Desmarcado: todas as notas escrituradas sao consideradas.")
         grid.addWidget(self._chk_entradas, 2, 1)
 
         self._lbl_diag = QLabel("")
@@ -260,9 +266,17 @@ class ComparadorWidget(QWidget):
             + f"  |  {diag.get('registros_validos', 0)} notas lidas.")
 
         empresa = f" - {self._empresa_nome}" if self._empresa_nome else ""
+        filtro = f" {ROTULO_FILTRO_ENTRADAS}." if resultado.apenas_entradas else ""
         self._status.setText(
             f"Comparacao concluida{empresa}. "
-            f"{r['faltantes_no_sped']} nota(s) na SEFAZ nao escriturada(s) no SPED.")
+            f"{r['faltantes_no_sped']} nota(s) na SEFAZ nao escriturada(s) no SPED."
+            + filtro)
+
+        # O filtro de entradas nao achou nenhum documento: avisa em vez de
+        # deixar o resultado vazio sem explicacao.
+        if resultado.apenas_entradas and resultado.total_sped == 0:
+            QMessageBox.information(self, "Sem documentos de entrada",
+                                    MSG_SEM_ENTRADAS)
 
     # ------------------------------------------------------------------
     def _preencher_faltantes(self, res) -> None:

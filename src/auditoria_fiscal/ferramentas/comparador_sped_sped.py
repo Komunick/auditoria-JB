@@ -13,6 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from decimal import Decimal
 
+from ..core.filtro_sped import filtrar_documento_entradas
 from ..core.modelos import DocumentoFiscalConjunto, ItemNota, NotaFiscal
 
 
@@ -87,6 +88,9 @@ class ResultadoDiffSped:
     total_b: int = 0
     conciliadas: int = 0
     iguais: int = 0
+    # True quando a comparacao considerou apenas documentos de entrada do SPED
+    # (usado pelas telas e relatorios para indicar o filtro aplicado).
+    apenas_entradas: bool = False
 
     @property
     def total_diferencas(self) -> int:
@@ -176,8 +180,17 @@ def comparar_speds(
     doc_b: DocumentoFiscalConjunto,
     rotulo_a: str = "Arquivo A",
     rotulo_b: str = "Arquivo B",
+    apenas_entradas: bool = False,
 ) -> ResultadoDiffSped:
-    """Compara dois SPEDs por chave e retorna as divergencias campo a campo."""
+    """Compara dois SPEDs por chave e retorna as divergencias campo a campo.
+
+    apenas_entradas: quando True, somente os documentos de entrada dos dois
+    arquivos entram na comparacao (criterio em core.filtro_sped.e_entrada);
+    False mantem o comportamento padrao, com todas as operacoes.
+    """
+    if apenas_entradas:
+        doc_a = filtrar_documento_entradas(doc_a)
+        doc_b = filtrar_documento_entradas(doc_b)
     idx_a = doc_a.por_chave()
     idx_b = doc_b.por_chave()
     chaves_a, chaves_b = set(idx_a), set(idx_b)
@@ -186,6 +199,7 @@ def comparar_speds(
     resultado = ResultadoDiffSped(
         rotulo_a=rotulo_a, rotulo_b=rotulo_b,
         total_a=len(idx_a), total_b=len(idx_b), conciliadas=len(comuns),
+        apenas_entradas=apenas_entradas,
     )
 
     for chave in comuns:

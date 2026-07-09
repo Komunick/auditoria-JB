@@ -8,11 +8,15 @@ from decimal import Decimal
 from PySide6.QtCore import Qt, QObject, QThread, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
-    QLabel, QLineEdit, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
+    QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QTableWidget,
+    QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from ..core.filtro_sped import (
+    MSG_SEM_ENTRADAS, ROTULO_FILTRO_ENTRADAS, TEXTO_OPCAO_ENTRADAS,
+    filtrar_entradas,
+)
 from ..core.modelos import NotaFiscal
 from ..core.nfe_xml import ler_pasta_xml
 from ..core.sped_parser import ler_sped
@@ -62,10 +66,11 @@ class WorkerCarga(QObject):
     concluido = Signal(object, object)   # notas, contexto
     erro = Signal(str)
 
-    def __init__(self, fonte: str, caminho: str):
+    def __init__(self, fonte: str, caminho: str, apenas_entradas: bool = False):
         super().__init__()
         self.fonte = fonte
         self.caminho = caminho
+        self.apenas_entradas = apenas_entradas
 
     def executar(self) -> None:
         try:
@@ -75,6 +80,8 @@ class WorkerCarga(QObject):
             else:
                 doc = ler_sped(self.caminho)
                 notas = doc.notas
+                if self.apenas_entradas:
+                    notas = filtrar_entradas(notas)
                 contexto = doc.empresa.nome or "SPED"
             # So notas com chave de 44 digitos (rastreaveis por chave)
             notas = [n for n in notas if len(n.chave_normalizada) == 44]
@@ -91,6 +98,7 @@ class ConferenciaWidget(QWidget):
         self._chaves: list[str] = []
         self._nota_por_chave: dict[str, NotaFiscal] = {}
         self._carregando = False
+        self._filtro_entradas = False   # filtro usado na ultima carga
         self._thread: QThread | None = None
         self._worker: WorkerCarga | None = None
 
@@ -122,6 +130,19 @@ class ConferenciaWidget(QWidget):
         btn = QPushButton("Procurar...")
         btn.clicked.connect(self._procurar)
         grid.addWidget(btn, 1, 2)
+
+        # So faz sentido para a fonte SPED; fica desabilitada para XMLs.
+        self._chk_entradas = QCheckBox(TEXTO_OPCAO_ENTRADAS)
+        self._chk_entradas.setChecked(False)  # padrao: todas as operacoes
+        self._chk_entradas.setEnabled(False)  # fonte inicial e a pasta de XMLs
+        self._chk_entradas.setToolTip(
+            "Marcado: somente as notas de entrada do SPED sao carregadas\n"
+            "(IND_OPER = 0; sem IND_OPER, decide pelo CFOP dos itens).\n"
+            "Desmarcado: comportamento padrao, todas as notas do arquivo.")
+        self._combo_fonte.currentIndexChanged.connect(
+            lambda i: self._chk_entradas.setEnabled(i == 1))
+        grid.addWidget(self._chk_entradas, 2, 1)
+
         grid.setColumnStretch(1, 1)
         return caixa
 
@@ -191,8 +212,9 @@ class ConferenciaWidget(QWidget):
 
         self._btn_carregar.setEnabled(False)
         self._status.setText("Carregando notas...")
+        self._filtro_entradas = fonte == "sped" and self._chk_entradas.isChecked()
         self._thread = QThread()
-        self._worker = WorkerCarga(fonte, caminho)
+        self._worker = WorkerCarga(fonte, caminho, self._filtro_entradas)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.executar)
         self._worker.concluido.connect(self._ao_carregar)
@@ -255,7 +277,14 @@ class ConferenciaWidget(QWidget):
         self._aplicar_filtro()
         sem_xml = sum(1 for n in notas if not n.xml_path)
         aviso = "" if sem_xml == 0 else f" ({sem_xml} sem XML — DANFE indisponivel nessas)"
-        self._status.setText(f"{len(notas)} nota(s) de {contexto}.{aviso}")
+        filtro = f" {ROTULO_FILTRO_ENTRADAS}." if self._filtro_entradas else ""
+        self._status.setText(f"{len(notas)} nota(s) de {contexto}.{aviso}" + filtro)
+
+        # O filtro de entradas nao achou nenhum documento: avisa em vez de
+        # deixar a tabela vazia sem explicacao.
+        if self._filtro_entradas and not notas:
+            QMessageBox.information(self, "Sem documentos de entrada",
+                                    MSG_SEM_ENTRADAS)
 
     def _por_texto(self, linha, col, texto) -> None:
         item = QTableWidgetItem(str(texto))

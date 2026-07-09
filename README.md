@@ -46,6 +46,31 @@ No **Livro de Conferência**, importe uma **pasta de XMLs** (habilita gerar o
 > (tipicamente NF-e de entrada, modelo 55). Vendas em **NFC-e (modelo 65)** não
 > têm C170 — para o detalhe de itens dessas, use os **XMLs** como fonte.
 
+## Filtro "Considerar apenas documentos de entrada no SPED"
+
+As quatro ferramentas que leem SPED permitem restringir a análise aos
+**documentos de entrada** (opção com esse texto na própria tela):
+
+| Aba | Onde fica a opção | Padrão |
+|---|---|---|
+| 1 · SPED × SEFAZ | checkbox na seleção de arquivos | **marcada** (a relação da SEFAZ só traz entradas) |
+| 2 · Comparar SPEDs | checkbox na seleção de arquivos | desmarcada (todas as operações) |
+| 3 · Livro de Conferência | checkbox (habilita ao escolher a fonte SPED) | desmarcada |
+| 4 · Extração de Itens | operação **"Apenas entradas"** com fonte SPED | "Todas" |
+
+- **Classificação** (dados do próprio SPED, nesta ordem): `IND_OPER` do C100
+  (0 = entrada, 1 = saída); sem `IND_OPER`, decide pelo **CFOP** dos itens
+  (1/2/3 = entrada, 5/6/7 = saída); sem nenhuma informação, a nota é mantida.
+- Com o filtro ativo, telas e relatórios Excel indicam
+  **"Filtro aplicado: somente documentos de entrada no SPED"** e os totais
+  refletem apenas os documentos incluídos.
+- Se nenhum documento de entrada for localizado, o sistema avisa:
+  *"Nenhum documento de entrada foi localizado no SPED para os filtros
+  selecionados."* — nada de resultado vazio sem explicação.
+- Com a opção desmarcada, o comportamento padrão é mantido (todos os
+  documentos elegíveis da regra geral). Critério e textos centralizados em
+  `core/filtro_sped.py`.
+
 ## Estrutura
 
 ```
@@ -66,6 +91,7 @@ auditoria-fiscal/
 │   ├── core/                   # nucleo compartilhado
 │   │   ├── modelos.py          # NotaFiscal, ItemNota, Participante...
 │   │   ├── sped_parser.py      # leitor do SPED Fiscal (EFD ICMS/IPI)
+│   │   ├── filtro_sped.py      # filtro "apenas documentos de entrada"
 │   │   ├── nfe_xml.py          # leitor de XML da NF-e (4.00)
 │   │   ├── sefaz_relacao.py    # leitor da relacao da SEFAZ (flexivel)
 │   │   ├── cadastro_produtos.py# leitor/regravador da base de produtos (item 5)
@@ -110,6 +136,7 @@ auditoria-fiscal/
 .\.venv\Scripts\python.exe tests\test_conferencia.py  # item 3 (persistencia)
 .\.venv\Scripts\python.exe tests\test_danfe.py        # item 3 (DANFE do XML)
 .\.venv\Scripts\python.exe tests\test_extracao.py     # item 4
+.\.venv\Scripts\python.exe tests\test_filtro_entradas.py  # filtro de entradas (SPED)
 .\.venv\Scripts\python.exe tests\test_cadastro_produtos.py   # item 5 (leitor da base)
 .\.venv\Scripts\python.exe tests\test_base_legal.py          # item 5 (bases legais)
 .\.venv\Scripts\python.exe tests\test_auditoria_produtos.py  # item 5 (motor + correcao)

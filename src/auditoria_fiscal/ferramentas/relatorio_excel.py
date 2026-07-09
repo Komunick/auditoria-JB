@@ -8,6 +8,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from ..core.filtro_sped import ROTULO_FILTRO_ENTRADAS
 from .comparador_sped_sefaz import ResultadoComparacao
 
 
@@ -54,11 +55,17 @@ def gerar_relatorio(resultado: ResultadoComparacao, caminho: str,
     if nome_empresa:
         ws["A2"] = nome_empresa
         ws["A2"].font = Font(bold=True, size=11)
+    if resultado.apenas_entradas:
+        ws["A3"] = ROTULO_FILTRO_ENTRADAS
+        ws["A3"].font = Font(bold=True, size=10, color=_AZUL)
 
     resumo = resultado.resumo()
+    rotulo_sped = ("Notas escrituradas no SPED (somente entradas)"
+                   if resultado.apenas_entradas
+                   else "Notas escrituradas no SPED (todas as operacoes)")
     linhas = [
         ("Notas na relacao da SEFAZ", resumo["notas_na_sefaz"]),
-        ("Notas escrituradas no SPED (entradas)", resumo["notas_no_sped"]),
+        (rotulo_sped, resumo["notas_no_sped"]),
         ("Conciliadas (presentes em ambos)", resumo["conciliadas"]),
         ("FALTANTES no SPED (na SEFAZ, nao escrituradas)", resumo["faltantes_no_sped"]),
         ("Canceladas/denegadas porem escrituradas", resumo["canceladas_escrituradas"]),

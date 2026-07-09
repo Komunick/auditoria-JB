@@ -135,20 +135,31 @@ def valor_para_texto(chave: str, tipo: str, valor) -> str:
 
 
 def exportar_itens_excel(linhas: list[dict], caminho: str,
-                         nome_aba: str = "Itens") -> str:
-    """Exporta as linhas de itens para um arquivo Excel formatado."""
+                         nome_aba: str = "Itens",
+                         filtro_aplicado: str = "") -> str:
+    """Exporta as linhas de itens para um arquivo Excel formatado.
+
+    filtro_aplicado: texto opcional exibido acima do cabecalho indicando o
+    filtro usado na extracao (ex.: somente documentos de entrada no SPED).
+    """
     wb = Workbook()
     ws = wb.active
     ws.title = nome_aba
 
+    linha_cab = 1
+    if filtro_aplicado:
+        cel = ws.cell(row=1, column=1, value=filtro_aplicado)
+        cel.font = Font(bold=True, color="1F4E78")
+        linha_cab = 2
+
     fonte = Font(bold=True, color="FFFFFF")
     fundo = PatternFill("solid", fgColor="1F4E78")
     for col, titulo in enumerate(TITULOS, start=1):
-        cel = ws.cell(row=1, column=col, value=titulo)
+        cel = ws.cell(row=linha_cab, column=col, value=titulo)
         cel.font = fonte
         cel.fill = fundo
         cel.alignment = Alignment(horizontal="center", vertical="center")
-    ws.freeze_panes = "A2"
+    ws.freeze_panes = f"A{linha_cab + 1}"
 
     for linha in linhas:
         valores = []
@@ -167,7 +178,7 @@ def exportar_itens_excel(linhas: list[dict], caminho: str,
         if tipo in ("num", "num4"):
             fmt = "#,##0.0000" if tipo == "num4" else "#,##0.00"
             letra = get_column_letter(col)
-            for cel in ws[letra][1:]:  # pula o cabecalho
+            for cel in ws[letra][linha_cab:]:  # pula o cabecalho (e o filtro)
                 cel.number_format = fmt
 
     # Larguras aproximadas.
@@ -176,8 +187,9 @@ def exportar_itens_excel(linhas: list[dict], caminho: str,
     for col, titulo in enumerate(TITULOS, start=1):
         ws.column_dimensions[get_column_letter(col)].width = larguras.get(titulo, 13)
 
-    if ws.max_row > 1:
-        ws.auto_filter.ref = f"A1:{get_column_letter(len(CAMPOS))}{ws.max_row}"
+    if ws.max_row > linha_cab:
+        ws.auto_filter.ref = (f"A{linha_cab}:"
+                              f"{get_column_letter(len(CAMPOS))}{ws.max_row}")
 
     wb.save(caminho)
     return caminho
