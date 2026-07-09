@@ -19,6 +19,7 @@ from ..core.sped_parser import ler_sped
 from ..core.sefaz_relacao import ler_relacao_sefaz
 from ..ferramentas.comparador_sped_sefaz import ResultadoComparacao, comparar
 from ..ferramentas.relatorio_excel import gerar_relatorio
+from .tema import QSS_BOTAO_PRIMARIO, TINTA
 
 
 def _moeda(valor) -> str:
@@ -112,11 +113,7 @@ class ComparadorWidget(QWidget):
         h.setContentsMargins(0, 0, 0, 0)
         self._btn_comparar = QPushButton("Comparar")
         self._btn_comparar.setMinimumHeight(34)
-        self._btn_comparar.setStyleSheet(
-            "QPushButton { background:#1F4E78; color:white; font-weight:bold;"
-            " border-radius:4px; padding:6px 18px; }"
-            " QPushButton:hover { background:#2E5F91; }"
-            " QPushButton:disabled { background:#9DB3C8; }")
+        self._btn_comparar.setStyleSheet(QSS_BOTAO_PRIMARIO)
         self._btn_comparar.clicked.connect(self._comparar)
         h.addWidget(self._btn_comparar)
 
@@ -134,8 +131,8 @@ class ComparadorWidget(QWidget):
         grid = QGridLayout(caixa)
         self._cartoes: dict[str, QLabel] = {}
         definicoes = [
-            ("na_sefaz", "Notas na SEFAZ", "#1F4E78"),
-            ("no_sped", "Escrituradas (SPED)", "#1F4E78"),
+            ("na_sefaz", "Notas na SEFAZ", TINTA),
+            ("no_sped", "Escrituradas (SPED)", TINTA),
             ("conciliadas", "Conciliadas", "#2E7D32"),
             ("faltantes", "FALTANTES no SPED", "#C00000"),
             ("canceladas", "Canceladas escrit.", "#B7791F"),

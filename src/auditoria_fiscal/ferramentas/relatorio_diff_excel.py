@@ -9,7 +9,8 @@ from openpyxl.utils import get_column_letter
 from ..core.filtro_sped import ROTULO_FILTRO_ENTRADAS
 from .comparador_sped_sped import ResultadoDiffSped
 
-_AZUL = "1F4E78"
+_AZUL = "26263A"      # azul-tinta da logo JB Fraga
+_DOURADO = "9C874F"   # dourado da logo (linhas de destaque)
 _VERMELHO = "C00000"
 
 
@@ -40,7 +41,7 @@ def gerar_relatorio_diff(resultado: ResultadoDiffSped, caminho: str) -> str:
     ws["A1"].font = Font(bold=True, size=14, color=_AZUL)
     if resultado.apenas_entradas:
         ws["A2"] = ROTULO_FILTRO_ENTRADAS
-        ws["A2"].font = Font(bold=True, size=10, color=_AZUL)
+        ws["A2"].font = Font(bold=True, size=10, color=_DOURADO)
     r = resultado.resumo()
     linhas = [
         (f"Notas em {ra}", r["total_a"]),

@@ -15,7 +15,7 @@ from openpyxl.utils import get_column_letter
 
 from .auditoria_produtos import ResultadoAuditoria, calcular_indicadores
 
-_AZUL = "1F4E78"
+_AZUL = "26263A"  # azul-tinta da logo JB Fraga
 
 # situacao -> (cor de fundo, cor da fonte) — padrao dos estilos "Ruim/Neutro/Bom".
 _CORES_SITUACAO: dict[str, tuple[str, str]] = {

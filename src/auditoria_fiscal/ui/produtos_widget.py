@@ -21,6 +21,7 @@ from ..ferramentas.correcao_produtos import (
     aplicar_correcoes, selecionar_alta_confianca,
 )
 from ..ferramentas.relatorio_produtos import exportar_relatorio_excel
+from .tema import QSS_BOTAO_PRIMARIO, TINTA
 
 LIMITE_PREVIA = 5000   # linhas exibidas na tabela (relatorio/nova base levam tudo)
 
@@ -152,11 +153,7 @@ class ProdutosWidget(QWidget):
 
         self._btn_auditar = QPushButton("Importar e auditar")
         self._btn_auditar.setMinimumHeight(34)
-        self._btn_auditar.setStyleSheet(
-            "QPushButton { background:#1F4E78; color:white; font-weight:bold;"
-            " border-radius:4px; padding:6px 18px; }"
-            " QPushButton:hover { background:#2E5F91; }"
-            " QPushButton:disabled { background:#9DB3C8; }")
+        self._btn_auditar.setStyleSheet(QSS_BOTAO_PRIMARIO)
         self._btn_auditar.clicked.connect(self._auditar)
         h.addWidget(self._btn_auditar)
 
@@ -176,7 +173,7 @@ class ProdutosWidget(QWidget):
         self._labels_ind: dict[str, QLabel] = {}
         for chave, titulo in _INDICADORES:
             lbl = QLabel(f"{titulo}: -")
-            lbl.setStyleSheet("font-weight:bold; color:#1F4E78;")
+            lbl.setStyleSheet(f"font-weight:bold; color:{TINTA};")
             self._labels_ind[chave] = lbl
             h.addWidget(lbl)
         h.addStretch(1)

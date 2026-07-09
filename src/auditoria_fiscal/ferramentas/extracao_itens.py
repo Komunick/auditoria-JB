@@ -149,11 +149,11 @@ def exportar_itens_excel(linhas: list[dict], caminho: str,
     linha_cab = 1
     if filtro_aplicado:
         cel = ws.cell(row=1, column=1, value=filtro_aplicado)
-        cel.font = Font(bold=True, color="1F4E78")
+        cel.font = Font(bold=True, color="9C874F")  # dourado da logo JB Fraga
         linha_cab = 2
 
     fonte = Font(bold=True, color="FFFFFF")
-    fundo = PatternFill("solid", fgColor="1F4E78")
+    fundo = PatternFill("solid", fgColor="26263A")  # azul-tinta da logo JB Fraga
     for col, titulo in enumerate(TITULOS, start=1):
         cel = ws.cell(row=linha_cab, column=col, value=titulo)
         cel.font = fonte

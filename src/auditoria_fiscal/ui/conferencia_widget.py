@@ -22,6 +22,7 @@ from ..core.nfe_xml import ler_pasta_xml
 from ..core.sped_parser import ler_sped
 from ..ferramentas.conferencia_store import ConferenciaStore
 from ..ferramentas.danfe import abrir_danfe
+from .tema import QSS_BOTAO_PRIMARIO, TINTA
 
 # Colunas da tabela
 COL_CONF, COL_NUM, COL_SERIE, COL_DATA, COL_FORN, COL_CNPJ = 0, 1, 2, 3, 4, 5
@@ -153,11 +154,7 @@ class ConferenciaWidget(QWidget):
 
         self._btn_carregar = QPushButton("Carregar notas")
         self._btn_carregar.setMinimumHeight(32)
-        self._btn_carregar.setStyleSheet(
-            "QPushButton { background:#1F4E78; color:white; font-weight:bold;"
-            " border-radius:4px; padding:6px 16px; }"
-            " QPushButton:hover { background:#2E5F91; }"
-            " QPushButton:disabled { background:#9DB3C8; }")
+        self._btn_carregar.setStyleSheet(QSS_BOTAO_PRIMARIO)
         self._btn_carregar.clicked.connect(self._carregar)
         h.addWidget(self._btn_carregar)
 
@@ -174,7 +171,7 @@ class ConferenciaWidget(QWidget):
 
         h.addStretch(1)
         self._lbl_progresso = QLabel("")
-        self._lbl_progresso.setStyleSheet("font-weight:bold; color:#1F4E78;")
+        self._lbl_progresso.setStyleSheet(f"font-weight:bold; color:{TINTA};")
         h.addWidget(self._lbl_progresso)
         return caixa
 

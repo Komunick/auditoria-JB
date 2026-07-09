@@ -17,6 +17,7 @@ from ..core.nfe_xml import ler_pasta_xml
 from ..ferramentas.extracao_itens import (
     CAMPOS, TITULOS, exportar_itens_excel, extrair_itens, valor_para_texto,
 )
+from .tema import QSS_BOTAO_PRIMARIO
 
 LIMITE_PREVIA = 2000   # linhas exibidas na previa (a exportacao leva tudo)
 
@@ -104,11 +105,7 @@ class ExtracaoWidget(QWidget):
         h.setContentsMargins(0, 0, 0, 0)
         self._btn_extrair = QPushButton("Extrair itens")
         self._btn_extrair.setMinimumHeight(34)
-        self._btn_extrair.setStyleSheet(
-            "QPushButton { background:#1F4E78; color:white; font-weight:bold;"
-            " border-radius:4px; padding:6px 18px; }"
-            " QPushButton:hover { background:#2E5F91; }"
-            " QPushButton:disabled { background:#9DB3C8; }")
+        self._btn_extrair.setStyleSheet(QSS_BOTAO_PRIMARIO)
         self._btn_extrair.clicked.connect(self._extrair)
         h.addWidget(self._btn_extrair)
 

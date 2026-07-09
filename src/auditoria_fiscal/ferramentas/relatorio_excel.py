@@ -12,7 +12,8 @@ from ..core.filtro_sped import ROTULO_FILTRO_ENTRADAS
 from .comparador_sped_sefaz import ResultadoComparacao
 
 
-_AZUL = "1F4E78"
+_AZUL = "26263A"      # azul-tinta da logo JB Fraga
+_DOURADO = "9C874F"   # dourado da logo (linhas de destaque)
 _CINZA = "D9D9D9"
 _VERMELHO = "C00000"
 _AMARELO = "FFF2CC"
@@ -57,7 +58,7 @@ def gerar_relatorio(resultado: ResultadoComparacao, caminho: str,
         ws["A2"].font = Font(bold=True, size=11)
     if resultado.apenas_entradas:
         ws["A3"] = ROTULO_FILTRO_ENTRADAS
-        ws["A3"].font = Font(bold=True, size=10, color=_AZUL)
+        ws["A3"].font = Font(bold=True, size=10, color=_DOURADO)
 
     resumo = resultado.resumo()
     rotulo_sped = ("Notas escrituradas no SPED (somente entradas)"
