@@ -2,17 +2,23 @@
 
 from __future__ import annotations
 
+import getpass
 import os
 from decimal import Decimal
 
 from PySide6.QtCore import Qt, QObject, QThread, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
-    QHeaderView, QLabel, QLineEdit, QMessageBox, QPushButton, QTableWidget,
-    QTableWidgetItem, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame,
+    QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox,
+    QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
+from ..core.composicao_fiscal import compor_nota
+from ..core.correcoes import (
+    CAMPOS_CORRIGIVEIS, TIPO_AUTOMATICA, TIPO_MANUAL, aplicar_correcoes,
+    normalizar_valor, validar_correcao,
+)
 from ..core.filtro_sped import (
     MSG_SEM_ENTRADAS, ROTULO_FILTRO_ENTRADAS, TEXTO_OPCAO_ENTRADAS,
     filtrar_entradas,
@@ -20,27 +26,34 @@ from ..core.filtro_sped import (
 from ..core.modelos import NotaFiscal
 from ..core.nfe_xml import associar_xmls, ler_pasta_xml
 from ..core.sped_parser import ler_sped
+from ..core.utils import formatar_cfop, formatar_moeda, formatar_percentual
 from ..ferramentas.conferencia_store import ConferenciaStore
 from ..ferramentas.danfe import abrir_arquivo, abrir_danfe
+from ..ferramentas.livro_fiscal import gerar_livro_fiscal
 from ..ferramentas.livro_inconsistencias import (
-    gerar_livro_inconsistencias, notas_com_observacao,
+    gerar_livro_inconsistencias, notas_inconsistentes,
 )
+from ..ferramentas.sped_corrigido import gerar_sped_corrigido
 from . import tema
 
 # Colunas da tabela
-COL_CONF, COL_NUM, COL_SERIE, COL_DATA, COL_FORN, COL_CNPJ = 0, 1, 2, 3, 4, 5
-COL_VCONT, COL_BASE, COL_ICMS, COL_CFOP, COL_CST, COL_ALIQ = 6, 7, 8, 9, 10, 11
-COL_OBS, COL_DATACONF = 12, 13
+COL_CONF, COL_NUM, COL_SERIE, COL_DATA, COL_FORN, COL_CNPJ, COL_UF = \
+    0, 1, 2, 3, 4, 5, 6
+COL_VCONT, COL_BASE, COL_ICMS, COL_CFOP, COL_CST, COL_ALIQ = \
+    7, 8, 9, 10, 11, 12
+COL_OBS, COL_DATACONF = 13, 14
 CABECALHO = ["Conferida", "Numero", "Serie", "Data", "Fornecedor", "CNPJ",
-             "Valor contabil", "Base ICMS", "Valor ICMS", "CFOP", "CST",
+             "UF", "Valor contabil", "Base ICMS", "Valor ICMS", "CFOP", "CST",
              "Aliquota", "Observacao", "Data conf."]
+
+# Colunas cuja exibicao muda quando ha correcao aplicada.
+_COLS_FISCAIS = (COL_VCONT, COL_BASE, COL_ICMS, COL_CFOP, COL_CST, COL_ALIQ)
 
 _VERDE = "#E4F3E4"
 
 
 def _moeda(valor) -> str:
-    txt = f"{float(valor or 0):,.2f}"
-    return txt.replace(",", "X").replace(".", ",").replace("X", ".")
+    return formatar_moeda(valor)
 
 
 def _data(dt) -> str:
@@ -60,7 +73,7 @@ def _aliquotas(itens) -> str:
     vistos: list[str] = []
     for it in itens:
         if it.aliq_icms and it.aliq_icms != Decimal("0"):
-            txt = _moeda(it.aliq_icms)
+            txt = formatar_percentual(it.aliq_icms)
             if txt not in vistos:
                 vistos.append(txt)
     return ", ".join(vistos)
@@ -99,6 +112,80 @@ class WorkerCarga(QObject):
             self.erro.emit(f"{type(exc).__name__}: {exc}")
 
 
+class DialogoCorrecao(QDialog):
+    """Correcao manual de um campo fiscal (CFOP, CST ou aliquota).
+
+    O valor original vem dos proprios dados da nota (ja com correcoes
+    anteriores aplicadas). A gravacao e feita pelo chamador via store —
+    nunca apenas na interface.
+    """
+
+    def __init__(self, parent, nota: NotaFiscal) -> None:
+        super().__init__(parent)
+        self._nota = nota
+        self.setWindowTitle(f"Corrigir campo fiscal — NF {nota.numero}")
+        self.setMinimumWidth(460)
+
+        grid = QGridLayout(self)
+        grid.addWidget(QLabel("Campo:"), 0, 0)
+        self._combo_campo = QComboBox()
+        for campo, rotulo in CAMPOS_CORRIGIVEIS.items():
+            self._combo_campo.addItem(rotulo, campo)
+        self._combo_campo.currentIndexChanged.connect(self._preencher_originais)
+        grid.addWidget(self._combo_campo, 0, 1)
+
+        grid.addWidget(QLabel("Valor original:"), 1, 0)
+        self._combo_original = QComboBox()
+        grid.addWidget(self._combo_original, 1, 1)
+
+        grid.addWidget(QLabel("Valor corrigido:"), 2, 0)
+        self._edit_novo = QLineEdit()
+        self._edit_novo.setPlaceholderText("Ex.: 1403 (CFOP), 060 (CST), 20,50 (aliquota)")
+        grid.addWidget(self._edit_novo, 2, 1)
+
+        grid.addWidget(QLabel("Motivo:"), 3, 0)
+        self._edit_motivo = QLineEdit()
+        self._edit_motivo.setPlaceholderText("Justificativa da correcao (auditoria)")
+        grid.addWidget(self._edit_motivo, 3, 1)
+
+        grid.addWidget(QLabel("Usuario:"), 4, 0)
+        self._edit_usuario = QLineEdit(getpass.getuser())
+        grid.addWidget(self._edit_usuario, 4, 1)
+
+        self._chk_lote = QCheckBox(
+            "Aplicar a todas as notas carregadas com este valor\n"
+            "(regra em lote — registrada como correcao automatica)")
+        grid.addWidget(self._chk_lote, 5, 1)
+
+        botoes = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        botoes.accepted.connect(self.accept)
+        botoes.rejected.connect(self.reject)
+        grid.addWidget(botoes, 6, 0, 1, 2)
+
+        self._preencher_originais()
+
+    def _preencher_originais(self) -> None:
+        campo = self._combo_campo.currentData()
+        self._combo_original.clear()
+        vistos: list[str] = []
+        for item in self._nota.itens:
+            v = normalizar_valor(campo, getattr(item, campo))
+            if v and v not in vistos:
+                vistos.append(v)
+        self._combo_original.addItems(vistos)
+
+    def dados(self) -> dict:
+        return {
+            "campo": self._combo_campo.currentData(),
+            "rotulo": self._combo_campo.currentText(),
+            "original": self._combo_original.currentText().strip(),
+            "novo": self._edit_novo.text().strip(),
+            "motivo": self._edit_motivo.text().strip(),
+            "usuario": self._edit_usuario.text().strip(),
+            "lote": self._chk_lote.isChecked(),
+        }
+
+
 class ConferenciaWidget(QWidget):
     def __init__(self, store: ConferenciaStore | None = None) -> None:
         super().__init__()
@@ -106,9 +193,14 @@ class ConferenciaWidget(QWidget):
         self._notas: list[NotaFiscal] = []
         self._chaves: list[str] = []
         self._nota_por_chave: dict[str, NotaFiscal] = {}
+        # Copias com correcoes aplicadas (precedencia central): a tela sempre
+        # exibe estas; os originais ficam em _notas para historico.
+        self._corrigidas: dict[str, NotaFiscal] = {}
         self._carregando = False
         self._filtro_entradas = False   # filtro usado na ultima carga
         self._contexto = ""             # origem da ultima carga (p/ relatorios)
+        self._fonte_atual = ""          # "xml" ou "sped" da ultima carga
+        self._caminho_fonte = ""        # arquivo SPED da ultima carga
         self._thread: QThread | None = None
         self._worker: WorkerCarga | None = None
 
@@ -116,7 +208,8 @@ class ConferenciaWidget(QWidget):
         layout.setSpacing(10)
         layout.addWidget(self._montar_selecao())
         layout.addWidget(self._montar_acoes())
-        layout.addWidget(self._montar_tabela(), stretch=1)
+        layout.addWidget(self._montar_tabela(), stretch=3)
+        layout.addWidget(self._montar_composicao(), stretch=1)
 
         self._status = QLabel(
             "Importe um SPED (com a pasta de XMLs para abrir o DANFE) "
@@ -178,37 +271,105 @@ class ConferenciaWidget(QWidget):
 
     def _montar_acoes(self) -> QWidget:
         caixa = QWidget()
-        h = QHBoxLayout(caixa)
-        h.setContentsMargins(0, 0, 0, 0)
+        v = QVBoxLayout(caixa)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(6)
 
+        linha1 = QHBoxLayout()
         self._btn_carregar = QPushButton("Carregar notas")
         self._btn_carregar.setMinimumHeight(32)
         self._btn_carregar.setStyleSheet(tema.QSS_BOTAO_PRIMARIO)
         self._btn_carregar.clicked.connect(self._carregar)
-        h.addWidget(self._btn_carregar)
+        linha1.addWidget(self._btn_carregar)
 
-        self._btn_danfe = QPushButton("Abrir DANFE da nota selecionada")
+        self._btn_danfe = QPushButton("Abrir DANFE")
         self._btn_danfe.setMinimumHeight(32)
         self._btn_danfe.clicked.connect(self._abrir_danfe)
-        h.addWidget(self._btn_danfe)
+        linha1.addWidget(self._btn_danfe)
 
-        self._btn_livro = QPushButton("Livro de Inconsistencias (PDF)")
-        self._btn_livro.setMinimumHeight(32)
-        self._btn_livro.setToolTip(
-            "Gera um PDF somente com as notas carregadas que tem observacao.")
-        self._btn_livro.clicked.connect(self._gerar_livro)
-        h.addWidget(self._btn_livro)
+        self._btn_corrigir = QPushButton("Corrigir campo fiscal...")
+        self._btn_corrigir.setMinimumHeight(32)
+        self._btn_corrigir.setToolTip(
+            "Corrige CFOP, CST ou aliquota da nota selecionada.\n"
+            "O valor original e preservado no historico de auditoria e a\n"
+            "correcao vale para a tela, o Livro Fiscal, o relatorio de\n"
+            "inconsistencias e o SPED corrigido.")
+        self._btn_corrigir.clicked.connect(self._corrigir_nota)
+        linha1.addWidget(self._btn_corrigir)
 
-        h.addWidget(QLabel("Filtro:"))
+        linha1.addWidget(QLabel("Filtro:"))
         self._combo_filtro = QComboBox()
         self._combo_filtro.addItems(["Todas", "Pendentes", "Conferidas"])
         self._combo_filtro.currentIndexChanged.connect(lambda _: self._aplicar_filtro())
-        h.addWidget(self._combo_filtro)
+        linha1.addWidget(self._combo_filtro)
 
-        h.addStretch(1)
+        linha1.addStretch(1)
         self._lbl_progresso = QLabel("")
-        self._lbl_progresso.setStyleSheet(f"font-weight:bold; color:{tema.COR_DESTAQUE};")
-        h.addWidget(self._lbl_progresso)
+        self._lbl_progresso.setStyleSheet(
+            f"font-weight:bold; color:{tema.COR_DESTAQUE};")
+        linha1.addWidget(self._lbl_progresso)
+        v.addLayout(linha1)
+
+        linha2 = QHBoxLayout()
+        linha2.addWidget(QLabel("Documentos:"))
+
+        self._btn_livro_fiscal = QPushButton("Livro Fiscal (PDF)")
+        self._btn_livro_fiscal.setMinimumHeight(30)
+        self._btn_livro_fiscal.setToolTip(
+            "Livro com TODAS as notas carregadas, ja com as correcoes,\n"
+            "agrupadas por CFOP -> CST -> aliquota.")
+        self._btn_livro_fiscal.clicked.connect(self._gerar_livro_fiscal)
+        linha2.addWidget(self._btn_livro_fiscal)
+
+        self._btn_livro = QPushButton("Inconsistencias (PDF)")
+        self._btn_livro.setMinimumHeight(30)
+        self._btn_livro.setToolTip(
+            "PDF somente com as notas com observacao e/ou correcao,\n"
+            "incluindo a trilha de auditoria das correcoes.")
+        self._btn_livro.clicked.connect(self._gerar_livro)
+        linha2.addWidget(self._btn_livro)
+
+        self._btn_sped = QPushButton("Gerar SPED corrigido")
+        self._btn_sped.setMinimumHeight(30)
+        self._btn_sped.setToolTip(
+            "Reescreve o arquivo SPED importado aplicando as correcoes de\n"
+            "CFOP/CST (C170 + C190 reagrupados + contadores recalculados).")
+        self._btn_sped.clicked.connect(self._gerar_sped)
+        linha2.addWidget(self._btn_sped)
+
+        linha2.addStretch(1)
+        v.addLayout(linha2)
+        return caixa
+
+    def _montar_composicao(self) -> QWidget:
+        caixa = QFrame()
+        caixa.setFrameShape(QFrame.StyledPanel)
+        v = QVBoxLayout(caixa)
+        v.setContentsMargins(8, 6, 8, 6)
+        v.setSpacing(4)
+
+        titulo = QLabel("Composicao fiscal da nota selecionada "
+                        "(CFOP -> CST -> Aliquota)")
+        titulo.setStyleSheet(f"font-weight:bold; color:{tema.COR_DESTAQUE};")
+        v.addWidget(titulo)
+
+        self._tab_comp = QTableWidget(0, 8)
+        self._tab_comp.setHorizontalHeaderLabels(
+            ["CFOP", "CST", "Aliquota", "Valor contabil", "Base ICMS",
+             "Valor ICMS", "ICMS-ST", "Itens"])
+        self._tab_comp.setSelectionMode(QTableWidget.NoSelection)
+        self._tab_comp.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._tab_comp.verticalHeader().setVisible(False)
+        self._tab_comp.horizontalHeader().setSectionResizeMode(
+            QHeaderView.Stretch)
+        self._tab_comp.setMinimumHeight(110)
+        v.addWidget(self._tab_comp)
+
+        self._lbl_alertas = QLabel("")
+        self._lbl_alertas.setWordWrap(True)
+        self._lbl_alertas.setStyleSheet(
+            f"color:{tema.DOURADO_TEXTO}; font-style:italic;")
+        v.addWidget(self._lbl_alertas)
         return caixa
 
     def _montar_tabela(self) -> QWidget:
@@ -221,6 +382,7 @@ class ConferenciaWidget(QWidget):
         self._tabela.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self._tabela.itemChanged.connect(self._ao_editar)
         self._tabela.itemDoubleClicked.connect(lambda _: self._abrir_danfe())
+        self._tabela.itemSelectionChanged.connect(self._atualizar_composicao)
         return self._tabela
 
     # ------------------------------------------------------------------
@@ -257,6 +419,8 @@ class ConferenciaWidget(QWidget):
         self._btn_carregar.setEnabled(False)
         self._status.setText("Carregando notas...")
         self._filtro_entradas = fonte == "sped" and self._chk_entradas.isChecked()
+        self._fonte_atual = fonte
+        self._caminho_fonte = caminho
         self._thread = QThread()
         self._worker = WorkerCarga(fonte, caminho, self._filtro_entradas, pasta_xml)
         self._worker.moveToThread(self._thread)
@@ -278,12 +442,14 @@ class ConferenciaWidget(QWidget):
         self._contexto = contexto
         self._nota_por_chave = {n.chave_normalizada: n for n in notas}
         self._chaves = [n.chave_normalizada for n in notas]
+        self._reaplicar_correcoes()
         estados = self._store.carregar()
 
         self._carregando = True
         self._tabela.setRowCount(len(notas))
         for i, nota in enumerate(notas):
-            estado = estados.get(nota.chave_normalizada)
+            chave = nota.chave_normalizada
+            estado = estados.get(chave)
             conferida = estado.conferida if estado else False
             obs = estado.observacao if estado else ""
             data_conf = estado.data_conferencia if estado else ""
@@ -294,12 +460,8 @@ class ConferenciaWidget(QWidget):
             self._por_texto(i, COL_DATA, _data(nota.dt_emissao))
             self._por_texto(i, COL_FORN, forn)
             self._por_texto(i, COL_CNPJ, nota.cnpj_emitente)
-            self._por_texto(i, COL_VCONT, _moeda(nota.valor_documento))
-            self._por_texto(i, COL_BASE, _moeda(nota.vl_bc_icms))
-            self._por_texto(i, COL_ICMS, _moeda(nota.vl_icms))
-            self._por_texto(i, COL_CFOP, _distintos_texto(nota.itens, "cfop"))
-            self._por_texto(i, COL_CST, _distintos_texto(nota.itens, "cst_icms"))
-            self._por_texto(i, COL_ALIQ, _aliquotas(nota.itens))
+            self._por_texto(i, COL_UF, nota.uf_origem)
+            self._preencher_fiscal(i, self._corrigidas.get(chave, nota))
             self._por_texto(i, COL_DATACONF, data_conf)
 
             # Conferida (checkbox)
@@ -315,6 +477,7 @@ class ConferenciaWidget(QWidget):
 
             self._estilo_linha(i, conferida)
         self._carregando = False
+        self._atualizar_composicao()
 
         self._tabela.resizeColumnsToContents()
         self._tabela.setColumnWidth(COL_OBS, 220)
@@ -335,6 +498,96 @@ class ConferenciaWidget(QWidget):
         item = QTableWidgetItem(str(texto))
         item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)  # somente leitura
         self._tabela.setItem(linha, col, item)
+
+    def _reaplicar_correcoes(self) -> None:
+        """Reconstroi as copias corrigidas (precedencia central)."""
+        mapa = self._store.todas_correcoes()
+        self._corrigidas = {}
+        for nota in self._notas:
+            chave = nota.chave_normalizada
+            corrigida = aplicar_correcoes(nota, mapa.get(chave, []))
+            corrigida.xml_path = nota.xml_path   # vinculo do DANFE acompanha
+            self._corrigidas[chave] = corrigida
+
+    def _preencher_fiscal(self, i: int, nota: NotaFiscal) -> None:
+        """Preenche as colunas fiscais com os valores vigentes (corrigidos)."""
+        self._por_texto(i, COL_VCONT, _moeda(nota.valor_documento))
+        self._por_texto(i, COL_BASE, _moeda(nota.vl_bc_icms))
+        self._por_texto(i, COL_ICMS, _moeda(nota.vl_icms))
+        self._por_texto(i, COL_CFOP, _distintos_texto(nota.itens, "cfop"))
+        self._por_texto(i, COL_CST, _distintos_texto(nota.itens, "cst_icms"))
+        self._por_texto(i, COL_ALIQ, _aliquotas(nota.itens))
+
+        # Valores corrigidos: destaque dourado + tooltip com o original.
+        originais: dict[str, str] = {}
+        for item in nota.itens:
+            for campo, original in item.corrigido_de.items():
+                originais.setdefault(campo, original)
+        col_por_campo = {"cfop": COL_CFOP, "cst_icms": COL_CST,
+                         "aliq_icms": COL_ALIQ}
+        for campo, original in originais.items():
+            celula = self._tabela.item(i, col_por_campo[campo])
+            if celula is None:
+                continue
+            celula.setForeground(QColor(tema.DOURADO_TEXTO))
+            fonte = celula.font()
+            fonte.setBold(True)
+            celula.setFont(fonte)
+            rotulo = CAMPOS_CORRIGIVEIS.get(campo, campo)
+            celula.setToolTip(f"{rotulo} corrigido — valor original: {original}")
+
+    def _atualizar_composicao(self) -> None:
+        """Composicao CFOP -> CST -> aliquota da nota selecionada."""
+        self._tab_comp.setRowCount(0)
+        self._lbl_alertas.setText("")
+        linha = self._tabela.currentRow()
+        if linha < 0 or linha >= len(self._chaves):
+            return
+        nota = self._corrigidas.get(self._chaves[linha])
+        if nota is None:
+            return
+        comp = compor_nota(nota)
+
+        def _celula(r, c, texto, negrito=False, corrigido_de=None):
+            item = QTableWidgetItem(str(texto))
+            item.setFlags(Qt.ItemIsEnabled)
+            if negrito or corrigido_de:
+                fonte = item.font()
+                fonte.setBold(True)
+                item.setFont(fonte)
+            if corrigido_de:
+                item.setForeground(QColor(tema.DOURADO_TEXTO))
+                item.setToolTip(f"Corrigido — valor original: {corrigido_de}")
+            self._tab_comp.setItem(r, c, item)
+
+        self._tab_comp.setRowCount(len(comp.grupos) + 1)
+        _celula(0, 0, "TOTAL DA NOTA", negrito=True)
+        _celula(0, 1, "", )
+        _celula(0, 2, "")
+        _celula(0, 3, formatar_moeda(comp.total_nota, True), negrito=True)
+        _celula(0, 4, "")
+        _celula(0, 5, "")
+        _celula(0, 6, "")
+        soma = comp.soma_valor_contabil
+        _celula(0, 7, f"soma itens: {formatar_moeda(soma, True)}")
+
+        for r, g in enumerate(comp.grupos, start=1):
+            _celula(r, 0, formatar_cfop(g.cfop) or "--",
+                    corrigido_de=g.corrigido_de.get("cfop"))
+            _celula(r, 1, g.cst or "--",
+                    corrigido_de=g.corrigido_de.get("cst_icms"))
+            _celula(r, 2, formatar_percentual(g.aliquota),
+                    corrigido_de=g.corrigido_de.get("aliq_icms"))
+            _celula(r, 3, formatar_moeda(g.valor_contabil, True))
+            _celula(r, 4, formatar_moeda(g.vl_bc_icms, True))
+            _celula(r, 5, formatar_moeda(g.vl_icms, True))
+            st = (f"{formatar_moeda(g.vl_icms_st, True)}"
+                  if (g.vl_icms_st or g.vl_bc_icms_st) else "")
+            _celula(r, 6, st)
+            _celula(r, 7, g.qtd_itens or "")
+
+        if comp.alertas:
+            self._lbl_alertas.setText("Alertas: " + " | ".join(comp.alertas))
 
     def _estilo_linha(self, linha, conferida) -> None:
         cor = QColor(_VERDE) if conferida else QColor(Qt.white)
@@ -431,6 +684,7 @@ class ConferenciaWidget(QWidget):
             return False
         self._status.setText("Vinculando XMLs pela chave de acesso...")
         associadas = associar_xmls(self._notas, pasta)
+        self._reaplicar_correcoes()   # copias corrigidas herdam o xml_path
         self._edit_pasta_xml.setText(pasta)
         sem_xml = sum(1 for n in self._notas if not n.xml_path)
         extra = f" ({sem_xml} ainda sem XML)" if sem_xml else ""
@@ -443,37 +697,205 @@ class ConferenciaWidget(QWidget):
             return False
         return True
 
-    def _gerar_livro(self) -> None:
-        if not self._notas:
-            QMessageBox.information(
-                self, "Livro de Inconsistencias",
-                "Carregue as notas antes de gerar o livro.")
+    # ------------------------------------------------------------------
+    # Correcao de campos fiscais
+
+    def _corrigir_nota(self) -> None:
+        linha = self._tabela.currentRow()
+        if linha < 0 or linha >= len(self._chaves):
+            QMessageBox.information(self, "Correcao",
+                                    "Selecione uma nota na tabela.")
             return
-        estados = self._store.carregar()
-        com_obs = notas_com_observacao(self._notas, estados)
-        if not com_obs:
+        chave = self._chaves[linha]
+        nota = self._corrigidas.get(chave)
+        if nota is None:
+            return
+        if not nota.itens:
             QMessageBox.information(
-                self, "Livro de Inconsistencias",
-                "Nenhuma nota carregada tem observacao registrada.\n\n"
-                "O livro lista somente as notas com observacao — registre as "
-                "inconsistencias na coluna Observacao e gere novamente.")
+                self, "Correcao",
+                "Esta nota nao tem itens detalhados (sem C170/det) — nao ha "
+                "CFOP/CST/aliquota por item para corrigir.")
+            return
+
+        dlg = DialogoCorrecao(self, nota)
+        if dlg.exec() != QDialog.Accepted:
+            return
+        d = dlg.dados()
+        try:
+            validar_correcao(d["campo"], d["original"], d["novo"], d["usuario"])
+        except ValueError as exc:
+            QMessageBox.warning(self, "Correcao invalida", str(exc))
+            return
+
+        alvo = ("TODAS as notas carregadas com este valor" if d["lote"]
+                else f"a NF {nota.numero}")
+        resp = QMessageBox.question(
+            self, "Confirmar correcao",
+            f"Alterar {d['rotulo']} de {d['original']} para {d['novo']} "
+            f"em {alvo}?\n\nO valor original sera preservado no historico "
+            "de auditoria e a correcao valera para a tela, o Livro Fiscal, "
+            "o relatorio de inconsistencias e o SPED corrigido.",
+            QMessageBox.Yes | QMessageBox.No)
+        if resp != QMessageBox.Yes:
+            return
+
+        aplicadas = 0
+        try:
+            if d["lote"]:
+                alvo_norm = normalizar_valor(d["campo"], d["original"])
+                for ch, nota_c in self._corrigidas.items():
+                    tem_valor = any(
+                        normalizar_valor(d["campo"], getattr(it, d["campo"]))
+                        == alvo_norm for it in nota_c.itens)
+                    if not tem_valor:
+                        continue
+                    tipo = TIPO_MANUAL if ch == chave else TIPO_AUTOMATICA
+                    self._store.registrar_correcao(
+                        ch, d["campo"], d["original"], d["novo"],
+                        d["usuario"], tipo=tipo, motivo=d["motivo"],
+                        inconsistencia=self._store.obter(ch).observacao)
+                    aplicadas += 1
+            else:
+                self._store.registrar_correcao(
+                    chave, d["campo"], d["original"], d["novo"], d["usuario"],
+                    tipo=TIPO_MANUAL, motivo=d["motivo"],
+                    inconsistencia=self._store.obter(chave).observacao)
+                aplicadas = 1
+        except ValueError as exc:
+            QMessageBox.warning(self, "Correcao invalida", str(exc))
+            return
+
+        # Recalcula e atualiza a tela sem retrabalho do usuario.
+        self._reaplicar_correcoes()
+        self._carregando = True
+        for i, ch in enumerate(self._chaves):
+            nota_c = self._corrigidas.get(ch)
+            if nota_c is not None:
+                self._preencher_fiscal(i, nota_c)
+        self._carregando = False
+        self._atualizar_composicao()
+        self._status.setText(
+            f"Correcao registrada em {aplicadas} nota(s): {d['rotulo']} "
+            f"{d['original']} -> {d['novo']} (por {d['usuario']}).")
+
+    # ------------------------------------------------------------------
+    # Documentos (Livro Fiscal, Inconsistencias, SPED corrigido)
+
+    def _gerar_livro_fiscal(self) -> None:
+        if not self._notas:
+            QMessageBox.information(self, "Livro Fiscal",
+                                    "Carregue as notas antes de gerar o livro.")
             return
         caminho, _ = QFileDialog.getSaveFileName(
-            self, "Salvar Livro de Inconsistencias",
-            "livro_inconsistencias.pdf", "PDF (*.pdf)")
+            self, "Salvar Livro Fiscal", "livro_fiscal.pdf", "PDF (*.pdf)")
         if not caminho:
             return
-        self._status.setText("Gerando Livro de Inconsistencias...")
+        self._status.setText("Gerando Livro Fiscal...")
         filtro = f"{ROTULO_FILTRO_ENTRADAS}." if self._filtro_entradas else ""
         try:
-            gerar_livro_inconsistencias(self._notas, estados, caminho,
-                                        contexto=self._contexto, filtro=filtro)
+            gerar_livro_fiscal(
+                self._notas, self._store.carregar(), caminho,
+                contexto=self._contexto, filtro=filtro,
+                correcoes_por_chave=self._store.todas_correcoes())
             abrir_arquivo(caminho)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(
                 self, "Erro",
-                f"Nao foi possivel gerar o Livro de Inconsistencias:\n\n{exc}")
-            self._status.setText("Erro ao gerar o Livro de Inconsistencias.")
+                f"Nao foi possivel gerar o Livro Fiscal:\n\n{exc}")
+            self._status.setText("Erro ao gerar o Livro Fiscal.")
             return
         self._status.setText(
-            f"Livro de Inconsistencias gerado com {len(com_obs)} nota(s).")
+            f"Livro Fiscal gerado com {len(self._notas)} nota(s).")
+
+    def _gerar_livro(self) -> None:
+        if not self._notas:
+            QMessageBox.information(
+                self, "Relatorio de Inconsistencias",
+                "Carregue as notas antes de gerar o relatorio.")
+            return
+        estados = self._store.carregar()
+        correcoes = self._store.todas_correcoes()
+        inconsistentes = notas_inconsistentes(self._notas, estados, correcoes)
+        if not inconsistentes:
+            QMessageBox.information(
+                self, "Relatorio de Inconsistencias",
+                "Nenhuma nota carregada tem observacao ou correcao.\n\n"
+                "Registre as inconsistencias na coluna Observacao (ou aplique "
+                "correcoes) e gere novamente.")
+            return
+        caminho, _ = QFileDialog.getSaveFileName(
+            self, "Salvar Relatorio de Inconsistencias",
+            "relatorio_inconsistencias.pdf", "PDF (*.pdf)")
+        if not caminho:
+            return
+        self._status.setText("Gerando Relatorio de Inconsistencias...")
+        filtro = f"{ROTULO_FILTRO_ENTRADAS}." if self._filtro_entradas else ""
+        try:
+            gerar_livro_inconsistencias(self._notas, estados, caminho,
+                                        contexto=self._contexto, filtro=filtro,
+                                        correcoes_por_chave=correcoes)
+            abrir_arquivo(caminho)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(
+                self, "Erro",
+                f"Nao foi possivel gerar o Relatorio de Inconsistencias:"
+                f"\n\n{exc}")
+            self._status.setText("Erro ao gerar o Relatorio de Inconsistencias.")
+            return
+        self._status.setText(
+            f"Relatorio de Inconsistencias gerado com "
+            f"{len(inconsistentes)} nota(s).")
+
+    def _gerar_sped(self) -> None:
+        if self._fonte_atual != "sped" or not os.path.isfile(self._caminho_fonte):
+            QMessageBox.information(
+                self, "SPED corrigido",
+                "Carregue um arquivo SPED Fiscal (fonte SPED) para gerar a "
+                "versao corrigida.")
+            return
+        correcoes = self._store.todas_correcoes()
+        ativas = [c for lista in correcoes.values() for c in lista if c.ativa]
+        if not ativas:
+            QMessageBox.information(
+                self, "SPED corrigido",
+                "Nenhuma correcao registrada — o arquivo gerado seria "
+                "identico ao original.")
+            return
+        base, ext = os.path.splitext(os.path.basename(self._caminho_fonte))
+        caminho, _ = QFileDialog.getSaveFileName(
+            self, "Salvar SPED corrigido", f"{base}_corrigido{ext or '.txt'}",
+            "Arquivos SPED (*.txt);;Todos (*.*)")
+        if not caminho:
+            return
+        if os.path.abspath(caminho) == os.path.abspath(self._caminho_fonte):
+            QMessageBox.warning(
+                self, "SPED corrigido",
+                "Escolha um nome diferente do arquivo original — o SPED "
+                "importado nunca e sobrescrito.")
+            return
+        self._status.setText("Gerando SPED corrigido...")
+        try:
+            resumo = gerar_sped_corrigido(self._caminho_fonte, caminho,
+                                          correcoes)
+        except Exception as exc:  # noqa: BLE001
+            QMessageBox.critical(
+                self, "Erro", f"Nao foi possivel gerar o SPED:\n\n{exc}")
+            self._status.setText("Erro ao gerar o SPED corrigido.")
+            return
+        detalhes = [
+            f"Arquivo: {caminho}",
+            f"Itens C170 alterados: {resumo.itens_c170_alterados}",
+            f"Registros C190 mesclados: {resumo.c190_mesclados}",
+            f"Notas alteradas: {resumo.notas_alteradas}",
+        ]
+        if resumo.ignoradas:
+            detalhes.append("\nCorrecoes NAO levadas ao SPED:")
+            detalhes.extend(f"- {msg}" for msg in resumo.ignoradas)
+        if resumo.avisos:
+            detalhes.append("\nAvisos:")
+            detalhes.extend(f"- {msg}" for msg in resumo.avisos)
+        QMessageBox.information(self, "SPED corrigido gerado",
+                                "\n".join(detalhes))
+        self._status.setText(
+            f"SPED corrigido gerado ({resumo.notas_alteradas} nota(s) "
+            "alteradas).")

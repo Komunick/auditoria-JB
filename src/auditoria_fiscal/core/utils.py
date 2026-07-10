@@ -28,6 +28,31 @@ def para_decimal(valor: Optional[str]) -> Decimal:
         return Decimal("0")
 
 
+def _numero_br(valor, casas: int = 2) -> str:
+    d = valor if isinstance(valor, Decimal) else Decimal(str(valor or 0))
+    txt = f"{d:,.{casas}f}"
+    return txt.replace(",", "X").replace(".", ",").replace("X", ".")
+
+
+def formatar_moeda(valor, com_simbolo: bool = False) -> str:
+    """Formata valor monetario no padrao brasileiro: 1.234,56 / R$ 1.234,56."""
+    txt = _numero_br(valor)
+    return f"R$ {txt}" if com_simbolo else txt
+
+
+def formatar_percentual(valor) -> str:
+    """Formata aliquota no padrao brasileiro: 20,50%."""
+    return f"{_numero_br(valor)}%"
+
+
+def formatar_cfop(cfop: str) -> str:
+    """Apresenta o CFOP com ponto de milhar: 1102 -> 1.102."""
+    digitos = "".join(c for c in str(cfop or "") if c.isdigit())
+    if len(digitos) == 4:
+        return f"{digitos[0]}.{digitos[1:]}"
+    return str(cfop or "")
+
+
 def para_data(valor) -> Optional[date]:
     """Converte data do SPED (ddmmaaaa) ou formatos comuns para date.
 

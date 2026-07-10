@@ -45,9 +45,40 @@ persistindo entre sessões.
   DANFE"** — cada XML é **vinculado à sua nota pela chave de acesso** (busca
   recursiva na pasta). Se a pasta não for informada e o usuário pedir um
   DANFE, o sistema pergunta a pasta na hora e faz o vínculo de todas as notas.
-- **Livro de Inconsistências (PDF)**: gera um relatório em PDF contendo
-  **exclusivamente as notas com observação** registrada (número, série, data,
-  fornecedor, CNPJ, valor, CFOPs, observação e situação de conferência).
+- **Composição fiscal por CFOP → CST → alíquota**: painel abaixo da tabela
+  mostra, para a nota selecionada, o valor total e cada agrupamento com valor
+  contábil, base de cálculo, alíquota (`20,50%`) e valor do ICMS
+  (`R$ 1.234,56`), sem misturar alíquotas diferentes do mesmo CFOP/CST.
+  Divergências entre a soma dos grupos e o total (ou entre base × alíquota e
+  o imposto) geram **alertas** — nunca bloqueio, pois podem decorrer de
+  redução de base, diferimento, ST ou arredondamento (`core/composicao_fiscal.py`).
+- **Correção de CFOP/CST/alíquota** (botão *Corrigir campo fiscal...*): com
+  confirmação, motivo e usuário; opcionalmente **em lote** para todas as
+  notas com o mesmo valor (registrada como correção *automática*). O valor
+  original **nunca é apagado**: a trilha (original → corrigido, campo,
+  usuário, data/hora, tipo, motivo, inconsistência, status) fica na tabela
+  `correcao` do SQLite. A **precedência é centralizada** em
+  `core/correcoes.py` (corrigido quando existir; senão o original) e vale
+  para a tela, os PDFs e o SPED. Valores corrigidos aparecem em dourado com
+  o original no tooltip.
+- **Livro Fiscal (PDF)**: todas as notas carregadas, já corrigidas, na ordem
+  CFOP → Valor Contábil → Base de Cálculo → Alíquota → Valor do ICMS, com a
+  observação/inconsistência abaixo dos valores, **sem data de conferência** e
+  sem separar o cabeçalho da nota dos seus valores entre páginas.
+- **Relatório de Inconsistências (PDF)**: somente notas com observação e/ou
+  correção — identificação completa (nº, série, chave, emitente, UF),
+  detalhamento **por alíquota**, descrição da inconsistência e a trilha das
+  correções.
+- **SPED Fiscal corrigido**: reescreve o arquivo SPED importado aplicando as
+  correções de CFOP/CST nos **C170**, reagrupando os **C190** (grupos que
+  coincidem são mesclados, sem duplicidade) e recalculando os contadores
+  (C990/9900/9999). O leiaute e os registros não tratados são preservados
+  byte a byte; o arquivo original nunca é sobrescrito. **Limitação
+  documentada**: correções de *alíquota* não vão ao SPED (afetariam a
+  apuração E110) — são listadas para tratamento com o responsável fiscal.
+
+> O sistema não possui autenticação de usuários: o "usuário responsável" da
+> correção é o nome informado no diálogo (padrão: usuário do Windows).
 
 > A leitura da relação da SEFAZ (item 1) usa **detecção automática de colunas** —
 > validada contra o formato real do cliente (aba "Arquivo Sefaz").
@@ -103,6 +134,8 @@ auditoria-fiscal/
 │   │   ├── sped_parser.py      # leitor do SPED Fiscal (EFD ICMS/IPI)
 │   │   ├── filtro_sped.py      # filtro "apenas documentos de entrada"
 │   │   ├── nfe_xml.py          # leitor de XML da NF-e (4.00)
+│   │   ├── composicao_fiscal.py# agrupamento CFOP -> CST -> aliquota (item 3)
+│   │   ├── correcoes.py        # correcoes com auditoria e precedencia (item 3)
 │   │   ├── sefaz_relacao.py    # leitor da relacao da SEFAZ (flexivel)
 │   │   ├── cadastro_produtos.py# leitor/regravador da base de produtos (item 5)
 │   │   ├── base_legal.py       # carga das bases legais de dados/ (item 5)
@@ -112,9 +145,11 @@ auditoria-fiscal/
 │   │   ├── relatorio_excel.py         # relatorio de conferencia (item 1)
 │   │   ├── comparador_sped_sped.py    # motor do item 2 (diff)
 │   │   ├── relatorio_diff_excel.py    # relatorio de diff (item 2)
-│   │   ├── conferencia_store.py       # persistencia SQLite (item 3)
+│   │   ├── conferencia_store.py       # persistencia SQLite (item 3, + correcoes)
 │   │   ├── danfe.py                   # geracao de DANFE do XML (item 3)
-│   │   ├── livro_inconsistencias.py   # livro de inconsistencias em PDF (item 3)
+│   │   ├── livro_fiscal.py            # Livro Fiscal em PDF (item 3)
+│   │   ├── livro_inconsistencias.py   # relatorio de inconsistencias em PDF (item 3)
+│   │   ├── sped_corrigido.py          # SPED com correcoes aplicadas (item 3)
 │   │   ├── extracao_itens.py          # extracao de itens (item 4)
 │   │   ├── auditoria_produtos.py      # motor de auditoria (item 5)
 │   │   ├── correcao_produtos.py       # correcoes + historico (item 5)
@@ -148,6 +183,10 @@ auditoria-fiscal/
 .\.venv\Scripts\python.exe tests\test_danfe.py        # item 3 (DANFE do XML)
 .\.venv\Scripts\python.exe tests\test_associar_xml.py # item 3 (XML x SPED por chave)
 .\.venv\Scripts\python.exe tests\test_livro_inconsistencias.py  # item 3 (livro PDF)
+.\.venv\Scripts\python.exe tests\test_composicao_fiscal.py  # item 3 (CFOP/CST/aliquota)
+.\.venv\Scripts\python.exe tests\test_correcoes.py          # item 3 (correcoes/auditoria)
+.\.venv\Scripts\python.exe tests\test_livro_fiscal.py       # item 3 (Livro Fiscal PDF)
+.\.venv\Scripts\python.exe tests\test_sped_corrigido.py     # item 3 (SPED corrigido)
 .\.venv\Scripts\python.exe tests\test_extracao.py     # item 4
 .\.venv\Scripts\python.exe tests\test_filtro_entradas.py  # filtro de entradas (SPED)
 .\.venv\Scripts\python.exe tests\test_cadastro_produtos.py   # item 5 (leitor da base)
