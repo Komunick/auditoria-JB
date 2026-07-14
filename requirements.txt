@@ -12,3 +12,11 @@ pandas>=2.2
 
 # Geracao do DANFE (PDF) a partir do XML da NF-e (Livro de Conferencia)
 brazilfiscalreport>=1.0
+
+# Versao web (site interno): servidor da API + uploads multipart
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+
+# Testes da versao web (TestClient)
+httpx>=0.27

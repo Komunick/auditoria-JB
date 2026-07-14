@@ -8,3 +8,5 @@ build_pyinstaller.log
 # Arquivos fiscais reais nao devem ir para o controle de versao:
 amostras/*
 !amostras/LEIA-ME.txt
+
+dados_web/

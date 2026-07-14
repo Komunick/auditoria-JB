@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Auditoria Fiscal — JB Fraga Contabilidade</title>
+  <link rel="icon" href="logo.jpg">
+  <link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+  <!-- Login / bootstrap -->
+  <div id="tela-login" class="tela-login oculto">
+    <div class="cartao-login">
+      <img src="logo.jpg" alt="JB Fraga" width="64">
+      <h1>Ferramentas de Auditoria Fiscal</h1>
+      <p class="marca">JB FRAGA CONTABILIDADE</p>
+      <form id="form-login" class="oculto">
+        <label>Usuario <input id="login-usuario" autocomplete="username" required></label>
+        <label>Senha <input id="login-senha" type="password" autocomplete="current-password" required></label>
+        <button type="submit" class="botao-primario">Entrar</button>
+        <p id="login-erro" class="erro"></p>
+      </form>
+      <form id="form-bootstrap" class="oculto">
+        <p class="aviso">Primeiro acesso: crie o usuario administrador.</p>
+        <label>Usuario <input id="boot-usuario" required></label>
+        <label>Nome <input id="boot-nome"></label>
+        <label>Senha (min. 6) <input id="boot-senha" type="password" required></label>
+        <button type="submit" class="botao-primario">Criar administrador</button>
+        <p id="boot-erro" class="erro"></p>
+      </form>
+    </div>
+  </div>
+
+  <!-- Aplicacao -->
+  <div id="tela-app" class="oculto">
+    <header class="cabecalho">
+      <img src="logo.jpg" alt="JB Fraga" width="52">
+      <div class="titulos">
+        <h1>Ferramentas de Auditoria Fiscal</h1>
+        <p class="marca">JB FRAGA CONTABILIDADE</p>
+      </div>
+      <div class="acoes-cabecalho">
+        <button id="botao-tema" type="button" title="A escolha fica salva neste navegador">Modo escuro</button>
+        <span id="usuario-logado"></span>
+        <button id="botao-sair" type="button">Sair</button>
+      </div>
+    </header>
+
+    <nav class="abas" id="abas-nav">
+      <button data-aba="comparador">1. Comparador SPED x SEFAZ</button>
+      <button data-aba="diff">2. Comparar versoes de SPED</button>
+      <button data-aba="conferencia" class="ativa">3. Livro de Conferencia</button>
+      <button data-aba="extracao">4. Extracao de Itens</button>
+      <button data-aba="produtos">5. Auditoria de Produtos</button>
+    </nav>
+
+    <main>
+      <section id="aba-comparador" class="aba oculto"></section>
+      <section id="aba-diff" class="aba oculto"></section>
+      <section id="aba-conferencia" class="aba"></section>
+      <section id="aba-extracao" class="aba oculto"></section>
+      <section id="aba-produtos" class="aba oculto"></section>
+    </main>
+  </div>
+
+  <div id="toasts"></div>
+
+  <script src="app.js"></script>
+  <script src="conferencia.js"></script>
+  <script src="comparador.js"></script>
+  <script src="diff.js"></script>
+  <script src="extracao.js"></script>
+  <script src="produtos.js"></script>
+</body>
+</html>
