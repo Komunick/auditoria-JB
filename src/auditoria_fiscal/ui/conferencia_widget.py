@@ -7,14 +7,15 @@ import os
 from decimal import Decimal
 
 from PySide6.QtCore import Qt, QObject, QThread, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame,
-    QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMessageBox,
-    QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+    QFileDialog, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
+    QLineEdit, QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
+    QVBoxLayout, QWidget,
 )
 
-from ..core.composicao_fiscal import compor_nota
+from ..core.composicao_fiscal import GRUPO_TOTAL, chave_grupo, compor_nota
 from ..core.correcoes import (
     CAMPOS_CORRIGIVEIS, TIPO_AUTOMATICA, TIPO_MANUAL, aplicar_correcoes,
     normalizar_valor, validar_correcao,
@@ -94,8 +95,24 @@ class WorkerCarga(QObject):
     def executar(self) -> None:
         try:
             if self.fonte == "xml":
-                notas = ler_pasta_xml(self.caminho)
-                contexto = f"{len(notas)} XML(s)"
+                # Aceita varias pastas separadas por ";" (ex.: meses de um
+                # ano); cada pasta ja e lida recursivamente. Nota repetida
+                # em mais de uma pasta entra uma unica vez (pela chave).
+                pastas = [p.strip() for p in self.caminho.split(";")
+                          if p.strip()]
+                notas = []
+                vistas: set[str] = set()
+                for pasta in pastas:
+                    for nota in ler_pasta_xml(pasta):
+                        chave = nota.chave_normalizada
+                        if len(chave) == 44:
+                            if chave in vistas:
+                                continue
+                            vistas.add(chave)
+                        notas.append(nota)
+                extra = (f" em {len(pastas)} pastas" if len(pastas) > 1
+                         else "")
+                contexto = f"{len(notas)} XML(s){extra}"
             else:
                 doc = ler_sped(self.caminho)
                 notas = doc.notas
@@ -197,6 +214,8 @@ class ConferenciaWidget(QWidget):
         # exibe estas; os originais ficam em _notas para historico.
         self._corrigidas: dict[str, NotaFiscal] = {}
         self._carregando = False
+        self._comp_carregando = False   # guarda do itemChanged da composicao
+        self._grupos_comp: list[str] = []   # chave de grupo por linha da comp.
         self._filtro_entradas = False   # filtro usado na ultima carga
         self._contexto = ""             # origem da ultima carga (p/ relatorios)
         self._fonte_atual = ""          # "xml" ou "sped" da ultima carga
@@ -230,7 +249,12 @@ class ConferenciaWidget(QWidget):
 
         grid.addWidget(QLabel("Caminho:"), 1, 0)
         self._edit_caminho = QLineEdit()
-        self._edit_caminho.setPlaceholderText("Pasta com XMLs ou arquivo SPED")
+        self._edit_caminho.setPlaceholderText(
+            "Pasta com XMLs (aceita varias, separadas por ;) ou arquivo SPED")
+        self._edit_caminho.setToolTip(
+            "Fonte XML: as subpastas sao lidas automaticamente (ex.: a pasta\n"
+            "do ano inteiro com os meses dentro). Para juntar pastas avulsas,\n"
+            "separe os caminhos com ; ou use Procurar mais de uma vez.")
         grid.addWidget(self._edit_caminho, 1, 1)
         btn = QPushButton("Procurar...")
         btn.clicked.connect(self._procurar)
@@ -349,7 +373,8 @@ class ConferenciaWidget(QWidget):
         v.setSpacing(4)
 
         titulo = QLabel("Composicao fiscal da nota selecionada "
-                        "(CFOP -> CST -> Aliquota)")
+                        "(CFOP -> CST -> Aliquota) — duplo clique em "
+                        "CFOP/CST/Aliquota corrige a nota")
         titulo.setStyleSheet(f"font-weight:bold; color:{tema.COR_DESTAQUE};")
         v.addWidget(titulo)
 
@@ -357,8 +382,17 @@ class ConferenciaWidget(QWidget):
         self._tab_comp.setHorizontalHeaderLabels(
             ["CFOP", "CST", "Aliquota", "Valor contabil", "Base ICMS",
              "Valor ICMS", "ICMS-ST", "Itens"])
-        self._tab_comp.setSelectionMode(QTableWidget.NoSelection)
-        self._tab_comp.setEditTriggers(QTableWidget.NoEditTriggers)
+        # Celulas selecionaveis (com Ctrl+C). CFOP/CST/Aliquota dos grupos
+        # sao editaveis: a edicao registra uma CORRECAO real (mesma
+        # precedencia da tela, do Livro Fiscal e do SPED corrigido).
+        self._tab_comp.setSelectionMode(QTableWidget.ExtendedSelection)
+        self._tab_comp.setEditTriggers(
+            QTableWidget.DoubleClicked | QTableWidget.SelectedClicked
+            | QTableWidget.EditKeyPressed)
+        self._tab_comp.itemChanged.connect(self._ao_editar_composicao)
+        atalho_copiar = QShortcut(QKeySequence.Copy, self._tab_comp)
+        atalho_copiar.setContext(Qt.WidgetWithChildrenShortcut)
+        atalho_copiar.activated.connect(self._copiar_composicao)
         self._tab_comp.verticalHeader().setVisible(False)
         self._tab_comp.horizontalHeader().setSectionResizeMode(
             QHeaderView.Stretch)
@@ -389,6 +423,16 @@ class ConferenciaWidget(QWidget):
     def _procurar(self) -> None:
         if self._combo_fonte.currentIndex() == 0:
             caminho = QFileDialog.getExistingDirectory(self, "Pasta com XMLs de NF-e")
+            atual = self._edit_caminho.text().strip()
+            if caminho and atual and caminho not in atual.split(";"):
+                resp = QMessageBox.question(
+                    self, "Pastas de XML",
+                    "Ja existe pasta selecionada.\n\n"
+                    "Adicionar esta pasta a selecao atual (Sim) ou "
+                    "substituir (Nao)?",
+                    QMessageBox.Yes | QMessageBox.No)
+                if resp == QMessageBox.Yes:
+                    caminho = f"{atual};{caminho}"
         else:
             caminho, _ = QFileDialog.getOpenFileName(
                 self, "Selecionar SPED", "", "Arquivos SPED (*.txt);;Todos (*.*)")
@@ -404,9 +448,16 @@ class ConferenciaWidget(QWidget):
     def _carregar(self) -> None:
         caminho = self._edit_caminho.text().strip()
         fonte = "xml" if self._combo_fonte.currentIndex() == 0 else "sped"
-        if fonte == "xml" and not os.path.isdir(caminho):
-            QMessageBox.warning(self, "Atencao", "Selecione uma pasta de XMLs valida.")
-            return
+        if fonte == "xml":
+            pastas = [p.strip() for p in caminho.split(";") if p.strip()]
+            invalidas = [p for p in pastas if not os.path.isdir(p)]
+            if not pastas or invalidas:
+                detalhe = ("\n\nNao encontrada(s):\n" + "\n".join(invalidas)
+                           if invalidas else "")
+                QMessageBox.warning(
+                    self, "Atencao",
+                    f"Selecione pasta(s) de XMLs valida(s).{detalhe}")
+                return
         if fonte == "sped" and not os.path.isfile(caminho):
             QMessageBox.warning(self, "Atencao", "Selecione um arquivo SPED valido.")
             return
@@ -538,56 +589,204 @@ class ConferenciaWidget(QWidget):
 
     def _atualizar_composicao(self) -> None:
         """Composicao CFOP -> CST -> aliquota da nota selecionada."""
-        self._tab_comp.setRowCount(0)
-        self._lbl_alertas.setText("")
+        self._comp_carregando = True
+        try:
+            self._tab_comp.setRowCount(0)
+            self._lbl_alertas.setText("")
+            linha = self._tabela.currentRow()
+            if linha < 0 or linha >= len(self._chaves):
+                return
+            nota = self._corrigidas.get(self._chaves[linha])
+            if nota is None:
+                return
+            comp = compor_nota(nota)
+
+            chave_nota = self._chaves[linha]
+            overrides = self._store.overrides_da_chave(chave_nota)
+            # Chave de grupo por linha da tabela (linha 0 = TOTAL) — usada
+            # para casar cada celula com a sua sobrescrita e para gravar
+            # novas edicoes de valores em _ao_editar_composicao.
+            self._grupos_comp = [GRUPO_TOTAL] + [chave_grupo(g)
+                                                 for g in comp.grupos]
+
+            def _celula(r, c, texto, negrito=False, corrigido_de=None,
+                        original_bruto=None, editavel=True):
+                item = QTableWidgetItem(str(texto))
+                flags = Qt.ItemIsEnabled | Qt.ItemIsSelectable
+                if r >= 1 and c in self._CAMPO_POR_COLUNA_COMP:
+                    # CFOP/CST/Aliquota: edicao registra CORRECAO real;
+                    # exige valor original para corrigir a partir dele.
+                    if original_bruto is not None and str(original_bruto).strip():
+                        flags |= Qt.ItemIsEditable
+                        item.setData(Qt.UserRole, str(original_bruto))
+                elif editavel:
+                    # Demais celulas: edicao vira SOBRESCRITA de texto
+                    # persistida (tela + Livro Fiscal). O texto calculado
+                    # fica no UserRole para auditoria/retorno.
+                    flags |= Qt.ItemIsEditable
+                    item.setData(Qt.UserRole, str(texto))
+                    ov = overrides.get((self._grupos_comp[r], c))
+                    if ov is not None:
+                        item.setText(ov.valor)
+                        fonte = item.font()
+                        fonte.setItalic(True)
+                        item.setFont(fonte)
+                        item.setForeground(QColor(tema.DOURADO_TEXTO))
+                        item.setToolTip(
+                            "Editado manualmente — valor calculado: "
+                            f"{ov.valor_original or '(vazio)'} "
+                            f"(por {ov.usuario} em {ov.data_hora}).\n"
+                            "Apague o texto para voltar ao calculado.")
+                item.setFlags(flags)
+                if negrito or corrigido_de:
+                    fonte = item.font()
+                    fonte.setBold(True)
+                    item.setFont(fonte)
+                if corrigido_de:
+                    item.setForeground(QColor(tema.DOURADO_TEXTO))
+                    item.setToolTip(
+                        f"Corrigido — valor original: {corrigido_de}")
+                self._tab_comp.setItem(r, c, item)
+
+            self._tab_comp.setRowCount(len(comp.grupos) + 1)
+            _celula(0, 0, "TOTAL DA NOTA", negrito=True, editavel=False)
+            _celula(0, 1, "")
+            _celula(0, 2, "")
+            _celula(0, 3, formatar_moeda(comp.total_nota, True), negrito=True)
+            _celula(0, 4, "")
+            _celula(0, 5, "")
+            _celula(0, 6, "")
+            soma = comp.soma_valor_contabil
+            _celula(0, 7, f"soma itens: {formatar_moeda(soma, True)}")
+
+            for r, g in enumerate(comp.grupos, start=1):
+                _celula(r, 0, formatar_cfop(g.cfop) or "--",
+                        corrigido_de=g.corrigido_de.get("cfop"),
+                        original_bruto=g.cfop)
+                _celula(r, 1, g.cst or "--",
+                        corrigido_de=g.corrigido_de.get("cst_icms"),
+                        original_bruto=g.cst)
+                _celula(r, 2, formatar_percentual(g.aliquota),
+                        corrigido_de=g.corrigido_de.get("aliq_icms"),
+                        original_bruto=(None if g.aliquota is None
+                                        else g.aliquota))
+                _celula(r, 3, formatar_moeda(g.valor_contabil, True))
+                _celula(r, 4, formatar_moeda(g.vl_bc_icms, True))
+                _celula(r, 5, formatar_moeda(g.vl_icms, True))
+                st = (f"{formatar_moeda(g.vl_icms_st, True)}"
+                      if (g.vl_icms_st or g.vl_bc_icms_st) else "")
+                _celula(r, 6, st)
+                _celula(r, 7, g.qtd_itens or "")
+
+            if comp.alertas:
+                self._lbl_alertas.setText(
+                    "Alertas: " + " | ".join(comp.alertas))
+        finally:
+            self._comp_carregando = False
+
+    _CAMPO_POR_COLUNA_COMP = {0: "cfop", 1: "cst_icms", 2: "aliq_icms"}
+
+    def _ao_editar_composicao(self, item: QTableWidgetItem) -> None:
+        """Edicao inline de CFOP/CST/Aliquota vira correcao registrada.
+
+        Mesma precedencia central do botao "Corrigir campo fiscal": vale
+        para a tela, o Livro Fiscal (PDF), o relatorio de inconsistencias
+        e o SPED corrigido.
+        """
+        if self._comp_carregando:
+            return
         linha = self._tabela.currentRow()
         if linha < 0 or linha >= len(self._chaves):
+            self._atualizar_composicao()
             return
-        nota = self._corrigidas.get(self._chaves[linha])
-        if nota is None:
+        chave = self._chaves[linha]
+        usuario = getpass.getuser()
+
+        # Colunas fora de CFOP/CST/Aliquota (e a linha TOTAL): sobrescrita
+        # de texto persistida — vale na tela e no Livro Fiscal (PDF).
+        eh_correcao = (item.row() >= 1
+                       and item.column() in self._CAMPO_POR_COLUNA_COMP)
+        if not eh_correcao:
+            if item.row() >= len(self._grupos_comp):
+                self._atualizar_composicao()
+                return
+            grupo = self._grupos_comp[item.row()]
+            calculado = str(item.data(Qt.UserRole) or "")
+            novo_texto = item.text().strip()
+            if novo_texto == calculado:
+                novo_texto = ""   # voltou ao calculado: remove a sobrescrita
+            self._store.salvar_override(
+                chave, grupo, item.column(), novo_texto, calculado, usuario)
+            self._atualizar_composicao()
+            if novo_texto:
+                self._status.setText(
+                    f"Texto da composicao editado (coluna "
+                    f"{self._tab_comp.horizontalHeaderItem(item.column()).text()}) "
+                    "— vale para a tela e para o Livro Fiscal.")
+            else:
+                self._status.setText(
+                    "Texto da composicao restaurado ao valor calculado.")
             return
-        comp = compor_nota(nota)
 
-        def _celula(r, c, texto, negrito=False, corrigido_de=None):
-            item = QTableWidgetItem(str(texto))
-            item.setFlags(Qt.ItemIsEnabled)
-            if negrito or corrigido_de:
-                fonte = item.font()
-                fonte.setBold(True)
-                item.setFont(fonte)
-            if corrigido_de:
-                item.setForeground(QColor(tema.DOURADO_TEXTO))
-                item.setToolTip(f"Corrigido — valor original: {corrigido_de}")
-            self._tab_comp.setItem(r, c, item)
+        campo = self._CAMPO_POR_COLUNA_COMP.get(item.column())
+        original = item.data(Qt.UserRole)
+        if campo is None or not original:
+            self._atualizar_composicao()
+            return
+        novo = item.text().strip().replace("%", "").strip()
+        if normalizar_valor(campo, original) == normalizar_valor(campo, novo):
+            self._atualizar_composicao()   # nada mudou: refaz a formatacao
+            return
+        try:
+            validar_correcao(campo, original, novo, usuario)
+        except ValueError as exc:
+            QMessageBox.warning(self, "Correcao invalida", str(exc))
+            self._atualizar_composicao()
+            return
 
-        self._tab_comp.setRowCount(len(comp.grupos) + 1)
-        _celula(0, 0, "TOTAL DA NOTA", negrito=True)
-        _celula(0, 1, "", )
-        _celula(0, 2, "")
-        _celula(0, 3, formatar_moeda(comp.total_nota, True), negrito=True)
-        _celula(0, 4, "")
-        _celula(0, 5, "")
-        _celula(0, 6, "")
-        soma = comp.soma_valor_contabil
-        _celula(0, 7, f"soma itens: {formatar_moeda(soma, True)}")
+        rotulo = CAMPOS_CORRIGIVEIS[campo]
+        nota = self._corrigidas.get(chave)
+        numero = nota.numero if nota else ""
+        resp = QMessageBox.question(
+            self, "Confirmar correcao",
+            f"Alterar {rotulo} de {original} para {novo} na NF {numero}?\n\n"
+            "O valor original sera preservado no historico de auditoria e a "
+            "correcao valera para a tela, o Livro Fiscal, o relatorio de "
+            "inconsistencias e o SPED corrigido.",
+            QMessageBox.Yes | QMessageBox.No)
+        if resp != QMessageBox.Yes:
+            self._atualizar_composicao()
+            return
 
-        for r, g in enumerate(comp.grupos, start=1):
-            _celula(r, 0, formatar_cfop(g.cfop) or "--",
-                    corrigido_de=g.corrigido_de.get("cfop"))
-            _celula(r, 1, g.cst or "--",
-                    corrigido_de=g.corrigido_de.get("cst_icms"))
-            _celula(r, 2, formatar_percentual(g.aliquota),
-                    corrigido_de=g.corrigido_de.get("aliq_icms"))
-            _celula(r, 3, formatar_moeda(g.valor_contabil, True))
-            _celula(r, 4, formatar_moeda(g.vl_bc_icms, True))
-            _celula(r, 5, formatar_moeda(g.vl_icms, True))
-            st = (f"{formatar_moeda(g.vl_icms_st, True)}"
-                  if (g.vl_icms_st or g.vl_bc_icms_st) else "")
-            _celula(r, 6, st)
-            _celula(r, 7, g.qtd_itens or "")
+        self._store.registrar_correcao(
+            chave, campo, str(original), novo, usuario, tipo=TIPO_MANUAL,
+            motivo="Edicao direta na composicao fiscal",
+            inconsistencia=self._store.obter(chave).observacao)
+        self._reaplicar_correcoes()
+        self._carregando = True
+        for i, ch in enumerate(self._chaves):
+            nota_c = self._corrigidas.get(ch)
+            if nota_c is not None:
+                self._preencher_fiscal(i, nota_c)
+        self._carregando = False
+        self._atualizar_composicao()
+        self._status.setText(
+            f"Correcao registrada: {rotulo} {original} -> {novo} "
+            f"(por {usuario}).")
 
-        if comp.alertas:
-            self._lbl_alertas.setText("Alertas: " + " | ".join(comp.alertas))
+    def _copiar_composicao(self) -> None:
+        """Copia as celulas selecionadas da composicao como texto tabulado."""
+        indices = self._tab_comp.selectedIndexes()
+        if not indices:
+            return
+        indices = sorted(indices, key=lambda i: (i.row(), i.column()))
+        linhas: dict[int, list[str]] = {}
+        for indice in indices:
+            item = self._tab_comp.item(indice.row(), indice.column())
+            linhas.setdefault(indice.row(), []).append(
+                item.text() if item else "")
+        texto = "\n".join("\t".join(cols) for _, cols in sorted(linhas.items()))
+        QApplication.clipboard().setText(texto)
 
     def _estilo_linha(self, linha, conferida) -> None:
         cor = QColor(_VERDE) if conferida else QColor(Qt.white)
@@ -796,7 +995,8 @@ class ConferenciaWidget(QWidget):
             gerar_livro_fiscal(
                 self._notas, self._store.carregar(), caminho,
                 contexto=self._contexto, filtro=filtro,
-                correcoes_por_chave=self._store.todas_correcoes())
+                correcoes_por_chave=self._store.todas_correcoes(),
+                overrides_por_chave=self._store.todas_overrides())
             abrir_arquivo(caminho)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(

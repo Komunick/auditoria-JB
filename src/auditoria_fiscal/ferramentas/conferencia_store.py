@@ -40,6 +40,24 @@ class EstadoConferencia:
     data_conferencia: str = ""
 
 
+@dataclass
+class OverrideComposicao:
+    """Texto digitado pelo usuario sobre uma celula da composicao fiscal.
+
+    Diferente da correcao (que altera itens e recalcula), a sobrescrita
+    substitui o TEXTO exibido de uma celula calculada — na tela e no Livro
+    Fiscal (PDF). O valor calculado original fica preservado para auditoria.
+    """
+
+    chave: str
+    grupo: str      # chave_grupo(g) ou GRUPO_TOTAL
+    coluna: int     # indice da coluna na tabela da composicao (0-7)
+    valor: str
+    valor_original: str = ""
+    usuario: str = ""
+    data_hora: str = ""
+
+
 class ConferenciaStore:
     """Armazenamento SQLite do estado de conferencia por chave."""
 
@@ -77,6 +95,18 @@ class ConferenciaStore:
         self._conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_correcao_chave"
             " ON correcao(chave)")
+        # Migracao aditiva: sobrescritas manuais da composicao fiscal.
+        self._conn.execute(
+            "CREATE TABLE IF NOT EXISTS composicao_override ("
+            "  chave TEXT NOT NULL,"
+            "  grupo TEXT NOT NULL,"
+            "  coluna INTEGER NOT NULL,"
+            "  valor TEXT NOT NULL,"
+            "  valor_original TEXT NOT NULL DEFAULT '',"
+            "  usuario TEXT NOT NULL DEFAULT '',"
+            "  data_hora TEXT NOT NULL DEFAULT '',"
+            "  PRIMARY KEY (chave, grupo, coluna)"
+            ")")
         self._conn.commit()
 
     def obter(self, chave: str) -> EstadoConferencia:
@@ -177,6 +207,55 @@ class ConferenciaStore:
         mapa: dict[str, list[Correcao]] = {}
         for row in cur.fetchall():
             mapa.setdefault(row["chave"], []).append(self._correcao_de_row(row))
+        return mapa
+
+    # ------------------------------------------------------------------
+    # Sobrescritas manuais da composicao fiscal (texto por celula)
+
+    def salvar_override(self, chave: str, grupo: str, coluna: int,
+                        valor: str, valor_original: str,
+                        usuario: str) -> None:
+        """Grava a sobrescrita; valor vazio REMOVE (volta ao calculado)."""
+        if not str(valor).strip():
+            self._conn.execute(
+                "DELETE FROM composicao_override"
+                " WHERE chave=? AND grupo=? AND coluna=?",
+                (chave, grupo, coluna))
+        else:
+            agora = datetime.now().strftime("%d/%m/%Y %H:%M")
+            self._conn.execute(
+                "INSERT INTO composicao_override(chave, grupo, coluna,"
+                " valor, valor_original, usuario, data_hora)"
+                " VALUES(?,?,?,?,?,?,?)"
+                " ON CONFLICT(chave, grupo, coluna) DO UPDATE SET"
+                "  valor=excluded.valor,"
+                "  usuario=excluded.usuario,"
+                "  data_hora=excluded.data_hora",
+                (chave, grupo, coluna, str(valor).strip(),
+                 str(valor_original), str(usuario).strip(), agora))
+        self._conn.commit()
+
+    def _override_de_row(self, row) -> OverrideComposicao:
+        return OverrideComposicao(
+            chave=row["chave"], grupo=row["grupo"], coluna=row["coluna"],
+            valor=row["valor"], valor_original=row["valor_original"],
+            usuario=row["usuario"], data_hora=row["data_hora"])
+
+    def overrides_da_chave(
+            self, chave: str) -> dict[tuple[str, int], OverrideComposicao]:
+        cur = self._conn.execute(
+            "SELECT * FROM composicao_override WHERE chave=?", (chave,))
+        return {(r["grupo"], r["coluna"]): self._override_de_row(r)
+                for r in cur.fetchall()}
+
+    def todas_overrides(
+            self) -> dict[str, dict[tuple[str, int], OverrideComposicao]]:
+        """Mapa chave -> {(grupo, coluna) -> sobrescrita}."""
+        cur = self._conn.execute("SELECT * FROM composicao_override")
+        mapa: dict[str, dict[tuple[str, int], OverrideComposicao]] = {}
+        for row in cur.fetchall():
+            mapa.setdefault(row["chave"], {})[
+                (row["grupo"], row["coluna"])] = self._override_de_row(row)
         return mapa
 
     def fechar(self) -> None:

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from ..core.composicao_fiscal import compor_nota
+from ..core.composicao_fiscal import GRUPO_TOTAL, chave_grupo, compor_nota
 from ..core.correcoes import CAMPOS_CORRIGIVEIS, aplicar_correcoes
 from ..core.utils import formatar_cfop, formatar_moeda, formatar_percentual
 
@@ -52,29 +52,53 @@ def _rotulo_grupo(grupo) -> str:
     return rotulo
 
 
-def _linhas_grupo(grupo) -> list[str]:
-    """Linhas do grupo na ordem exigida: CFOP, valor contabil, BC, aliq, ICMS."""
+# Colunas da tabela de composicao da tela usadas nas sobrescritas manuais
+# (conferencia_widget): 3=valor contabil, 4=base ICMS, 5=valor ICMS,
+# 6=ICMS-ST, 7=itens (a coluna 7 nao aparece no PDF).
+_COL_VALOR_CONTABIL, _COL_BASE, _COL_ICMS, _COL_ST = 3, 4, 5, 6
+
+
+def _linhas_grupo(grupo, ov=None) -> list[str]:
+    """Linhas do grupo na ordem exigida: CFOP, valor contabil, BC, aliq, ICMS.
+
+    `ov` mapeia indice de coluna -> texto sobrescrito manualmente na tela
+    (mesma chave de grupo da conferencia); quando presente, o texto digitado
+    substitui o valor calculado — e o que garante que o PDF saia com os
+    textos editados.
+    """
+    ov = ov or {}
+
+    def _texto(coluna, padrao):
+        return ov[coluna] if coluna in ov else padrao
+
     linhas = [_rotulo_grupo(grupo),
-              f"Valor Contabil: {formatar_moeda(grupo.valor_contabil, True)}"]
+              "Valor Contabil: " + _texto(
+                  _COL_VALOR_CONTABIL,
+                  formatar_moeda(grupo.valor_contabil, True))]
     if grupo.tem_icms:
-        linhas.append(
-            f"Base de Calculo: {formatar_moeda(grupo.vl_bc_icms, True)}")
+        linhas.append("Base de Calculo: " + _texto(
+            _COL_BASE, formatar_moeda(grupo.vl_bc_icms, True)))
         linhas.append(f"Aliquota: {formatar_percentual(grupo.aliquota)}")
-        linhas.append(f"Valor do ICMS: {formatar_moeda(grupo.vl_icms, True)}")
-    if grupo.vl_icms_st or grupo.vl_bc_icms_st:
-        linhas.append(
-            f"ICMS-ST: base {formatar_moeda(grupo.vl_bc_icms_st, True)}"
-            f" / valor {formatar_moeda(grupo.vl_icms_st, True)}")
+        linhas.append("Valor do ICMS: " + _texto(
+            _COL_ICMS, formatar_moeda(grupo.vl_icms, True)))
+    if grupo.vl_icms_st or grupo.vl_bc_icms_st or _COL_ST in ov:
+        padrao_st = (f"base {formatar_moeda(grupo.vl_bc_icms_st, True)}"
+                     f" / valor {formatar_moeda(grupo.vl_icms_st, True)}")
+        linhas.append("ICMS-ST: " + _texto(_COL_ST, padrao_st))
     return linhas
 
 
-def montar_blocos(notas, estados, correcoes_por_chave=None) -> list[dict]:
+def montar_blocos(notas, estados, correcoes_por_chave=None,
+                  overrides_por_chave=None) -> list[dict]:
     """Blocos do livro (um por nota), ja com correcoes e composicao.
 
     Funcao pura (sem PDF) para permitir teste do conteudo e da ordem.
-    Nao inclui data de conferencia em nenhum campo.
+    Nao inclui data de conferencia em nenhum campo. `overrides_por_chave`
+    (chave -> {(grupo, coluna) -> OverrideComposicao}) aplica os textos
+    editados manualmente na tela de composicao.
     """
     correcoes_por_chave = correcoes_por_chave or {}
+    overrides_por_chave = overrides_por_chave or {}
     blocos = []
     for nota in notas:
         chave = nota.chave_normalizada
@@ -82,6 +106,17 @@ def montar_blocos(notas, estados, correcoes_por_chave=None) -> list[dict]:
         comp = compor_nota(corrigida)
         estado = estados.get(chave)
         observacao = estado.observacao.strip() if estado else ""
+
+        ovs = overrides_por_chave.get(chave, {})
+
+        def _ov_do_grupo(chave_g):
+            return {coluna: o.valor for (g, coluna), o in ovs.items()
+                    if g == chave_g}
+
+        total_texto = formatar_moeda(comp.total_nota, True)
+        ov_total = _ov_do_grupo(GRUPO_TOTAL)
+        if _COL_VALOR_CONTABIL in ov_total:
+            total_texto = ov_total[_COL_VALOR_CONTABIL]
 
         forn = corrigida.participante.nome if corrigida.participante else ""
         dt = corrigida.dt_emissao.strftime("%d/%m/%Y") if corrigida.dt_emissao else ""
@@ -91,9 +126,9 @@ def montar_blocos(notas, estados, correcoes_por_chave=None) -> list[dict]:
                        f"{dt}  UF {corrigida.uf_origem or '--'}"),
             "subtitulo": f"{forn}  CNPJ {corrigida.cnpj_emitente}",
             "chave_texto": f"Chave de acesso: {chave}",
-            "total": ("Valor total da nota: "
-                      f"{formatar_moeda(comp.total_nota, True)}"),
-            "grupos": [_linhas_grupo(g) for g in comp.grupos],
+            "total": f"Valor total da nota: {total_texto}",
+            "grupos": [_linhas_grupo(g, _ov_do_grupo(chave_grupo(g)))
+                       for g in comp.grupos],
             "observacao": observacao,
             "alertas": list(comp.alertas),
             "tem_correcao": corrigida.tem_correcao,
@@ -113,13 +148,15 @@ def _altura_bloco(bloco) -> float:
 
 
 def gerar_livro_fiscal(notas, estados, pdf_path: str, contexto: str = "",
-                       filtro: str = "", correcoes_por_chave=None) -> str:
+                       filtro: str = "", correcoes_por_chave=None,
+                       overrides_por_chave=None) -> str:
     """Gera o PDF do Livro Fiscal. Retorna o caminho do PDF."""
     from fpdf import FPDF
 
     if not notas:
         raise ValueError("Nenhuma nota carregada para compor o Livro Fiscal.")
-    blocos = montar_blocos(notas, estados, correcoes_por_chave)
+    blocos = montar_blocos(notas, estados, correcoes_por_chave,
+                           overrides_por_chave)
 
     class _PDF(FPDF):
         def footer(self):

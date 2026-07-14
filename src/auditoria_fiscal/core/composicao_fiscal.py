@@ -74,6 +74,16 @@ class GrupoFiscal:
         return bool(self.vl_bc_icms or self.vl_icms or self.aliquota)
 
 
+# Identificacao estavel de grupo para sobrescritas manuais da composicao
+# (tela e Livro Fiscal usam a MESMA chave). A linha TOTAL usa GRUPO_TOTAL.
+GRUPO_TOTAL = "__total__"
+
+
+def chave_grupo(grupo: "GrupoFiscal") -> str:
+    """Chave estavel do grupo (valores JA corrigidos): cfop|cst|aliquota."""
+    return f"{grupo.cfop or ''}|{grupo.cst or ''}|{grupo.aliquota or ''}"
+
+
 @dataclass
 class ComposicaoNota:
     """Composicao fiscal completa de uma nota + alertas de validacao."""
