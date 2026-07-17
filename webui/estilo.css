@@ -122,6 +122,15 @@ td.editavel { cursor: text; }
 tr.conferida { background: #E4F3E4 !important; color: #23232F; }
 :root[data-theme="escuro"] tr.conferida { background: #24422A !important; color: #E8E6F0; }
 
+/* Realces herdados do desktop: a cor carrega a informacao, entao ela precisa
+   sobreviver a zebra da tabela (por isso !important, como em tr.conferida). */
+td.divergente { background: #FDECEA !important; color: #23232F; }
+tr.inconsistente td { background: #FDE7E9 !important; color: #23232F; }
+tr.alerta td { background: #FFF4CE !important; color: #23232F; }
+:root[data-theme="escuro"] td.divergente { background: #4A2A2A !important; color: #E8E6F0; }
+:root[data-theme="escuro"] tr.inconsistente td { background: #4A2A2E !important; color: #E8E6F0; }
+:root[data-theme="escuro"] tr.alerta td { background: #45391A !important; color: #E8E6F0; }
+
 /* Toasts e modal */
 #toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 50; }
 .toast {
@@ -139,3 +148,36 @@ tr.conferida { background: #E4F3E4 !important; color: #23232F; }
 }
 .modal h3 { margin: 0 0 12px; color: var(--destaque); }
 .modal .acoes { display: flex; gap: 10px; justify-content: end; margin-top: 14px; }
+.modal.largo { width: min(880px, 94vw); }
+
+/* Administracao: sub-abas, cracha de perfil e caixas de permissao */
+.cracha {
+  background: var(--dourado-suave); color: var(--dourado-texto);
+  border: 1px solid var(--dourado); border-radius: 10px;
+  padding: 1px 8px; font-size: 11px; font-weight: bold;
+}
+.cracha:empty { display: none; }
+.sub-abas { display: flex; gap: 8px; flex-wrap: wrap; }
+.sub-abas button {
+  background: var(--aba-inativa); color: var(--texto); border: 1px solid var(--borda);
+  border-radius: 8px; padding: 6px 14px; cursor: pointer; font-weight: 600;
+}
+.sub-abas button.ativa {
+  background: var(--dourado-suave); color: var(--dourado-texto);
+  border-color: var(--dourado);
+}
+.permissoes { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
+.permissoes fieldset {
+  border: 1px solid var(--borda); border-radius: 8px; padding: 8px 12px 10px;
+  flex: 1 1 260px; min-width: 240px;
+}
+.permissoes legend {
+  color: var(--dourado-texto); font-weight: bold; font-size: 12px;
+  letter-spacing: 1px; padding: 0 4px;
+}
+label.permissao {
+  display: flex; align-items: start; gap: 6px; font-weight: normal;
+  cursor: pointer; padding: 3px 0;
+}
+label.permissao input { margin-top: 3px; }
+tbody tr.desativado td { color: var(--desab); font-style: italic; }

@@ -11,12 +11,13 @@ Abas.registrar("diff", (container) => {
           <input id="dif-a" type="file" accept=".txt"></label>
         <label>Arquivo B — cliente / sistema (.txt)
           <input id="dif-b" type="file" accept=".txt"></label>
-        <label><input id="dif-entradas" type="checkbox">
+        <label title="Marcado: somente as notas de entrada dos dois SPEDs entram na comparacao (IND_OPER = 0; sem IND_OPER, decide pelo CFOP dos itens). Desmarcado: comportamento padrao, todas as operacoes.">
+          <input id="dif-entradas" type="checkbox">
           Considerar apenas documentos de entrada no SPED</label>
         <button id="dif-comparar" class="botao-primario">Comparar</button>
         <button id="dif-exportar" disabled>Exportar relatorio (.xlsx)</button>
       </div>
-      <p id="dif-status" class="status"></p>
+      <p id="dif-status" class="status">Selecione os dois SPEDs (ex.: contabilidade x cliente).</p>
     </div>
 
     <div class="caixa">
@@ -72,16 +73,28 @@ Abas.registrar("diff", (container) => {
   const $ = (id) => document.getElementById(id);
   const status = (texto) => { $("dif-status").textContent = texto; };
 
-  function preencher(tbodyId, linhas, celulas) {
+  /* Comparar e ler a tabela vem junto com aba.diff; so a exportacao e
+     recortada a parte. */
+  const podeExportar = seNaoPuder($("dif-exportar"), "diff.exportar");
+
+  /* Primeira coluna da divergencia em si (Campo, Valor A, Valor B): dali em
+     diante o desktop pinta a celula de rosa. As colunas antes dela apenas
+     identificam a nota, e ficam sem realce. */
+  const COL_DIVERGENCIA = 5;
+
+  function preencher(tbodyId, linhas, celulas, realceDe) {
     const corpo = $(tbodyId);
     corpo.innerHTML = "";
     for (const linha of linhas) {
       const tr = document.createElement("tr");
-      for (const valor of celulas(linha)) {
+      celulas(linha).forEach((valor, col) => {
         const td = document.createElement("td");
         td.textContent = valor;
+        if (realceDe !== undefined && col >= realceDe) {
+          td.classList.add("divergente");
+        }
         tr.appendChild(td);
-      }
+      });
       corpo.appendChild(tr);
     }
   }
@@ -102,16 +115,19 @@ Abas.registrar("diff", (container) => {
 
     preencher("dif-b-divergencias", r.divergencias, (d) =>
       [d.chave, d.numero, d.fornecedor, d.nivel, d.item, d.campo,
-       d.valor_a, d.valor_b]);
+       d.valor_a, d.valor_b], COL_DIVERGENCIA);
     preencher("dif-b-so-a", r.apenas_em_a, (n) =>
       [n.chave, n.numero, n.serie, n.fornecedor, n.valor]);
     preencher("dif-b-so-b", r.apenas_em_b, (n) =>
       [n.chave, n.numero, n.serie, n.fornecedor, n.valor]);
 
+    /* Sem a permissao de exportar nao ha botao na tela: mandar o usuario
+       usar a exportacao seria apontar para um controle que nao existe. */
     $("dif-previa").textContent =
       r.divergencias.length < resumo.total_diferencas
         ? `Exibindo ${r.divergencias.length} de ${resumo.total_diferencas} ` +
-          "diferencas (a exportacao inclui tudo)."
+          "diferencas" +
+          (podeExportar ? " (a exportacao inclui tudo)." : ".")
         : "";
   }
 

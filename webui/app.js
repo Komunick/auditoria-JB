@@ -1,6 +1,10 @@
-/* Nucleo do frontend: tema, autenticacao, abas, fetch e jobs.
+/* Nucleo do frontend: tema, autenticacao, permissoes, abas, fetch e jobs.
    Sem framework nem build (padrao da casa). Cada ferramenta registra sua aba
-   com Abas.registrar(nome, montar) e recebe o container ao ser aberta. */
+   com Abas.registrar(nome, montar) e recebe o container ao ser aberta.
+
+   Permissoes: o servidor manda a lista do usuario em /api/estado e o front
+   apenas DEIXA DE DESENHAR o que ele nao alcanca. Isso e conforto, nao
+   seguranca — quem barra de verdade e o 403 do servidor. */
 
 "use strict";
 
@@ -33,6 +37,16 @@ function toast(mensagem, tipo) {
   caixa.textContent = mensagem;
   document.getElementById("toasts").appendChild(caixa);
   setTimeout(() => caixa.remove(), 6000);
+}
+
+/* Escapa texto que vira HTML por interpolacao (tr.innerHTML das tabelas). Os
+   dados vem de XML de terceiros, planilha do cliente e observacao digitada por
+   qualquer usuario — sem isto, uma observacao com <img onerror> rodaria script
+   na sessao de quem abre a tabela (o admin, com todo o acesso). */
+function esc(valor) {
+  return String(valor ?? "").replace(/[&<>"']/g, (c) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  }[c]));
 }
 
 function confirmar(titulo, mensagem) {
@@ -109,13 +123,42 @@ async function esperarJob(jobId) {
 }
 
 // ----------------------------------------------------------------------
+// Sessao e permissoes do usuario logado
+
+const Sessao = {
+  usuario: null,
+  _permissoes: new Set(),
+  definir(usuario) {
+    this.usuario = usuario;
+    this._permissoes = new Set((usuario && usuario.permissoes) || []);
+  },
+  pode(slug) { return this._permissoes.has(slug); },
+  ehAdmin() { return !!(this.usuario && this.usuario.admin); },
+};
+
+/* Esconde o elemento quando falta a permissao. Devolve se pode (o chamador
+   costuma pular a montagem do resto do controle). */
+function seNaoPuder(elemento, slug) {
+  const pode = Sessao.pode(slug);
+  if (!pode && elemento) elemento.classList.add("oculto");
+  return pode;
+}
+
+// ----------------------------------------------------------------------
 // Abas (cada ferramenta registra a sua; montagem sob demanda)
 
 const Abas = {
   _registro: {},
   _montadas: new Set(),
   registrar(nome, montar) { this._registro[nome] = montar; },
+  permitida(nome) {
+    if (nome === "admin") {
+      return Sessao.pode("admin.usuarios") || Sessao.pode("admin.historico");
+    }
+    return Sessao.pode(`aba.${nome}`);
+  },
   abrir(nome) {
+    if (!this.permitida(nome)) return;
     document.querySelectorAll(".abas button").forEach((b) =>
       b.classList.toggle("ativa", b.dataset.aba === nome));
     document.querySelectorAll("main .aba").forEach((s) =>
@@ -124,13 +167,26 @@ const Abas = {
       this._montadas.add(nome);
       this._registro[nome](document.getElementById(`aba-${nome}`));
     }
+    if (nome !== "admin") {
+      // Registra no historico "o que acessou". Falhar aqui nao pode atrapalhar
+      // quem esta trabalhando: a aba ja abriu.
+      api("/api/eventos/aba", { json: { aba: nome } }).catch(() => {});
+    }
   },
   iniciar() {
-    document.getElementById("abas-nav").addEventListener("click", (e) => {
+    const nav = document.getElementById("abas-nav");
+    nav.addEventListener("click", (e) => {
       const botao = e.target.closest("button[data-aba]");
       if (botao) this.abrir(botao.dataset.aba);
     });
-    this.abrir("conferencia");
+    let primeira = "";
+    nav.querySelectorAll("button[data-aba]").forEach((botao) => {
+      const nome = botao.dataset.aba;
+      if (this.permitida(nome)) { primeira = primeira || nome; }
+      else { botao.classList.add("oculto"); }
+    });
+    if (primeira) { this.abrir(primeira); return; }
+    document.getElementById("sem-acesso").classList.remove("oculto");
   },
 };
 
@@ -139,13 +195,19 @@ const Abas = {
 
 const Telas = {
   mostrarLogin() {
+    // Fecha qualquer modal aberto: um editor/confirmacao por cima do cartao de
+    // login (sessao que caiu com o modal aberto) deixaria o login inalcancavel.
+    document.querySelectorAll(".modal-fundo").forEach((m) => m.remove());
     document.getElementById("tela-app").classList.add("oculto");
     document.getElementById("tela-login").classList.remove("oculto");
   },
   mostrarApp(usuario) {
+    Sessao.definir(usuario);
     document.getElementById("tela-login").classList.add("oculto");
     document.getElementById("tela-app").classList.remove("oculto");
     document.getElementById("usuario-logado").textContent = usuario.nome || usuario.usuario;
+    document.getElementById("perfil-logado").textContent =
+      usuario.admin ? "administrador" : "";
     Abas.iniciar();
   },
 };

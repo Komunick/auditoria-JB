@@ -82,6 +82,8 @@ Abas.registrar("comparador", (container) => {
   const $ = (id) => document.getElementById(id);
   const status = (texto) => { $("cmp-status").textContent = texto; };
 
+  seNaoPuder($("cmp-exportar"), "comparador.exportar");
+
   function preencher(tbodyId, linhas, celulas) {
     const corpo = $(tbodyId);
     corpo.innerHTML = "";

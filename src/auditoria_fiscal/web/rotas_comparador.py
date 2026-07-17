@@ -13,7 +13,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -25,7 +25,8 @@ from ..ferramentas.comparador_sped_sefaz import (
     DivergenciaValor, NotaCanceladaEscriturada, ResultadoComparacao, comparar,
 )
 from ..ferramentas.relatorio_excel import gerar_relatorio
-from .auth import Usuario, exigir_usuario
+from .auditoria import acesso, detalhar
+from .auth import Usuario
 from .infra import texto_data, texto_moeda
 from .sessoes import SessaoTrabalho, iniciar_job, obter_sessao, salvar_upload
 
@@ -117,7 +118,9 @@ def _resultado_json(resultado: ResultadoComparacao, empresa: str,
 
 @router.post("/upload")
 async def upload(sessao_id: str, tipo: str, arquivo: UploadFile,
-                 usuario: Usuario = Depends(exigir_usuario)) -> dict:
+                 request: Request,
+                 usuario: Usuario = Depends(
+                     acesso("comparador.upload"))) -> dict:
     """Recebe o SPED (.txt) em sped/ e a relacao da SEFAZ em sefaz/.
 
     A extensao e preservada: a leitura da SEFAZ decide o parser (xlsx/csv)
@@ -139,6 +142,7 @@ async def upload(sessao_id: str, tipo: str, arquivo: UploadFile,
         raise HTTPException(status_code=422,
                             detail="Tipo de upload invalido (sped ou sefaz).")
     caminho = await salvar_upload(sessao, arquivo, tipo)
+    detalhar(request, f"{tipo}: {os.path.basename(caminho)}")
     return {"ok": True, "arquivo": os.path.basename(caminho)}
 
 
@@ -150,8 +154,9 @@ class CompararEntrada(BaseModel):
 
 
 @router.post("/comparar")
-def comparar_arquivos(entrada: CompararEntrada,
-                      usuario: Usuario = Depends(exigir_usuario)) -> dict:
+def comparar_arquivos(entrada: CompararEntrada, request: Request,
+                      usuario: Usuario = Depends(
+                          acesso("comparador.comparar"))) -> dict:
     sessao = obter_sessao(entrada.sessao_id)
     caminho_sped = _arquivo_da_subpasta(
         sessao, "sped", "Envie o arquivo SPED (.txt) antes de comparar.")
@@ -168,13 +173,16 @@ def comparar_arquivos(entrada: CompararEntrada,
             sessao.estado.update({"resultado": resultado, "empresa": empresa})
         return _resultado_json(resultado, empresa, diagnostico)
 
+    detalhar(request, "somente documentos de entrada"
+             if entrada.apenas_entradas else "todos os documentos")
     job = iniciar_job(sessao, "Comparando SPED x SEFAZ", _executar)
     return {"job_id": job.id}
 
 
 @router.post("/exportar")
-def exportar(sessao_id: str,
-             usuario: Usuario = Depends(exigir_usuario)) -> FileResponse:
+def exportar(sessao_id: str, request: Request,
+             usuario: Usuario = Depends(
+                 acesso("comparador.exportar"))) -> FileResponse:
     """Excel de 5 abas gerado do resultado guardado na sessao."""
     sessao = obter_sessao(sessao_id)
     with sessao.trava:
@@ -183,6 +191,8 @@ def exportar(sessao_id: str,
     if resultado is None:
         raise HTTPException(status_code=422,
                             detail="Compare os arquivos antes de exportar.")
+    if empresa:
+        detalhar(request, f"empresa: {empresa}")
     destino = tempfile.mktemp(prefix="conferencia_sped_sefaz_",
                               suffix=".xlsx")
     gerar_relatorio(resultado, destino, nome_empresa=empresa)

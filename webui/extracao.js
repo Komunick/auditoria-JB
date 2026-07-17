@@ -40,6 +40,8 @@ Abas.registrar("extracao", (container) => {
   const $ = (id) => document.getElementById(id);
   const status = (texto) => { $("ext-status").textContent = texto; };
 
+  const podeExportar = seNaoPuder($("ext-exportar"), "extracao.exportar");
+
   // Trocar a fonte limpa a selecao de arquivos (mesmo comportamento do desktop).
   $("ext-fonte").addEventListener("change", () => { $("ext-arquivos").value = ""; });
 
@@ -66,8 +68,10 @@ Abas.registrar("extracao", (container) => {
       $("ext-exportar").disabled = resultado.total === 0;
       let texto = `${resultado.total} item(ns) extraido(s) de ${resultado.contexto}.`;
       if (resultado.total > resultado.previa.length) {
+        /* Sem a permissao de exportar nao ha botao na tela: mandar o usuario
+           usar a exportacao seria apontar para um controle que nao existe. */
         texto += ` (previa: ${resultado.previa.length} de ${resultado.total}` +
-          " — exportacao inclui tudo)";
+          (podeExportar ? " — exportacao inclui tudo)" : ")");
       }
       if (resultado.filtro) texto += ` ${resultado.filtro}.`;
       status(texto);
@@ -98,15 +102,17 @@ Abas.registrar("extracao", (container) => {
     }
   }
 
-  $("ext-exportar").addEventListener("click", async () => {
-    if (!estado.sessaoId) { toast("Extraia os itens antes.", "erro"); return; }
-    const botao = $("ext-exportar");
-    botao.disabled = true;
-    try {
-      const nome = await apiDownload(
-        `/api/extracao/exportar?sessao_id=${estado.sessaoId}`, { method: "POST" });
-      toast(`Planilha gerada: ${nome}`);
-    } catch (erro) { toast(erro.message, "erro"); }
-    finally { botao.disabled = false; }
-  });
+  if (podeExportar) {
+    $("ext-exportar").addEventListener("click", async () => {
+      if (!estado.sessaoId) { toast("Extraia os itens antes.", "erro"); return; }
+      const botao = $("ext-exportar");
+      botao.disabled = true;
+      try {
+        const nome = await apiDownload(
+          `/api/extracao/exportar?sessao_id=${estado.sessaoId}`, { method: "POST" });
+        toast(`Planilha gerada: ${nome}`);
+      } catch (erro) { toast(erro.message, "erro"); }
+      finally { botao.disabled = false; }
+    });
+  }
 });

@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -22,7 +22,8 @@ from ..core.sped_parser import ler_sped
 from ..ferramentas.extracao_itens import (
     CAMPOS, TITULOS, exportar_itens_excel, extrair_itens, valor_para_texto,
 )
-from .auth import Usuario, exigir_usuario
+from .auditoria import acesso, detalhar
+from .auth import Usuario
 from .sessoes import iniciar_job, obter_sessao, salvar_upload
 
 router = APIRouter(prefix="/api/extracao", tags=["extracao"])
@@ -32,18 +33,21 @@ LIMITE_PREVIA = 2000   # linhas na previa do navegador; a exportacao leva tudo
 _MEDIA_XLSX = ("application/vnd.openxmlformats-officedocument."
                "spreadsheetml.sheet")
 
-# Mesmos valores do combo do desktop: "" todas | "0" entradas | "1" saidas.
-_OPERACOES = ("", "0", "1")
+# Mesmos valores do combo do desktop, com o rotulo que vai ao historico.
+_OPERACOES = {"": "todas as operacoes", "0": "apenas entradas",
+              "1": "apenas saidas"}
 
 
 @router.post("/upload")
-async def upload(sessao_id: str, arquivo: UploadFile,
-                 usuario: Usuario = Depends(exigir_usuario)) -> dict:
+async def upload(sessao_id: str, arquivo: UploadFile, request: Request,
+                 usuario: Usuario = Depends(
+                     acesso("extracao.upload"))) -> dict:
     """Recebe SPED (.txt) na raiz da sessao e XMLs/zips em xml/."""
     sessao = obter_sessao(sessao_id)
     nome = (arquivo.filename or "").lower()
     subpasta = "" if nome.endswith(".txt") else "xml"
     caminho = await salvar_upload(sessao, arquivo, subpasta)
+    detalhar(request, f"arquivo: {os.path.basename(caminho)}")
     return {"ok": True, "arquivo": os.path.basename(caminho)}
 
 
@@ -62,11 +66,13 @@ def _linha_previa(linha: dict) -> list[str]:
 
 
 @router.post("/extrair")
-def extrair(entrada: ExtracaoEntrada,
-            usuario: Usuario = Depends(exigir_usuario)) -> dict:
+def extrair(entrada: ExtracaoEntrada, request: Request,
+            usuario: Usuario = Depends(acesso("extracao.extrair"))) -> dict:
     if entrada.operacao not in _OPERACOES:
         raise HTTPException(status_code=422,
                             detail="Operacao invalida (use '', '0' ou '1').")
+    fonte = "XML" if entrada.fonte == "xml" else "SPED"
+    detalhar(request, f"fonte: {fonte}, {_OPERACOES[entrada.operacao]}")
     sessao = obter_sessao(entrada.sessao_id)
     pasta_xml = os.path.join(sessao.pasta, "xml")
     operacao = entrada.operacao or None
@@ -115,8 +121,9 @@ def extrair(entrada: ExtracaoEntrada,
 
 
 @router.post("/exportar")
-def exportar(sessao_id: str,
-             usuario: Usuario = Depends(exigir_usuario)) -> FileResponse:
+def exportar(sessao_id: str, request: Request,
+             usuario: Usuario = Depends(
+                 acesso("extracao.exportar"))) -> FileResponse:
     """Excel com TODAS as linhas extraidas (a previa e so da tela)."""
     sessao = obter_sessao(sessao_id)
     linhas = sessao.estado.get("linhas")
@@ -125,6 +132,7 @@ def exportar(sessao_id: str,
                             detail="Extraia os itens antes de exportar.")
     filtro = (ROTULO_FILTRO_ENTRADAS
               if sessao.estado.get("filtro_entradas") else "")
+    detalhar(request, f"{len(linhas)} linha(s) exportada(s)")
     destino = tempfile.mktemp(prefix="itens_auditoria_", suffix=".xlsx")
     exportar_itens_excel(linhas, destino, filtro_aplicado=filtro)
     return FileResponse(destino, media_type=_MEDIA_XLSX,

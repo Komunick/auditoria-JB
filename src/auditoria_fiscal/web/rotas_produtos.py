@@ -16,7 +16,7 @@ from __future__ import annotations
 import os
 import tempfile
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -29,7 +29,8 @@ from ..ferramentas.correcao_produtos import (
     aplicar_correcoes, selecionar_alta_confianca,
 )
 from ..ferramentas.relatorio_produtos import exportar_relatorio_excel
-from .auth import Usuario, exigir_usuario
+from .auditoria import acesso, detalhar, exigir_aba
+from .auth import Usuario
 from .infra import caminho_historico_produtos, pasta_dados_web, raiz_projeto
 from .sessoes import iniciar_job, obter_sessao, salvar_upload
 
@@ -116,6 +117,18 @@ def _filtrar(resultados: list[ResultadoAuditoria],
     return list(resultados)
 
 
+def _pendentes_alta_confianca(
+        resultados: list[ResultadoAuditoria]) -> list[ResultadoAuditoria]:
+    """Candidatos de "Corrigir alta confianca" (regra do desktop).
+
+    Serve tanto a previa (que mostra a contagem antes de confirmar) quanto a
+    correcao em lote, para o numero prometido ao usuario ser exatamente o que
+    a rota vai aplicar.
+    """
+    return [r for r in selecionar_alta_confianca(resultados)
+            if r.status_correcao != "Corrigido"]
+
+
 def _exigir_auditoria(sessao) -> list[ResultadoAuditoria]:
     resultados = sessao.estado.get("resultados")
     if resultados is None:
@@ -125,12 +138,28 @@ def _exigir_auditoria(sessao) -> list[ResultadoAuditoria]:
 
 
 # ----------------------------------------------------------------------
+# Bases legais
+
+
+@router.get("/bases-legais")
+def bases_legais(usuario: Usuario = Depends(
+        exigir_aba("produtos"))) -> dict:
+    """Pasta das bases legais em uso; None quando nenhuma foi encontrada.
+
+    O desktop mostra isso ANTES de auditar, para o usuario saber que sem a
+    pasta as validacoes legais ficam limitadas.
+    """
+    return {"pasta": _pasta_dados_legais()}
+
+
+# ----------------------------------------------------------------------
 # Upload + auditoria
 
 
 @router.post("/upload")
-async def upload(sessao_id: str, arquivo: UploadFile,
-                 usuario: Usuario = Depends(exigir_usuario)) -> dict:
+async def upload(sessao_id: str, arquivo: UploadFile, request: Request,
+                 usuario: Usuario = Depends(
+                     acesso("produtos.upload"))) -> dict:
     """Recebe a planilha do cadastro e guarda o CAMINHO na sessao.
 
     gerar_nova_base reabre o arquivo ORIGINAL do disco, entao o upload
@@ -140,6 +169,7 @@ async def upload(sessao_id: str, arquivo: UploadFile,
     caminho = await salvar_upload(sessao, arquivo)
     with sessao.trava:
         sessao.estado["caminho_base"] = caminho
+    detalhar(request, f"arquivo: {os.path.basename(caminho)}")
     return {"ok": True, "arquivo": os.path.basename(caminho)}
 
 
@@ -149,7 +179,7 @@ class AuditarEntrada(BaseModel):
 
 @router.post("/auditar")
 def auditar(entrada: AuditarEntrada,
-            usuario: Usuario = Depends(exigir_usuario)) -> dict:
+            usuario: Usuario = Depends(acesso("produtos.auditar"))) -> dict:
     sessao = obter_sessao(entrada.sessao_id)
     caminho = sessao.estado.get("caminho_base", "")
 
@@ -178,7 +208,7 @@ def auditar(entrada: AuditarEntrada,
 
 @router.get("/resultados")
 def resultados(sessao_id: str, filtro: str = "todos",
-               usuario: Usuario = Depends(exigir_usuario)) -> dict:
+               usuario: Usuario = Depends(exigir_aba("produtos"))) -> dict:
     if filtro not in _FILTROS:
         raise HTTPException(
             status_code=422,
@@ -192,6 +222,9 @@ def resultados(sessao_id: str, filtro: str = "todos",
         "itens": [_linha_resultado(r) for r in filtrados[:LIMITE_PREVIA]],
         "contexto": os.path.basename(sessao.estado.get("caminho_base", "")),
         "alteracoes_acumuladas": len(sessao.estado.get("alteracoes", {})),
+        # Apurado sobre TODOS os resultados (nao sobre o filtro nem sobre a
+        # previa): o botao "Corrigir alta confianca" tambem ignora os dois.
+        "alta_confianca_pendentes": len(_pendentes_alta_confianca(todos)),
     }
 
 
@@ -206,15 +239,14 @@ class CorrigirEntrada(BaseModel):
 
 
 @router.post("/corrigir")
-def corrigir(entrada: CorrigirEntrada,
-             usuario: Usuario = Depends(exigir_usuario)) -> dict:
+def corrigir(entrada: CorrigirEntrada, request: Request,
+             usuario: Usuario = Depends(acesso("produtos.corrigir"))) -> dict:
     sessao = obter_sessao(entrada.sessao_id)
     todos = _exigir_auditoria(sessao)
     base = sessao.estado.get("base")
 
     if entrada.alta_confianca:
-        selecionados = [r for r in selecionar_alta_confianca(todos)
-                        if r.status_correcao != "Corrigido"]
+        selecionados = _pendentes_alta_confianca(todos)
         if not selecionados:
             raise HTTPException(
                 status_code=422,
@@ -247,6 +279,9 @@ def corrigir(entrada: CorrigirEntrada,
         indicadores = calcular_indicadores(todos)
         sessao.estado["indicadores"] = indicadores
 
+    modo = ("alta confianca" if entrada.alta_confianca
+            else "selecao individual")
+    detalhar(request, f"{len(novas)} produto(s) corrigido(s): {modo}")
     return {
         "corrigidos_agora": len(novas),
         "acumuladas": len(alteracoes),
@@ -262,11 +297,13 @@ def corrigir(entrada: CorrigirEntrada,
 
 
 @router.post("/relatorio")
-def relatorio(sessao_id: str,
-              usuario: Usuario = Depends(exigir_usuario)) -> FileResponse:
+def relatorio(sessao_id: str, request: Request,
+              usuario: Usuario = Depends(acesso(
+                  "produtos.relatorio"))) -> FileResponse:
     sessao = obter_sessao(sessao_id)
     todos = _exigir_auditoria(sessao)
     base = sessao.estado.get("base")
+    detalhar(request, f"{len(todos)} produto(s) no relatorio")
     destino = tempfile.mktemp(prefix="auditoria_produtos_", suffix=".xlsx")
     exportar_relatorio_excel(todos, destino,
                              sessao.estado.get("indicadores"),
@@ -276,8 +313,9 @@ def relatorio(sessao_id: str,
 
 
 @router.post("/nova-base")
-def nova_base(sessao_id: str,
-              usuario: Usuario = Depends(exigir_usuario)) -> FileResponse:
+def nova_base(sessao_id: str, request: Request,
+              usuario: Usuario = Depends(acesso(
+                  "produtos.nova_base"))) -> FileResponse:
     """Nova base corrigida no MESMO formato do arquivo enviado."""
     sessao = obter_sessao(sessao_id)
     _exigir_auditoria(sessao)
@@ -289,6 +327,7 @@ def nova_base(sessao_id: str,
             detail="Nenhuma correcao aplicada ainda. Use Corrigir "
                    "selecionados ou Corrigir alta confianca antes de gerar "
                    "a nova base.")
+    detalhar(request, f"{len(alteracoes)} produto(s) corrigido(s) na base")
     raiz_nome, ext = os.path.splitext(base.caminho)
     destino = tempfile.mktemp(prefix="nova_base_", suffix=ext or ".csv")
     with sessao.trava:

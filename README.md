@@ -195,6 +195,14 @@ auditoria-fiscal/
 .\.venv\Scripts\python.exe tests\test_relatorio_produtos.py  # item 5 (relatorio)
 .\.venv\Scripts\python.exe tests\test_ui_smoke.py     # interface (5 abas)
 
+# versao web (sobe o app com TestClient; dados_web isolado no temp)
+.\.venv\Scripts\python.exe tests\test_web_conferencia.py  # plataforma + item 3
+.\.venv\Scripts\python.exe tests\test_web_comparador.py   # item 1 na web
+.\.venv\Scripts\python.exe tests\test_web_diff.py         # item 2 na web
+.\.venv\Scripts\python.exe tests\test_web_extracao.py     # item 4 na web
+.\.venv\Scripts\python.exe tests\test_web_produtos.py     # item 5 na web
+.\.venv\Scripts\python.exe tests\test_web_permissoes.py   # permissoes + historico
+
 # validacoes com o SPED real (ajuste o caminho nos scripts)
 .\.venv\Scripts\python.exe tests\validacao_real.py    # pipeline item 1
 .\.venv\Scripts\python.exe tests\diff_real.py         # item 2 em escala real

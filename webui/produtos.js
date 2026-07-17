@@ -20,6 +20,7 @@ Abas.registrar("produtos", (container) => {
           </select>
         </label>
       </div>
+      <p id="prod-bases" class="status"></p>
       <p id="prod-status" class="status"></p>
     </div>
 
@@ -28,7 +29,7 @@ Abas.registrar("produtos", (container) => {
     </div>
 
     <div class="caixa">
-      <div class="linha-form">
+      <div class="linha-form" id="prod-acoes">
         <button id="prod-corrigir-sel" disabled>Corrigir selecionados</button>
         <button id="prod-corrigir-alta" disabled>Corrigir alta confianca</button>
         <button id="prod-relatorio" disabled>Exportar relatorio (.xlsx)</button>
@@ -36,7 +37,8 @@ Abas.registrar("produtos", (container) => {
       </div>
       <div class="rolagem"><table id="prod-tabela">
         <thead><tr>
-          <th></th><th>Codigo</th><th>Descricao</th><th>NCM</th><th>CEST</th>
+          <th class="col-sel"></th>
+          <th>Codigo</th><th>Descricao</th><th>NCM</th><th>CEST</th>
           <th>CFOP</th><th>CST</th><th>Aliq</th><th>Trib. atual</th>
           <th>Trib. sugerida</th><th>Confianca</th><th>Situacao</th>
           <th>Inconsistencias</th><th>Correcao sugerida</th><th>Status</th>
@@ -55,12 +57,42 @@ Abas.registrar("produtos", (container) => {
     ["corrigidos", "Corrigidos", "verde"],
   ];
 
-  const estado = { sessaoId: null, itens: [] };
+  const estado = { sessaoId: null, itens: [], altaPendentes: 0 };
   const $ = (id) => document.getElementById(id);
   const status = (texto) => { $("prod-status").textContent = texto; };
   const botoes = ["prod-corrigir-sel", "prod-corrigir-alta",
                   "prod-relatorio", "prod-nova-base"];
   const habilitar = (sim) => botoes.forEach((id) => { $(id).disabled = !sim; });
+
+  /* Acoes sem permissao nao sao desenhadas: o servidor barra com 403 e o
+     clique so viraria erro. Importar/auditar e ler a tabela dependem so da
+     aba, entao ficam. */
+  const podeCorrigir = seNaoPuder($("prod-corrigir-sel"), "produtos.corrigir");
+  seNaoPuder($("prod-corrigir-alta"), "produtos.corrigir");
+  const podeRelatorio = seNaoPuder($("prod-relatorio"), "produtos.relatorio");
+  const podeNovaBase = seNaoPuder($("prod-nova-base"), "produtos.nova_base");
+  if (!podeCorrigir && !podeRelatorio && !podeNovaBase) {
+    $("prod-acoes").classList.add("oculto");
+  }
+  /* A coluna de selecao so alimenta "Corrigir selecionados": sem a permissao
+     ela vira caixa que marca e nao faz nada. Mesmo tratamento da coluna
+     "Conf." do Livro de Conferencia. */
+  const classeSel = podeCorrigir ? "col-sel" : "col-sel oculto";
+  if (!podeCorrigir) {
+    $("prod-tabela").querySelector("th.col-sel").classList.add("oculto");
+  }
+
+  /* O core JA arredonda o percentual (round(x, 1) em calcular_indicadores);
+     aqui so se RENDERIZA. O desktop imprime o float do Python — str(50.0) e
+     "50.0" -> "50,0%". Em JS o JSON.parse descarta o ".0" e String(50.0)
+     devolve "50" ("50%"), divergindo do desktop em TODO percentual inteiro
+     (0%, 30%, 50%, 100%). toFixed(1) apenas reimprime a casa decimal que o
+     core ja fixou; nao arredonda nada por conta propria. */
+  const textoPercentual = (valor) => {
+    const numero = Number(valor);
+    if (!Number.isFinite(numero)) return String(valor);
+    return numero.toFixed(1).replace(".", ",") + "%";
+  };
 
   function renderIndicadores(ind) {
     const caixa = $("prod-indicadores");
@@ -68,7 +100,7 @@ Abas.registrar("produtos", (container) => {
     for (const [chave, rotulo, cor] of INDICADORES) {
       let valor = ind ? ind[chave] : "-";
       if (chave === "percentual_inconsistencias" && ind) {
-        valor = String(valor).replace(".", ",") + "%";
+        valor = textoPercentual(valor);
       }
       const cartao = document.createElement("div");
       cartao.className = "cartao" + (cor ? ` ${cor}` : "");
@@ -79,6 +111,21 @@ Abas.registrar("produtos", (container) => {
     }
   }
   renderIndicadores(null);
+
+  /* Como no desktop, a pasta das bases legais aparece ANTES de auditar: sem
+     ela as validacoes legais ficam limitadas, e isso muda o que o usuario
+     espera do resultado. Falhar aqui nao pode travar a aba. */
+  (async () => {
+    const alvo = $("prod-bases");
+    try {
+      const { pasta } = await api("/api/produtos/bases-legais");
+      alvo.className = pasta ? "status" : "aviso";
+      alvo.textContent = pasta
+        ? `Bases legais em uso: ${pasta}`
+        : "Pasta dados/ nao encontrada - as validacoes legais (Anexo I, " +
+          "TIPI) ficarao limitadas.";
+    } catch (erro) { alvo.textContent = ""; }
+  })();
 
   // ------------------------------------------------------------------
   // Importar e auditar (upload + job)
@@ -122,33 +169,40 @@ Abas.registrar("produtos", (container) => {
       `/api/produtos/resultados?sessao_id=${estado.sessaoId}` +
       `&filtro=${$("prod-filtro").value}`);
     estado.itens = dados.itens;
+    estado.altaPendentes = dados.alta_confianca_pendentes;
     renderIndicadores(dados.indicadores);
     renderTabela(dados);
   }
 
+  /* O desktop pinta o fundo da LINHA inteira por situacao (rosa/amarelo),
+     nao so a celula "Situacao". */
   function classeSituacao(situacao) {
-    if (situacao === "INCONSISTENTE") return "erro";
-    if (situacao === "ALERTA") return "aviso";
+    if (situacao === "INCONSISTENTE") return "inconsistente";
+    if (situacao === "ALERTA") return "alerta";
     return "";
   }
 
+  /* Todo valor de p.* vem da planilha do cliente (incluindo texto livre) e cai
+     em innerHTML: passa por esc() para nao virar XSS armazenado. classeSel e a
+     classe "corrigido" sao calculadas aqui, nao vem do servidor. */
   function renderTabela(dados) {
     const corpo = $("prod-tabela").querySelector("tbody");
     corpo.innerHTML = "";
     for (const p of dados.itens) {
       const tr = document.createElement("tr");
       tr.dataset.indice = p.indice;
+      tr.className = classeSituacao(p.situacao);
       const marcavel = p.tem_correcao && p.status !== "Corrigido";
       tr.innerHTML = `
-        <td>${marcavel ? '<input type="checkbox">' : ""}</td>
-        <td>${p.codigo}</td><td>${p.descricao}</td><td>${p.ncm}</td>
-        <td>${p.cest}</td><td>${p.cfop}</td><td>${p.cst}</td>
-        <td>${p.aliquota}</td><td>${p.trib_atual}</td><td>${p.trib_sugerida}</td>
-        <td>${p.confianca}</td>
-        <td class="${classeSituacao(p.situacao)}">${p.situacao}</td>
-        <td>${p.inconsistencias}</td>
-        <td>${p.correcao}</td>
-        <td class="${p.status === "Corrigido" ? "corrigido" : ""}">${p.status}</td>`;
+        <td class="${classeSel}">${marcavel ? '<input type="checkbox">' : ""}</td>
+        <td>${esc(p.codigo)}</td><td>${esc(p.descricao)}</td><td>${esc(p.ncm)}</td>
+        <td>${esc(p.cest)}</td><td>${esc(p.cfop)}</td><td>${esc(p.cst)}</td>
+        <td>${esc(p.aliquota)}</td><td>${esc(p.trib_atual)}</td><td>${esc(p.trib_sugerida)}</td>
+        <td>${esc(p.confianca)}</td>
+        <td>${esc(p.situacao)}</td>
+        <td>${esc(p.inconsistencias)}</td>
+        <td>${esc(p.correcao)}</td>
+        <td class="${p.status === "Corrigido" ? "corrigido" : ""}">${esc(p.status)}</td>`;
       corpo.appendChild(tr);
     }
     const aviso = dados.total_filtrado > dados.itens.length
@@ -187,9 +241,18 @@ Abas.registrar("produtos", (container) => {
       `Aplicar correcoes sugeridas em ${indices.length} produto(s)?`);
   });
 
+  /* Como no desktop: apura os candidatos ANTES de perguntar, para avisar de
+     graca quando nao ha nada pendente e mostrar o N real na confirmacao. A
+     contagem vem da rota de resultados, apurada pela mesma funcao do core
+     que a correcao usa. */
   $("prod-corrigir-alta").addEventListener("click", async () => {
+    const pendentes = estado.altaPendentes;
+    if (!pendentes) {
+      toast("Nenhuma correcao de alta confianca pendente.", "erro");
+      return;
+    }
     await corrigir({ alta_confianca: true },
-      "Aplicar TODAS as correcoes de alta confianca pendentes?");
+      `Aplicar correcoes sugeridas em ${pendentes} produto(s)?`);
   });
 
   // ------------------------------------------------------------------
