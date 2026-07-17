@@ -6,17 +6,18 @@ Abas.registrar("conferencia", (container) => {
   container.innerHTML = `
     <div class="caixa">
       <h2>Origem das notas</h2>
+      <p class="dica">Importe o <b>SPED</b> e, opcionalmente, a <b>pasta de XMLs</b>
+         das notas no mesmo envio. O sistema lê o SPED, identifica as notas
+         declaradas e vincula automaticamente os XMLs correspondentes pela chave
+         de acesso — sem forçar escolher entre um ou outro. (Sem SPED, você ainda
+         pode carregar só os XMLs.)</p>
       <div class="linha-form">
-        <label>Fonte
-          <select id="conf-fonte">
-            <option value="xml">Pasta de XMLs de NF-e</option>
-            <option value="sped">Arquivo SPED Fiscal (.txt)</option>
-          </select>
+        <label>Arquivo SPED Fiscal (.txt)
+          <input id="conf-sped-arq" type="file" accept=".txt,.zip">
         </label>
-        <label><span id="conf-arquivos-lbl">Pasta com os XMLs (selecione a
-          pasta inteira)</span>
-          <input id="conf-arquivos" type="file" multiple webkitdirectory
-                 accept=".txt,.xml,.zip">
+        <label>Pasta de XMLs de NF-e/CT-e (opcional — selecione a pasta inteira)
+          <input id="conf-xml-arq" type="file" multiple webkitdirectory
+                 accept=".xml,.zip">
         </label>
         <label><input id="conf-entradas" type="checkbox" checked>
           Considerar apenas documentos de entrada no SPED</label>
@@ -88,43 +89,26 @@ Abas.registrar("conferencia", (container) => {
   }
 
   // ------------------------------------------------------------------
-  // Modo de selecao: fonte "Pasta de XMLs" abre um seletor de PASTA inteira
-  // (webkitdirectory, como o "Procurar pasta" do desktop); "SPED" abre o
-  // seletor de arquivo. O input e recriado ao trocar de fonte para alternar o
-  // modo com seguranca entre navegadores.
+  // Selecao combinada: SPED (.txt) + pasta de XMLs (opcional) no MESMO envio.
+  // Nao ha mais escolha excludente de "fonte"; o fluxo e decidido pelo que veio
+  // (SPED presente => carrega o SPED e vincula os XMLs; so XMLs => carrega XMLs).
 
-  function extRelevante(nome, ehXml) {
-    const n = nome.toLowerCase();
-    return ehXml ? (n.endsWith(".xml") || n.endsWith(".zip"))
-                 : (n.endsWith(".txt") || n.endsWith(".zip"));
+  const spedsSelecionados = () => [...($("conf-sped-arq").files || [])]
+    .filter((f) => /\.(txt|zip)$/i.test(f.name));
+  const xmlsSelecionados = () => [...($("conf-xml-arq").files || [])]
+    .filter((f) => /\.(xml|zip)$/i.test(f.name));
+
+  function resumoSelecao() {
+    const nSped = spedsSelecionados().length;
+    const nXml = xmlsSelecionados().length;
+    if (!nSped && !nXml) { status(""); return; }
+    const partes = [];
+    if (nSped) partes.push("SPED selecionado");
+    if (nXml) partes.push(`${nXml} XML(s)`);
+    status(`${partes.join(" + ")}. Clique em "Enviar e carregar".`);
   }
-
-  function aplicarModoFonte() {
-    const ehXml = $("conf-fonte").value === "xml";
-    const antigo = $("conf-arquivos");
-    const novo = document.createElement("input");
-    novo.type = "file";
-    novo.id = "conf-arquivos";
-    novo.multiple = true;
-    if (ehXml) {
-      novo.webkitdirectory = true;
-      novo.setAttribute("webkitdirectory", "");
-    } else {
-      novo.accept = ".txt,.zip";
-    }
-    novo.addEventListener("change", () => {
-      const n = [...novo.files].filter((f) => extRelevante(f.name, ehXml)).length;
-      status(n ? `${n} arquivo(s) selecionado(s). Clique em "Enviar e carregar".`
-               : "Nenhum XML/SPED encontrado na selecao.");
-    });
-    antigo.replaceWith(novo);
-    $("conf-arquivos-lbl").textContent = ehXml
-      ? "Pasta com os XMLs de NF-e/CT-e (selecione a pasta inteira)"
-      : "Arquivo SPED (.txt) ou .zip";
-  }
-
-  $("conf-fonte").addEventListener("change", aplicarModoFonte);
-  aplicarModoFonte();
+  $("conf-sped-arq").addEventListener("change", resumoSelecao);
+  $("conf-xml-arq").addEventListener("change", resumoSelecao);
 
   // ------------------------------------------------------------------
   // Carga
@@ -165,25 +149,33 @@ Abas.registrar("conferencia", (container) => {
   }
 
   $("conf-carregar").addEventListener("click", async () => {
-    const ehXml = $("conf-fonte").value === "xml";
-    // Filtra o que interessa: numa pasta selecionada, ignora arquivos que nao
-    // sejam XML/SPED (ex.: .exe, planilhas) para nao subir lixo.
-    const arquivos = [...$("conf-arquivos").files]
-      .filter((f) => extRelevante(f.name, ehXml));
-    if (!arquivos.length) {
-      toast(ehXml ? "Selecione a pasta com os XMLs." : "Selecione o SPED (.txt).",
-            "erro");
+    // SPED e XMLs vem em inputs SEPARADOS e sao enviados JUNTOS. A rota /upload
+    // ja roteia o .txt para a raiz e os .xml/.zip para xml/; com SPED presente,
+    // /carregar (fonte "sped") le o SPED e associa os XMLs das notas declaradas
+    // pela chave de acesso. Sem SPED, carrega so os XMLs (fonte "xml").
+    const speds = spedsSelecionados();
+    const xmls = xmlsSelecionados();
+    if (!speds.length && !xmls.length) {
+      toast("Selecione o arquivo SPED (.txt) e/ou a pasta de XMLs.", "erro");
       return;
     }
+    const fonte = speds.length ? "sped" : "xml";
+    const arquivos = [...speds, ...xmls];
     const botao = $("conf-carregar");
     botao.disabled = true;
     try {
       const { sessao_id } = await api("/api/sessoes", { json: { ferramenta: "conferencia" } });
       estado.sessaoId = sessao_id;
       await enviarArquivos(arquivos);
-      const resultado = await recarregar($("conf-fonte").value,
-                                         $("conf-entradas").checked);
-      status(`${resultado.total} nota(s) carregada(s) — ${resultado.contexto}.`);
+      const resultado = await recarregar(fonte, $("conf-entradas").checked);
+      let extra = "";
+      if (fonte === "sped" && xmls.length) {
+        const semXml = estado.notas.filter((n) => !n.tem_xml).length;
+        const comXml = estado.notas.length - semXml;
+        extra = ` — ${comXml} com XML vinculado` +
+                (semXml ? `, ${semXml} sem XML correspondente` : "");
+      }
+      status(`${resultado.total} nota(s) carregada(s) — ${resultado.contexto}${extra}.`);
     } catch (erro) {
       status(""); toast(erro.message, "erro");
     } finally { botao.disabled = false; }
