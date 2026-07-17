@@ -204,25 +204,32 @@ def ler_xml_nfe(caminho: str) -> Optional[NotaFiscal]:
 
 
 def ler_pasta_xml(pasta: str) -> list[NotaFiscal]:
-    """Le todos os XMLs de NF-e de uma pasta (recursivamente)."""
+    """Le todos os XMLs de NF-e e CT-e de uma pasta (recursivamente).
+
+    Cada arquivo e tentado como NF-e; se nao for (ex.: um CT-e), tenta como
+    CT-e. Import tardio de cte_xml para evitar ciclo (cte_xml usa helpers deste
+    modulo)."""
+    from .cte_xml import ler_xml_cte
+
     notas: list[NotaFiscal] = []
     padrao = os.path.join(pasta, "**", "*.xml")
     for caminho in glob.glob(padrao, recursive=True):
-        nota = ler_xml_nfe(caminho)
+        nota = ler_xml_nfe(caminho) or ler_xml_cte(caminho)
         if nota is not None:
             notas.append(nota)
     return notas
 
 
 def chave_do_xml(caminho: str) -> str:
-    """Extrai a chave de acesso (44 digitos) de um XML de NF-e, ou ""."""
+    """Extrai a chave de acesso (44 digitos) de um XML de NF-e ou CT-e, ou ""."""
     try:
         arvore = etree.parse(caminho)
     except (etree.XMLSyntaxError, OSError):
         return ""
     inf = _no(arvore.getroot(), "infNFe")
     if inf is None:
-        return ""
+        from .cte_xml import chave_do_cte
+        return chave_do_cte(caminho)
     chave = so_digitos(inf.get("Id", ""))
     if len(chave) > 44:
         chave = chave[-44:]
