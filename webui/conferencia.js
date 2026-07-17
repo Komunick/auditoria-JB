@@ -13,8 +13,9 @@ Abas.registrar("conferencia", (container) => {
             <option value="sped">Arquivo SPED Fiscal (.txt)</option>
           </select>
         </label>
-        <label>Arquivos (.txt, .xml ou .zip — pode enviar o ano inteiro)
-          <input id="conf-arquivos" type="file" multiple
+        <label><span id="conf-arquivos-lbl">Pasta com os XMLs (selecione a
+          pasta inteira)</span>
+          <input id="conf-arquivos" type="file" multiple webkitdirectory
                  accept=".txt,.xml,.zip">
         </label>
         <label><input id="conf-entradas" type="checkbox" checked>
@@ -87,6 +88,45 @@ Abas.registrar("conferencia", (container) => {
   }
 
   // ------------------------------------------------------------------
+  // Modo de selecao: fonte "Pasta de XMLs" abre um seletor de PASTA inteira
+  // (webkitdirectory, como o "Procurar pasta" do desktop); "SPED" abre o
+  // seletor de arquivo. O input e recriado ao trocar de fonte para alternar o
+  // modo com seguranca entre navegadores.
+
+  function extRelevante(nome, ehXml) {
+    const n = nome.toLowerCase();
+    return ehXml ? (n.endsWith(".xml") || n.endsWith(".zip"))
+                 : (n.endsWith(".txt") || n.endsWith(".zip"));
+  }
+
+  function aplicarModoFonte() {
+    const ehXml = $("conf-fonte").value === "xml";
+    const antigo = $("conf-arquivos");
+    const novo = document.createElement("input");
+    novo.type = "file";
+    novo.id = "conf-arquivos";
+    novo.multiple = true;
+    if (ehXml) {
+      novo.webkitdirectory = true;
+      novo.setAttribute("webkitdirectory", "");
+    } else {
+      novo.accept = ".txt,.zip";
+    }
+    novo.addEventListener("change", () => {
+      const n = [...novo.files].filter((f) => extRelevante(f.name, ehXml)).length;
+      status(n ? `${n} arquivo(s) selecionado(s). Clique em "Enviar e carregar".`
+               : "Nenhum XML/SPED encontrado na selecao.");
+    });
+    antigo.replaceWith(novo);
+    $("conf-arquivos-lbl").textContent = ehXml
+      ? "Pasta com os XMLs de NF-e/CT-e (selecione a pasta inteira)"
+      : "Arquivo SPED (.txt) ou .zip";
+  }
+
+  $("conf-fonte").addEventListener("change", aplicarModoFonte);
+  aplicarModoFonte();
+
+  // ------------------------------------------------------------------
   // Carga
 
   async function enviarArquivos(arquivos) {
@@ -125,8 +165,16 @@ Abas.registrar("conferencia", (container) => {
   }
 
   $("conf-carregar").addEventListener("click", async () => {
-    const arquivos = [...$("conf-arquivos").files];
-    if (!arquivos.length) { toast("Selecione os arquivos.", "erro"); return; }
+    const ehXml = $("conf-fonte").value === "xml";
+    // Filtra o que interessa: numa pasta selecionada, ignora arquivos que nao
+    // sejam XML/SPED (ex.: .exe, planilhas) para nao subir lixo.
+    const arquivos = [...$("conf-arquivos").files]
+      .filter((f) => extRelevante(f.name, ehXml));
+    if (!arquivos.length) {
+      toast(ehXml ? "Selecione a pasta com os XMLs." : "Selecione o SPED (.txt).",
+            "erro");
+      return;
+    }
     const botao = $("conf-carregar");
     botao.disabled = true;
     try {

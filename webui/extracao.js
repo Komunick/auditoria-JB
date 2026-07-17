@@ -13,8 +13,8 @@ Abas.registrar("extracao", (container) => {
             <option value="xml">Pasta de XMLs de NF-e</option>
           </select>
         </label>
-        <label>Arquivos (.txt, .xml ou .zip — pode enviar a pasta zipada)
-          <input id="ext-arquivos" type="file" multiple accept=".txt,.xml,.zip">
+        <label><span id="ext-arquivos-lbl">Arquivo SPED (.txt) ou .zip</span>
+          <input id="ext-arquivos" type="file" multiple accept=".txt,.zip">
         </label>
         <label>Operacao
           <select id="ext-operacao" title="No SPED filtra pelo IND_OPER do C100">
@@ -42,12 +42,50 @@ Abas.registrar("extracao", (container) => {
 
   const podeExportar = seNaoPuder($("ext-exportar"), "extracao.exportar");
 
-  // Trocar a fonte limpa a selecao de arquivos (mesmo comportamento do desktop).
-  $("ext-fonte").addEventListener("change", () => { $("ext-arquivos").value = ""; });
+  // Fonte "Pasta de XMLs" abre um seletor de PASTA inteira (webkitdirectory,
+  // como o "Procurar pasta" do desktop); "SPED" abre o seletor de arquivo.
+  function extRelevante(nome, ehXml) {
+    const n = nome.toLowerCase();
+    return ehXml ? (n.endsWith(".xml") || n.endsWith(".zip"))
+                 : (n.endsWith(".txt") || n.endsWith(".zip"));
+  }
+
+  function aplicarModoFonte() {
+    const ehXml = $("ext-fonte").value === "xml";
+    const antigo = $("ext-arquivos");
+    const novo = document.createElement("input");
+    novo.type = "file";
+    novo.id = "ext-arquivos";
+    novo.multiple = true;
+    if (ehXml) {
+      novo.webkitdirectory = true;
+      novo.setAttribute("webkitdirectory", "");
+    } else {
+      novo.accept = ".txt,.zip";
+    }
+    novo.addEventListener("change", () => {
+      const n = [...novo.files].filter((f) => extRelevante(f.name, ehXml)).length;
+      status(n ? `${n} arquivo(s) selecionado(s). Clique em "Enviar e extrair".`
+               : "Nenhum XML/SPED encontrado na selecao.");
+    });
+    antigo.replaceWith(novo);
+    $("ext-arquivos-lbl").textContent = ehXml
+      ? "Pasta com os XMLs de NF-e/CT-e (selecione a pasta inteira)"
+      : "Arquivo SPED (.txt) ou .zip";
+  }
+
+  $("ext-fonte").addEventListener("change", aplicarModoFonte);
+  aplicarModoFonte();
 
   $("ext-extrair").addEventListener("click", async () => {
-    const arquivos = [...$("ext-arquivos").files];
-    if (!arquivos.length) { toast("Selecione os arquivos.", "erro"); return; }
+    const ehXml = $("ext-fonte").value === "xml";
+    const arquivos = [...$("ext-arquivos").files]
+      .filter((f) => extRelevante(f.name, ehXml));
+    if (!arquivos.length) {
+      toast(ehXml ? "Selecione a pasta com os XMLs." : "Selecione o SPED (.txt).",
+            "erro");
+      return;
+    }
     const botao = $("ext-extrair");
     botao.disabled = true;
     $("ext-exportar").disabled = true;
