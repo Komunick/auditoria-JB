@@ -6,21 +6,24 @@ Abas.registrar("extracao", (container) => {
   container.innerHTML = `
     <div class="caixa">
       <h2>Origem das notas</h2>
+      <p class="dica">Importe o <b>SPED</b> e, opcionalmente, a <b>pasta de
+         XMLs</b> das notas no mesmo envio. O sistema lê o SPED, identifica as
+         notas declaradas e lê automaticamente apenas os XMLs correspondentes,
+         pela chave de acesso — sem forçar escolher entre um ou outro. (Sem
+         SPED, você ainda pode extrair só dos XMLs.)</p>
       <div class="linha-form">
-        <label>Fonte
-          <select id="ext-fonte">
-            <option value="sped">SPED Fiscal (.txt)</option>
-            <option value="xml">Pasta de XMLs de NF-e</option>
-          </select>
+        <label>Arquivo SPED Fiscal (.txt)
+          <input id="ext-sped-arq" type="file" accept=".txt">
         </label>
-        <label><span id="ext-arquivos-lbl">Arquivo SPED (.txt) ou .zip</span>
-          <input id="ext-arquivos" type="file" multiple accept=".txt,.zip">
+        <label>Pasta de XMLs de NF-e/CT-e (opcional — selecione a pasta inteira)
+          <input id="ext-xml-arq" type="file" multiple webkitdirectory
+                 accept=".xml,.zip">
         </label>
-        <label>Operacao
+        <label>Operação
           <select id="ext-operacao" title="No SPED filtra pelo IND_OPER do C100">
             <option value="">Todas</option>
             <option value="0">Apenas entradas</option>
-            <option value="1">Apenas saidas</option>
+            <option value="1">Apenas saídas</option>
           </select>
         </label>
         <button id="ext-extrair" class="botao-primario">Enviar e extrair</button>
@@ -30,7 +33,7 @@ Abas.registrar("extracao", (container) => {
     </div>
 
     <div class="caixa">
-      <h2>Itens extraidos (um por linha da nota)</h2>
+      <h2>Itens extraídos (um por linha da nota)</h2>
       <div class="rolagem"><table id="ext-tabela">
         <thead><tr></tr></thead><tbody></tbody>
       </table></div>
@@ -42,50 +45,52 @@ Abas.registrar("extracao", (container) => {
 
   const podeExportar = seNaoPuder($("ext-exportar"), "extracao.exportar");
 
-  // Fonte "Pasta de XMLs" abre um seletor de PASTA inteira (webkitdirectory,
-  // como o "Procurar pasta" do desktop); "SPED" abre o seletor de arquivo.
-  function extRelevante(nome, ehXml) {
-    const n = nome.toLowerCase();
-    return ehXml ? (n.endsWith(".xml") || n.endsWith(".zip"))
-                 : (n.endsWith(".txt") || n.endsWith(".zip"));
-  }
+  // ------------------------------------------------------------------
+  // Selecao combinada: SPED (.txt) + pasta de XMLs (opcional) no MESMO envio,
+  // como no Livro de Conferencia. O fluxo e decidido pelo que veio: SPED
+  // presente => o SPED define as notas e os XMLs correspondentes completam;
+  // so XMLs => extrai de todos os XMLs.
 
-  function aplicarModoFonte() {
-    const ehXml = $("ext-fonte").value === "xml";
-    const antigo = $("ext-arquivos");
-    const novo = document.createElement("input");
-    novo.type = "file";
-    novo.id = "ext-arquivos";
-    novo.multiple = true;
-    if (ehXml) {
-      novo.webkitdirectory = true;
-      novo.setAttribute("webkitdirectory", "");
-    } else {
-      novo.accept = ".txt,.zip";
+  const spedsSelecionados = () => [...($("ext-sped-arq").files || [])]
+    .filter((f) => /\.txt$/i.test(f.name));
+  const xmlsSelecionados = () => [...($("ext-xml-arq").files || [])]
+    .filter((f) => /\.(xml|zip)$/i.test(f.name));
+
+  function resumoSelecao() {
+    const nSped = spedsSelecionados().length;
+    const nXml = xmlsSelecionados().length;
+    if (!nSped && !nXml) { status(""); return; }
+    const partes = [];
+    if (nSped) partes.push("SPED selecionado");
+    if (nXml) partes.push(`${nXml} XML(s)`);
+    status(`${partes.join(" + ")}. Clique em "Enviar e extrair".`);
+  }
+  $("ext-sped-arq").addEventListener("change", resumoSelecao);
+  $("ext-xml-arq").addEventListener("change", resumoSelecao);
+
+  /* Contadores do vinculo pela chave de acesso (fluxo combinado): conta o
+     que casou, o que o XML completou e o que ficou de fora. */
+  function textoVinculo(v) {
+    if (!v) return "";
+    const partes = [`${v.com_xml} nota(s) com XML vinculado`];
+    if (v.completadas) partes.push(`${v.completadas} completada(s) com itens do XML`);
+    if (v.sem_xml) partes.push(`${v.sem_xml} sem XML correspondente`);
+    let texto = ` Vínculo pela chave de acesso: ${partes.join(", ")}.`;
+    if (v.ignorados) {
+      texto += ` ${v.ignorados} XML(s) fora do SPED ficaram de fora.`;
     }
-    novo.addEventListener("change", () => {
-      const n = [...novo.files].filter((f) => extRelevante(f.name, ehXml)).length;
-      status(n ? `${n} arquivo(s) selecionado(s). Clique em "Enviar e extrair".`
-               : "Nenhum XML/SPED encontrado na selecao.");
-    });
-    antigo.replaceWith(novo);
-    $("ext-arquivos-lbl").textContent = ehXml
-      ? "Pasta com os XMLs de NF-e/CT-e (selecione a pasta inteira)"
-      : "Arquivo SPED (.txt) ou .zip";
+    return texto;
   }
-
-  $("ext-fonte").addEventListener("change", aplicarModoFonte);
-  aplicarModoFonte();
 
   $("ext-extrair").addEventListener("click", async () => {
-    const ehXml = $("ext-fonte").value === "xml";
-    const arquivos = [...$("ext-arquivos").files]
-      .filter((f) => extRelevante(f.name, ehXml));
-    if (!arquivos.length) {
-      toast(ehXml ? "Selecione a pasta com os XMLs." : "Selecione o SPED (.txt).",
-            "erro");
+    const speds = spedsSelecionados();
+    const xmls = xmlsSelecionados();
+    if (!speds.length && !xmls.length) {
+      toast("Selecione o arquivo SPED (.txt) e/ou a pasta de XMLs.", "erro");
       return;
     }
+    const fonte = speds.length ? "sped" : "xml";
+    const arquivos = [...speds, ...xmls];
     const botao = $("ext-extrair");
     botao.disabled = true;
     $("ext-exportar").disabled = true;
@@ -98,20 +103,20 @@ Abas.registrar("extracao", (container) => {
       }
       status("Extraindo itens...");
       const { job_id } = await api("/api/extracao/extrair", { json: {
-        sessao_id, fonte: $("ext-fonte").value,
-        operacao: $("ext-operacao").value } });
+        sessao_id, fonte, operacao: $("ext-operacao").value } });
       const resultado = await esperarJob(job_id);
       estado.total = resultado.total;
       renderPrevia(resultado);
       $("ext-exportar").disabled = resultado.total === 0;
-      let texto = `${resultado.total} item(ns) extraido(s) de ${resultado.contexto}.`;
+      let texto = `${resultado.total} item(ns) extraído(s) de ${resultado.contexto}.`;
       if (resultado.total > resultado.previa.length) {
         /* Sem a permissao de exportar nao ha botao na tela: mandar o usuario
            usar a exportacao seria apontar para um controle que nao existe. */
-        texto += ` (previa: ${resultado.previa.length} de ${resultado.total}` +
-          (podeExportar ? " — exportacao inclui tudo)" : ")");
+        texto += ` (prévia: ${resultado.previa.length} de ${resultado.total}` +
+          (podeExportar ? " — exportação inclui tudo)" : ")");
       }
       if (resultado.filtro) texto += ` ${resultado.filtro}.`;
+      texto += textoVinculo(resultado.vinculo);
       status(texto);
       if (resultado.aviso) toast(resultado.aviso);
     } catch (erro) {

@@ -5,6 +5,11 @@ extraidas ficam em memoria no servidor (a exportacao Excel usa a lista
 completa, como o self._linhas do desktop); o navegador recebe apenas uma
 previa formatada em pt-BR (max. 2000 linhas), com o mesmo aviso de filtro
 de entradas (MSG_SEM_ENTRADAS) da tela original.
+
+Alem da paridade, a web aceita a importacao COMBINADA (SPED + pasta de
+XMLs no mesmo envio): o SPED define as notas e apenas os XMLs
+correspondentes a elas sao lidos, pela chave de acesso — mesmo padrao do
+Livro de Conferencia (commit 958c3db), estendido aqui aos itens.
 """
 
 from __future__ import annotations
@@ -17,7 +22,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from ..core.filtro_sped import MSG_SEM_ENTRADAS, ROTULO_FILTRO_ENTRADAS
-from ..core.nfe_xml import ler_pasta_xml
+from ..core.nfe_xml import completar_itens_com_xmls, ler_pasta_xml
 from ..core.sped_parser import ler_sped
 from ..ferramentas.extracao_itens import (
     CAMPOS, TITULOS, exportar_itens_excel, extrair_itens, valor_para_texto,
@@ -71,15 +76,20 @@ def extrair(entrada: ExtracaoEntrada, request: Request,
     if entrada.operacao not in _OPERACOES:
         raise HTTPException(status_code=422,
                             detail="Operacao invalida (use '', '0' ou '1').")
-    fonte = "XML" if entrada.fonte == "xml" else "SPED"
-    detalhar(request, f"fonte: {fonte}, {_OPERACOES[entrada.operacao]}")
     sessao = obter_sessao(entrada.sessao_id)
     pasta_xml = os.path.join(sessao.pasta, "xml")
+    # Fluxo combinado: com SPED presente, a pasta de XMLs (se enviada) e lida
+    # em conjunto — o SPED define as notas e os XMLs correspondentes completam.
+    combinada = entrada.fonte != "xml" and os.path.isdir(pasta_xml)
+    fonte = "XML" if entrada.fonte == "xml" else (
+        "SPED + XMLs" if combinada else "SPED")
+    detalhar(request, f"fonte: {fonte}, {_OPERACOES[entrada.operacao]}")
     operacao = entrada.operacao or None
     # O aviso/rotulo de filtro so vale para SPED + apenas entradas (desktop).
     filtro_entradas = entrada.fonte == "sped" and entrada.operacao == "0"
 
     def _executar() -> dict:
+        vinculo = None
         if entrada.fonte == "xml":
             if not os.path.isdir(pasta_xml):
                 raise ValueError("Envie os XMLs (.xml ou .zip) antes de extrair.")
@@ -100,6 +110,11 @@ def extrair(entrada: ExtracaoEntrada, request: Request,
             doc = ler_sped(os.path.join(sessao.pasta, sorted(speds)[-1]))
             notas = doc.notas
             contexto = doc.empresa.nome or "SPED"
+            if combinada:
+                # So os XMLs das notas declaradas no SPED sao lidos; notas
+                # sem C170 ganham os itens do XML correspondente.
+                vinculo = completar_itens_com_xmls(notas, pasta_xml)
+                contexto += f" + {vinculo['com_xml']} XML(s)"
 
         linhas = extrair_itens(notas, somente_operacao=operacao)
         with sessao.trava:
@@ -114,6 +129,7 @@ def extrair(entrada: ExtracaoEntrada, request: Request,
             "previa": [_linha_previa(ln) for ln in linhas[:LIMITE_PREVIA]],
             "filtro": ROTULO_FILTRO_ENTRADAS if filtro_entradas else "",
             "aviso": MSG_SEM_ENTRADAS if filtro_entradas and not linhas else "",
+            "vinculo": vinculo,
         }
 
     job = iniciar_job(sessao, "Extraindo itens", _executar)

@@ -2,9 +2,11 @@
 
 Sobe o app FastAPI com TestClient e exercita: upload de SPED (.txt) e de
 XMLs em zip, extracao como job (com filtro de operacao, previa formatada em
-pt-BR e aviso MSG_SEM_ENTRADAS), dedupe de XMLs pela chave de acesso e
-exportacao do Excel completo. Usa dados_web isolado (AUDITORIA_WEB_DADOS)
-e reusa os construtores de test_extracao.py e test_xml.py.
+pt-BR e aviso MSG_SEM_ENTRADAS), dedupe de XMLs pela chave de acesso,
+importacao COMBINADA (SPED + XMLs no mesmo envio, com o SPED definindo
+quais XMLs entram) e exportacao do Excel completo. Usa dados_web isolado
+(AUDITORIA_WEB_DADOS) e reusa os construtores de test_extracao.py e
+test_xml.py.
 """
 
 from __future__ import annotations
@@ -46,6 +48,36 @@ def esperar_job(cliente, job_id: str) -> dict:
             return job
         time.sleep(0.1)
     raise AssertionError("job nao concluiu a tempo")
+
+
+# Chaves extras do cenario combinado (mesmo emitente/serie do CHV base).
+CHV_SEM_C170 = "35260399888777000166550010000010021123456780"
+CHV_SEM_XML = "35260399888777000166550010000010031123456780"
+CHV_FORA_SPED = "35260399888777000166550010000099991123456780"
+
+
+def montar_sped_combinado() -> str:
+    """SPED com tres notas de ENTRADA: 1001 com C170 (os itens declarados
+    mandam), 1002 sem C170 (o XML correspondente completa) e 1003 sem XML."""
+    linhas = [
+        linha("0000", {4: "01032026", 5: "31032026", 6: "EMPRESA TESTE LTDA",
+                       7: "11222333000181", 9: "SP"}),
+        linha("0150", {2: "F001", 3: "FORNECEDOR ALPHA LTDA", 5: "99888777000166"}),
+        linha("0200", {2: "P001", 3: "PARAFUSO SEXTAVADO M8", 8: "73181500"}),
+        linha("C100", {2: "0", 3: "1", 4: "F001", 5: "55", 6: "00", 7: "1",
+                       8: "1001", 9: CHV, 10: "05032026", 11: "05032026",
+                       12: "500,00", 16: "500,00"}),
+        linha("C170", {2: "1", 3: "P001", 4: "PARAFUSO SEXTAVADO M8", 5: "100,00",
+                       6: "UN", 7: "500,00", 10: "000", 11: "1102", 13: "500,00",
+                       14: "18,00", 15: "90,00"}),
+        linha("C100", {2: "0", 3: "1", 4: "F001", 5: "55", 6: "00", 7: "1",
+                       8: "1002", 9: CHV_SEM_C170, 10: "12032026", 11: "12032026",
+                       12: "900,00", 16: "900,00"}),
+        linha("C100", {2: "0", 3: "1", 4: "F001", 5: "55", 6: "00", 7: "1",
+                       8: "1003", 9: CHV_SEM_XML, 10: "20032026", 11: "20032026",
+                       12: "150,00", 16: "150,00"}),
+    ]
+    return "\r\n".join(linhas) + "\r\n"
 
 
 def montar_sped_saidas() -> str:
@@ -105,6 +137,8 @@ def main() -> int:
     checar(resultado["filtro"] == ROTULO_FILTRO_ENTRADAS,
            f"rotulo do filtro: {resultado['filtro']!r}")
     checar(resultado["aviso"] == "", f"aviso indevido: {resultado['aviso']!r}")
+    checar(resultado["vinculo"] is None,
+           f"sem pasta de XMLs nao ha vinculo: {resultado['vinculo']!r}")
 
     l1 = dict(zip(resultado["titulos"], resultado["previa"][0]))
     checar(l1["Chave de acesso"] == CHV, f"chave: {l1['Chave de acesso']}")
@@ -200,8 +234,80 @@ def main() -> int:
     checar(r.status_code == 200 and r.content.startswith(b"PK"),
            "exportacao da fonte xml nao gerou xlsx")
 
+    # ------------------------------------------------------------------
+    # Importacao COMBINADA: SPED + zip de XMLs no MESMO envio. O SPED define
+    # as notas; so os XMLs correspondentes entram (o "fora do SPED" e
+    # ignorado); nota sem C170 ganha os itens do XML sem herdar o tpNF.
+    sessao5 = nova_sessao(cliente)
+    r = cliente.post(
+        f"/api/extracao/upload?sessao_id={sessao5}",
+        files={"arquivo": ("sped_combinado.txt",
+                           montar_sped_combinado().encode("cp1252"),
+                           "text/plain")})
+    checar(r.status_code == 200, f"upload do SPED combinado falhou: {r.text}")
+
+    memoria = io.BytesIO()
+    with zipfile.ZipFile(memoria, "w") as zf:
+        zf.writestr("nota1001.xml", XML)
+        zf.writestr("nota1002.xml",
+                    XML.replace(CHV, CHV_SEM_C170)
+                       .replace("<nNF>1001</nNF>", "<nNF>1002</nNF>"))
+        zf.writestr("fora_do_sped.xml",
+                    XML.replace(CHV, CHV_FORA_SPED)
+                       .replace("<nNF>1001</nNF>", "<nNF>9999</nNF>"))
+    memoria.seek(0)
+    r = cliente.post(f"/api/extracao/upload?sessao_id={sessao5}",
+                     files={"arquivo": ("xmls_combinado.zip", memoria,
+                                        "application/zip")})
+    checar(r.status_code == 200, f"upload do zip combinado falhou: {r.text}")
+
+    job = cliente.post("/api/extracao/extrair", json={
+        "sessao_id": sessao5, "fonte": "sped", "operacao": "0"}).json()
+    job = esperar_job(cliente, job["job_id"])
+    checar(job["status"] == "concluido", f"combinado falhou: {job['erro']}")
+    resultado = job["resultado"]
+
+    # 1001 mantem o item do C170; 1002 adota os 2 itens do XML; 1003 sem
+    # C170 e sem XML nao gera linha; o XML 9999 (fora do SPED) fica de fora.
+    checar(resultado["total"] == 3,
+           f"combinado deveria dar 3 itens: {resultado['total']}")
+    checar(resultado["contexto"] == "EMPRESA TESTE LTDA + 2 XML(s)",
+           f"contexto combinado: {resultado['contexto']}")
+    checar(resultado["filtro"] == ROTULO_FILTRO_ENTRADAS,
+           f"filtro do combinado: {resultado['filtro']!r}")
+    checar(resultado["vinculo"] == {"com_xml": 2, "completadas": 1,
+                                    "sem_xml": 1, "ignorados": 1},
+           f"contadores do vinculo: {resultado['vinculo']!r}")
+
+    linhas_comb = [dict(zip(resultado["titulos"], ln))
+                   for ln in resultado["previa"]]
+    por_numero = {}
+    for ln in linhas_comb:
+        por_numero.setdefault(ln["Numero"], []).append(ln)
+    checar(sorted(por_numero) == ["1001", "1002"],
+           f"numeros na previa: {sorted(por_numero)}")
+    # Nota COM C170: o CFOP declarado (1102) NAO e sobrescrito pelo do XML.
+    checar(por_numero["1001"][0]["CFOP"] == "1102",
+           f"CFOP declarado mudou: {por_numero['1001'][0]['CFOP']}")
+    # Nota SEM C170: itens vem do XML (CFOP 5102 do emitente), mas a
+    # operacao continua a declarada no SPED (entrada) — senao o filtro de
+    # entradas teria descartado a nota.
+    checar(len(por_numero["1002"]) == 2,
+           f"itens adotados do XML: {len(por_numero['1002'])}")
+    checar(por_numero["1002"][0]["CFOP"] == "5102",
+           f"CFOP do item do XML: {por_numero['1002'][0]['CFOP']}")
+    checar(por_numero["1002"][0]["Operacao"] == "Entrada",
+           f"operacao devia seguir o SPED: {por_numero['1002'][0]['Operacao']}")
+    checar(por_numero["1002"][0]["Descricao"] == "PARAFUSO SEXTAVADO M8",
+           f"descricao do item do XML: {por_numero['1002'][0]['Descricao']}")
+
+    r = cliente.post(f"/api/extracao/exportar?sessao_id={sessao5}")
+    checar(r.status_code == 200 and r.content.startswith(b"PK"),
+           "exportacao do combinado nao gerou xlsx")
+
     print("OK - extracao de itens web (upload SPED/zip de XMLs, job, previa "
-          "pt-BR, filtro de entradas, dedupe e Excel) passou.")
+          "pt-BR, filtro de entradas, dedupe, importacao combinada SPED+XML "
+          "e Excel) passou.")
     return 0
 
 

@@ -10,14 +10,17 @@ import tempfile
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(RAIZ, "src"))
 
-from auditoria_fiscal.core.modelos import NotaFiscal, ORIGEM_SPED  # noqa: E402
+from auditoria_fiscal.core.modelos import (  # noqa: E402
+    ItemNota, NotaFiscal, ORIGEM_SPED,
+)
 from auditoria_fiscal.core.nfe_xml import (  # noqa: E402
-    associar_xmls, chave_do_xml, indexar_pasta_xml,
+    associar_xmls, chave_do_xml, completar_itens_com_xmls, indexar_pasta_xml,
 )
 
 CHAVE_A = "35260399888777000166550010000010011123456780"
 CHAVE_B = "29260311222333000181550010000020021765432109"
 CHAVE_SEM_XML = "29260344555666000122550010000030031000000001"
+CHAVE_FORA_SPED = "29260377888999000155550010000090091000000009"
 
 MODELO_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">
@@ -26,6 +29,29 @@ MODELO_XML = """<?xml version="1.0" encoding="UTF-8"?>
       <ide><mod>55</mod><serie>1</serie><nNF>{numero}</nNF>
         <dhEmi>2026-03-05T10:00:00-03:00</dhEmi><tpNF>0</tpNF></ide>
       <emit><CNPJ>99888777000166</CNPJ><xNome>FORNECEDOR TESTE</xNome></emit>
+      <total><ICMSTot><vNF>100.00</vNF></ICMSTot></total>
+    </infNFe>
+  </NFe>
+  <protNFe><infProt><cStat>100</cStat></infProt></protNFe>
+</nfeProc>
+"""
+
+# XML com item detalhado e tpNF=1 (saida do EMITENTE): no fluxo combinado a
+# nota do SPED que adotar estes itens NAO pode herdar o tpNF do fornecedor.
+MODELO_XML_ITEM = """<?xml version="1.0" encoding="UTF-8"?>
+<nfeProc xmlns="http://www.portalfiscal.inf.br/nfe" versao="4.00">
+  <NFe>
+    <infNFe Id="NFe{chave}" versao="4.00">
+      <ide><mod>55</mod><serie>1</serie><nNF>{numero}</nNF>
+        <dhEmi>2026-03-05T10:00:00-03:00</dhEmi><tpNF>1</tpNF></ide>
+      <emit><CNPJ>99888777000166</CNPJ><xNome>FORNECEDOR TESTE</xNome></emit>
+      <det nItem="1">
+        <prod><cProd>PX</cProd><xProd>PRODUTO DO XML</xProd><NCM>73181500</NCM>
+          <CFOP>5102</CFOP><uCom>UN</uCom><qCom>2.00</qCom><vUnCom>50.00</vUnCom>
+          <vProd>100.00</vProd></prod>
+        <imposto><ICMS><ICMS00><CST>00</CST><vBC>100.00</vBC><pICMS>18.00</pICMS>
+          <vICMS>18.00</vICMS></ICMS00></ICMS></imposto>
+      </det>
       <total><ICMSTot><vNF>100.00</vNF></ICMSTot></total>
     </infNFe>
   </NFe>
@@ -88,12 +114,56 @@ def main() -> int:
     finally:
         shutil.rmtree(pasta, ignore_errors=True)
 
+    # ------------------------------------------------------------------
+    # completar_itens_com_xmls (fluxo combinado): o SPED define as notas;
+    # o XML preenche xml_path e da itens so a quem veio sem C170.
+    pasta2 = tempfile.mkdtemp(prefix="xmls_comb_")
+    try:
+        for nome, chave, numero in [("a.xml", CHAVE_A, "1001"),
+                                    ("b.xml", CHAVE_B, "2002"),
+                                    ("fora.xml", CHAVE_FORA_SPED, "9009")]:
+            with open(os.path.join(pasta2, nome), "w", encoding="utf-8") as fh:
+                fh.write(MODELO_XML_ITEM.format(chave=chave, numero=numero))
+
+        do_sped = [
+            NotaFiscal(origem=ORIGEM_SPED, chave=CHAVE_A, numero="1001",
+                       ind_oper="0",
+                       itens=[ItemNota(cfop="1102", cst_icms="000")]),
+            NotaFiscal(origem=ORIGEM_SPED, chave=CHAVE_B, numero="2002",
+                       ind_oper="0"),
+            NotaFiscal(origem=ORIGEM_SPED, chave=CHAVE_SEM_XML, numero="3003"),
+        ]
+        resumo = completar_itens_com_xmls(do_sped, pasta2)
+        checar(resumo == {"com_xml": 2, "completadas": 1,
+                          "sem_xml": 1, "ignorados": 1},
+               f"contadores do combinado: {resumo}")
+
+        nota_a, nota_b, nota_sem = do_sped
+        # Nota COM C170: mantem os proprios itens (a declaracao e o que se
+        # audita), mas ganha o xml_path para DANFE.
+        checar(len(nota_a.itens) == 1 and nota_a.itens[0].cfop == "1102",
+               f"itens do C170 nao deviam mudar: {nota_a.itens}")
+        checar(nota_a.xml_path.endswith("a.xml"),
+               f"xml_path nota A: {nota_a.xml_path}")
+        # Nota SEM C170: adota os itens do XML, sem herdar o tpNF do emitente.
+        checar(len(nota_b.itens) == 1 and nota_b.itens[0].cfop == "5102",
+               f"itens do XML nao adotados: {nota_b.itens}")
+        checar(nota_b.itens[0].descricao == "PRODUTO DO XML",
+               f"descricao do item adotado: {nota_b.itens[0].descricao}")
+        checar(nota_b.ind_oper == "0",
+               f"ind_oper devia continuar o do SPED: {nota_b.ind_oper}")
+        checar(nota_sem.xml_path == "" and not nota_sem.itens,
+               "nota sem XML nao devia mudar")
+    finally:
+        shutil.rmtree(pasta2, ignore_errors=True)
+
     if falhas:
         print("FALHAS:")
         for f in falhas:
             print("  -", f)
         return 1
-    print("OK - vinculacao de XMLs pela chave de acesso passou.")
+    print("OK - vinculacao de XMLs pela chave de acesso passou "
+          "(associar_xmls e completar_itens_com_xmls).")
     return 0
 
 

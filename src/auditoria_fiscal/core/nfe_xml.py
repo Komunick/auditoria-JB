@@ -264,3 +264,48 @@ def associar_xmls(notas: list[NotaFiscal], pasta: str) -> int:
             nota.xml_path = caminho
             associadas += 1
     return associadas
+
+
+def completar_itens_com_xmls(notas: list[NotaFiscal], pasta: str) -> dict:
+    """Le os XMLs correspondentes as notas (vindas do SPED) e completa itens.
+
+    Fluxo combinado SPED + XMLs: o SPED define QUAIS notas entram; desta
+    pasta, so os XMLs cuja chave de acesso consta nas notas recebidas sao
+    lidos por inteiro — os demais ficam de fora (contados em "ignorados").
+
+    O SPED continua sendo a autoridade sobre o que foi declarado: a
+    classificacao entrada/saida (IND_OPER), a situacao e os totais nao
+    mudam, e notas COM itens do C170 mantem os proprios itens (e a
+    declaracao que se audita). O XML entra como complemento: preenche
+    xml_path (DANFE) e da itens as notas que o SPED nao detalhou (C100 sem
+    C170) — sem herdar o tpNF do emitente, que inverteria o filtro de
+    operacao nas compras.
+
+    Retorna contadores para a interface: com_xml (notas com XML na pasta),
+    completadas (notas que ganharam itens do XML), sem_xml (notas sem XML
+    correspondente) e ignorados (XMLs da pasta fora do SPED).
+    """
+    from .cte_xml import ler_xml_cte
+
+    indice = indexar_pasta_xml(pasta)
+    usadas: set[str] = set()
+    com_xml = completadas = 0
+    for nota in notas:
+        caminho = indice.get(nota.chave_normalizada)
+        if not caminho:
+            continue
+        usadas.add(nota.chave_normalizada)
+        com_xml += 1
+        if not nota.xml_path:
+            nota.xml_path = caminho
+        if not nota.itens:
+            do_xml = ler_xml_nfe(caminho) or ler_xml_cte(caminho)
+            if do_xml is not None and do_xml.itens:
+                nota.itens = do_xml.itens
+                completadas += 1
+    return {
+        "com_xml": com_xml,
+        "completadas": completadas,
+        "sem_xml": len(notas) - com_xml,
+        "ignorados": len(indice) - len(usadas),
+    }
