@@ -12,65 +12,91 @@
   <div id="tela-login" class="tela-login oculto">
     <div class="cartao-login">
       <img src="logo.jpg" alt="JB Fraga" width="64">
-      <h1>Ferramentas de Auditoria Fiscal</h1>
       <p class="marca">JB FRAGA CONTABILIDADE</p>
+      <h1>Ferramentas de Auditoria Fiscal</h1>
       <form id="form-login" class="oculto">
-        <label>Usuario <input id="login-usuario" autocomplete="username" required></label>
+        <label>Usuário <input id="login-usuario" autocomplete="username" required></label>
         <label>Senha <input id="login-senha" type="password" autocomplete="current-password" required></label>
         <button type="submit" class="botao-primario">Entrar</button>
         <p id="login-erro" class="erro"></p>
       </form>
       <form id="form-bootstrap" class="oculto">
-        <p class="aviso">Primeiro acesso: crie o usuario administrador.</p>
-        <label>Usuario <input id="boot-usuario" required></label>
+        <p class="aviso">Primeiro acesso: crie o usuário administrador.</p>
+        <label>Usuário <input id="boot-usuario" required></label>
         <label>Nome <input id="boot-nome"></label>
-        <label>Senha (min. 6) <input id="boot-senha" type="password" required></label>
+        <label>Senha (mín. 6) <input id="boot-senha" type="password" required></label>
         <button type="submit" class="botao-primario">Criar administrador</button>
         <p id="boot-erro" class="erro"></p>
       </form>
+      <p class="dica" style="margin:16px 0 0">Acesso restrito aos colaboradores.</p>
     </div>
   </div>
 
   <!-- Aplicacao -->
   <div id="tela-app" class="oculto">
-    <header class="cabecalho">
-      <img src="logo.jpg" alt="JB Fraga" width="52">
-      <div class="titulos">
-        <h1>Ferramentas de Auditoria Fiscal</h1>
-        <p class="marca">JB FRAGA CONTABILIDADE</p>
-      </div>
-      <div class="acoes-cabecalho">
-        <button id="botao-tema" type="button" title="A escolha fica salva neste navegador">Modo escuro</button>
-        <span id="usuario-logado"></span>
-        <span id="perfil-logado" class="cracha"></span>
-        <button id="botao-sair" type="button">Sair</button>
-      </div>
-    </header>
-
-    <nav class="abas" id="abas-nav">
-      <button data-aba="comparador">1. Comparador SPED x SEFAZ</button>
-      <button data-aba="diff">2. Comparar versoes de SPED</button>
-      <button data-aba="conferencia" class="ativa">3. Livro de Conferencia</button>
-      <button data-aba="extracao">4. Extracao de Itens</button>
-      <button data-aba="produtos">5. Auditoria de Produtos</button>
-      <button data-aba="admin">Administracao</button>
-    </nav>
-
-    <main>
-      <section id="aba-comparador" class="aba oculto"></section>
-      <section id="aba-diff" class="aba oculto"></section>
-      <section id="aba-conferencia" class="aba"></section>
-      <section id="aba-extracao" class="aba oculto"></section>
-      <section id="aba-produtos" class="aba oculto"></section>
-      <section id="aba-admin" class="aba oculto"></section>
-      <section id="sem-acesso" class="aba oculto">
-        <div class="caixa">
-          <h2>Sem acesso liberado</h2>
-          <p class="aviso">Seu usuario ainda nao tem nenhuma ferramenta
-             liberada. Peca ao administrador para liberar o seu acesso.</p>
+    <aside class="lateral">
+      <div class="lateral-marca">
+        <img src="logo.jpg" alt="JB Fraga">
+        <div>
+          <p class="lateral-nome">JB Fraga</p>
+          <p class="lateral-sub">Auditoria Fiscal</p>
         </div>
-      </section>
-    </main>
+      </div>
+      <nav class="abas" id="abas-nav">
+        <button data-aba="comparador">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>
+          <span>1. Comparador SPED x SEFAZ</span>
+        </button>
+        <button data-aba="diff">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v14"/><path d="M5 10h7"/><path d="M5 21h14"/><path d="M19 10h-2"/><path d="M12 17h7"/></svg>
+          <span>2. Comparar versões de SPED</span>
+        </button>
+        <button data-aba="conferencia" class="ativa">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+          <span>3. Livro de Conferência</span>
+        </button>
+        <button data-aba="extracao">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3h18v18H3z"/><path d="M3 9h18"/><path d="M3 15h18"/><path d="M9 3v18"/></svg>
+          <span>4. Extração de Itens</span>
+        </button>
+        <button data-aba="produtos">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+          <span>5. Auditoria de Produtos</span>
+        </button>
+        <button data-aba="admin">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <span>Administração</span>
+        </button>
+      </nav>
+    </aside>
+
+    <div class="conteudo">
+      <header class="cabecalho">
+        <h1 id="titulo-tela">Ferramentas de Auditoria Fiscal</h1>
+        <div class="acoes-cabecalho">
+          <button id="botao-tema" type="button" title="A escolha fica salva neste navegador">Modo escuro</button>
+          <span id="usuario-logado"></span>
+          <span id="perfil-logado" class="cracha"></span>
+          <button id="botao-sair" type="button">Sair</button>
+        </div>
+      </header>
+
+      <main>
+        <section id="aba-comparador" class="aba oculto"></section>
+        <section id="aba-diff" class="aba oculto"></section>
+        <section id="aba-conferencia" class="aba"></section>
+        <section id="aba-extracao" class="aba oculto"></section>
+        <section id="aba-produtos" class="aba oculto"></section>
+        <section id="aba-admin" class="aba oculto"></section>
+        <section id="sem-acesso" class="aba oculto">
+          <div class="caixa">
+            <h2>Sem acesso liberado</h2>
+            <p class="aviso">Seu usuário ainda não tem nenhuma ferramenta
+               liberada. Peça ao administrador para liberar o seu acesso.</p>
+          </div>
+        </section>
+      </main>
+    </div>
   </div>
 
   <div id="toasts"></div>

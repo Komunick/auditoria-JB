@@ -163,6 +163,10 @@ const Abas = {
       b.classList.toggle("ativa", b.dataset.aba === nome));
     document.querySelectorAll("main .aba").forEach((s) =>
       s.classList.toggle("oculto", s.id !== `aba-${nome}`));
+    // O topo mostra a ferramenta ativa (o nome vem do proprio botao da lateral).
+    const botao = document.querySelector(`.abas button[data-aba="${nome}"]`);
+    const titulo = document.getElementById("titulo-tela");
+    if (botao && titulo) titulo.textContent = botao.textContent.trim();
     if (!this._montadas.has(nome) && this._registro[nome]) {
       this._montadas.add(nome);
       this._registro[nome](document.getElementById(`aba-${nome}`));

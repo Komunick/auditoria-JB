@@ -26,6 +26,8 @@ Abas.registrar("conferencia", (container) => {
       <p id="conf-status" class="status"></p>
     </div>
 
+    <div class="cartoes" id="conf-cartoes"></div>
+
     <div class="caixa">
       <div class="linha-form">
         <label>Filtro
@@ -246,6 +248,23 @@ Abas.registrar("conferencia", (container) => {
     const conferidas = estado.notas.filter((n) => n.conferida).length;
     $("conf-progresso").textContent = total
       ? `${conferidas}/${total} conferida(s) — ${visiveis.length} na tela.` : "";
+    renderCartoes(total, conferidas);
+  }
+
+  /* Cartoes-resumo acima da tabela (numeros vivos da sessao carregada). */
+  function renderCartoes(total, conferidas) {
+    const pendentes = total - conferidas;
+    const comXml = estado.notas.filter((n) => n.tem_xml).length;
+    $("conf-cartoes").innerHTML = !total ? "" : `
+      <div class="cartao"><div class="valor">${total}</div>
+        <div class="rotulo">Notas carregadas</div></div>
+      <div class="cartao verde"><div class="valor">${conferidas}</div>
+        <div class="rotulo">Conferidas</div></div>
+      <div class="cartao ${pendentes ? "ambar" : "verde"}">
+        <div class="valor">${pendentes}</div>
+        <div class="rotulo">Pendentes</div></div>
+      <div class="cartao"><div class="valor">${comXml}</div>
+        <div class="rotulo">Com XML vinculado</div></div>`;
   }
 
   $("conf-filtro").addEventListener("change", renderNotas);
