@@ -29,6 +29,28 @@ const Tema = {
 };
 
 // ----------------------------------------------------------------------
+// Menu lateral retratil (pedido do dono, 2026-07-22): o botao no rodape da
+// lateral minimiza o menu para so os icones; a preferencia fica no navegador.
+// Em telas estreitas a lateral ja vira barra no topo e o botao some (CSS).
+
+const Lateral = {
+  aplicar(recolhido) {
+    document.getElementById("tela-app")
+      .classList.toggle("menu-recolhido", recolhido);
+    localStorage.setItem("menuRecolhido", recolhido ? "1" : "0");
+    const botao = document.getElementById("botao-lateral");
+    botao.firstChild.textContent = recolhido ? "»" : "«";
+    botao.title = recolhido ? "Expandir o menu" : "Minimizar o menu";
+  },
+  iniciar() {
+    document.getElementById("botao-lateral").addEventListener("click", () =>
+      this.aplicar(!document.getElementById("tela-app")
+        .classList.contains("menu-recolhido")));
+    this.aplicar(localStorage.getItem("menuRecolhido") === "1");
+  },
+};
+
+// ----------------------------------------------------------------------
 // Toasts e modais
 
 function toast(mensagem, tipo) {
@@ -186,6 +208,9 @@ const Abas = {
     let primeira = "";
     nav.querySelectorAll("button[data-aba]").forEach((botao) => {
       const nome = botao.dataset.aba;
+      // Tooltip com o nome da ferramenta: e o unico rotulo visivel quando o
+      // menu esta minimizado (so icones).
+      botao.title = botao.textContent.trim();
       if (this.permitida(nome)) { primeira = primeira || nome; }
       else { botao.classList.add("oculto"); }
     });
@@ -218,6 +243,7 @@ const Telas = {
 
 async function iniciar() {
   Tema.iniciar();
+  Lateral.iniciar();
   const estado = await api("/api/estado");
   const formLogin = document.getElementById("form-login");
   const formBoot = document.getElementById("form-bootstrap");
