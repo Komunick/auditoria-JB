@@ -230,7 +230,9 @@ Abas.registrar("conferencia", (container) => {
         <td data-campo="cfop">${esc(n.cfop)}</td>
         <td data-campo="cst_icms">${esc(n.cst)}</td>
         <td data-campo="aliq_icms">${esc(n.aliquota)}</td>
-        <td class="${classeObs}">${esc(n.observacao)}</td>
+        <td class="${classeObs}"${podeConferir
+          ? ' title="Duplo clique (ou lapis) para editar a observacao"' : ""}>${esc(n.observacao)}${podeConferir
+          ? '<button type="button" class="obs-lapis" title="Editar observacao">&#9998;</button>' : ""}</td>
         <td>${esc(n.data_conferencia)}</td>`;
       // Destaque POR CAMPO corrigido, como no desktop: so a coluna que mudou
       // fica dourada, e o tooltip conta de qual valor ela veio. Via DOM
@@ -273,6 +275,12 @@ Abas.registrar("conferencia", (container) => {
   $("conf-tabela").addEventListener("click", async (e) => {
     const tr = e.target.closest("tr[data-chave]");
     if (!tr) return;
+    // Lapis da observacao: abre a edicao sem selecionar a linha (a selecao
+    // re-renderiza a tabela e destruiria o campo de edicao recem-aberto).
+    if (e.target.closest(".obs-lapis")) {
+      abrirEdicaoObs(tr, e.target.closest("td.obs"));
+      return;
+    }
     const chave = tr.dataset.chave;
     if (e.target.matches("input[type=checkbox]")) {
       const nota = estado.notas.find((n) => n.chave === chave);
@@ -291,24 +299,30 @@ Abas.registrar("conferencia", (container) => {
     await carregarComposicao();
   });
 
-  // Observacao editavel por duplo clique
+  // Observacao editavel por duplo clique ou pelo lapis da celula
   if (podeConferir) {
     $("conf-tabela").addEventListener("dblclick", (e) => {
       const celula = e.target.closest("td.obs");
       const tr = e.target.closest("tr[data-chave]");
       if (!celula || !tr) return;
-      const nota = estado.notas.find((n) => n.chave === tr.dataset.chave);
-      editarCelula(celula, nota.observacao, async (texto) => {
-        await api("/api/conferencia/conferir", { json: {
-          sessao_id: estado.sessaoId, chave: nota.chave,
-          conferida: nota.conferida, observacao: texto } });
-        nota.observacao = texto;
-        renderNotas();
-      });
+      abrirEdicaoObs(tr, celula);
     });
   }
 
-  function editarCelula(celula, valorAtual, salvar) {
+  function abrirEdicaoObs(tr, celula) {
+    if (!podeConferir || !celula) return;
+    const nota = estado.notas.find((n) => n.chave === tr.dataset.chave);
+    if (!nota) return;
+    editarCelula(celula, nota.observacao, async (texto) => {
+      await api("/api/conferencia/conferir", { json: {
+        sessao_id: estado.sessaoId, chave: nota.chave,
+        conferida: nota.conferida, observacao: texto } });
+      nota.observacao = texto;
+      renderNotas();
+    }, () => renderNotas());
+  }
+
+  function editarCelula(celula, valorAtual, salvar, aoCancelar) {
     const entrada = document.createElement("input");
     entrada.value = valorAtual;
     celula.textContent = "";
@@ -324,7 +338,7 @@ Abas.registrar("conferencia", (container) => {
       if (confirmarEdicao && texto !== valorAtual) {
         try { await salvar(texto); }
         catch (erro) { toast(erro.message, "erro"); }
-      }
+      } else if (aoCancelar) aoCancelar();
     };
     entrada.addEventListener("keydown", (ev) => {
       if (ev.key === "Enter") concluir(true);

@@ -232,6 +232,12 @@ td.corrigido {
 }
 td.sobrescrito { color: var(--dourado-texto); font-style: italic; }
 td.editavel { cursor: text; }
+.obs-lapis {
+  margin-left: 8px; padding: 0 4px; border: 0; background: none;
+  color: var(--dourado-texto); cursor: pointer; font-size: 12px;
+  line-height: 1; vertical-align: middle; opacity: .45;
+}
+tr:hover .obs-lapis, .obs-lapis:focus { opacity: 1; }
 tr.conferida {
   background: var(--ok-suave) !important;
   box-shadow: inset 3px 0 0 var(--ok);
