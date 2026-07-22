@@ -28,7 +28,7 @@ from ..core.nfe_xml import associar_xmls, ler_pasta_xml
 from ..core.sped_parser import ler_sped
 from ..core.utils import formatar_cfop, formatar_moeda, formatar_percentual
 from ..ferramentas.conferencia_store import ConferenciaStore
-from ..ferramentas.danfe import gerar_danfe_pdf
+from ..ferramentas.danfe import abrir_arquivo, gerar_danfe_pdf
 from ..ferramentas.livro_fiscal import gerar_livro_fiscal
 from ..ferramentas.livro_inconsistencias import (
     gerar_livro_inconsistencias, notas_inconsistentes,
@@ -547,30 +547,82 @@ def editar_composicao(entrada: EdicaoComposicao, request: Request,
 # DANFE e documentos gerados
 
 
-@router.get("/danfe")
-def danfe(sessao_id: str, chave: str, request: Request,
-          usuario: Usuario = Depends(
-              acesso("conferencia.danfe"))) -> FileResponse:
-    sessao = obter_sessao(sessao_id)
+def _nota_para_danfe(sessao, chave: str):
+    """Nota da sessao com XML vinculado — validacao comum as rotas de DANFE."""
     nota = next((n for n in sessao.estado.get("notas", [])
                  if n.chave_normalizada == chave), None)
     if nota is None:
         raise HTTPException(status_code=404, detail="Nota nao encontrada.")
-    detalhar(request, f"nota {nota.numero or _rotulo_nota(chave)}")
     if not nota.xml_path or not os.path.isfile(nota.xml_path):
         raise HTTPException(
             status_code=422,
             detail="O XML desta nota nao esta na sessao. Envie os XMLs e "
                    "recarregue para vincular pela chave de acesso.")
-    destino = tempfile.mktemp(prefix=f"danfe_{chave[:8]}_", suffix=".pdf")
+    return nota
+
+
+def _gerar_danfe(nota, destino: str) -> None:
     try:
         gerar_danfe_pdf(nota.xml_path, destino)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(
             status_code=422,
             detail=f"Nao foi possivel gerar o DANFE: {exc}") from exc
+
+
+@router.get("/danfe")
+def danfe(sessao_id: str, chave: str, request: Request,
+          usuario: Usuario = Depends(
+              acesso("conferencia.danfe"))) -> FileResponse:
+    sessao = obter_sessao(sessao_id)
+    # Detalhe da INTENCAO antes das checagens (padrao de /corrigir): o 422 de
+    # nota sem XML precisa dizer no historico QUAL nota foi tentada.
+    detalhar(request, f"nota {_rotulo_nota(chave)}: tentativa")
+    nota = _nota_para_danfe(sessao, chave)
+    detalhar(request, f"nota {nota.numero or _rotulo_nota(chave)}")
+    destino = tempfile.mktemp(prefix=f"danfe_{chave[:8]}_", suffix=".pdf")
+    _gerar_danfe(nota, destino)
     return FileResponse(destino, media_type="application/pdf",
                         filename=f"danfe_{nota.numero or chave[:8]}.pdf")
+
+
+class AbrirLeitorEntrada(BaseModel):
+    sessao_id: str
+    chave: str
+
+
+@router.post("/danfe/abrir-leitor")
+def danfe_abrir_leitor(entrada: AbrirLeitorEntrada, request: Request,
+                       usuario: Usuario = Depends(
+                           acesso("conferencia.danfe"))) -> dict:
+    """Gera o DANFE e abre no leitor de PDF padrao do WINDOWS (os.startfile),
+    como o desktop faz — em vez de guia do navegador.
+
+    O leitor abre na maquina onde o SERVIDOR roda: e o comportamento esperado
+    no uso atual (servidor na propria maquina de trabalho). Num acesso remoto
+    o PDF abriria no servidor, entao a tela avisa isso na dica do controle.
+    """
+    sessao = obter_sessao(entrada.sessao_id)
+    # Detalhe da INTENCAO primeiro; o final ("aberta") so sobrescreve DEPOIS
+    # que o leitor abriu de fato — senao a linha de erro do historico diria
+    # que o DANFE foi aberto num caminho em que ele nem foi gerado.
+    detalhar(request, f"nota {_rotulo_nota(entrada.chave)}: tentativa de "
+                      f"abrir no leitor do servidor")
+    nota = _nota_para_danfe(sessao, entrada.chave)
+    rotulo = nota.numero or _rotulo_nota(entrada.chave)
+    detalhar(request,
+             f"nota {rotulo}: tentativa de abrir no leitor do servidor")
+    destino = tempfile.mktemp(prefix=f"danfe_{entrada.chave[:8]}_",
+                              suffix=".pdf")
+    _gerar_danfe(nota, destino)
+    try:
+        abrir_arquivo(destino)
+    except OSError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=f"O PDF foi gerado, mas o leitor nao abriu: {exc}") from exc
+    detalhar(request, f"nota {rotulo} — aberta no leitor de PDF do servidor")
+    return {"ok": True, "arquivo": os.path.basename(destino)}
 
 
 def _estados_e_correcoes():

@@ -251,6 +251,7 @@ Abas.registrar("conferencia", (container) => {
     $("conf-progresso").textContent = total
       ? `${conferidas}/${total} conferida(s) — ${visiveis.length} na tela.` : "";
     renderCartoes(total, conferidas);
+    atualizarPainelNota();
   }
 
   /* Cartoes-resumo acima da tabela (numeros vivos da sessao carregada). */
@@ -294,8 +295,14 @@ Abas.registrar("conferencia", (container) => {
       } catch (erro) { toast(erro.message, "erro"); }
       return;
     }
+    const trocouDeNota = estado.chave !== chave;
     estado.chave = chave;
     renderNotas();
+    // Visualizacao automatica: ao SELECIONAR a nota, o DANFE abre no modo
+    // escolhido na aba azul. So quando a selecao muda (re-clicar a mesma
+    // linha nao reabre) e sem o dialogo de vincular XML (selecao e um gesto
+    // leve; a cobranca do XML fica para o botao explicito).
+    if (trocouDeNota) autoAbrirNota();
     await carregarComposicao();
   });
 
@@ -538,17 +545,41 @@ Abas.registrar("conferencia", (container) => {
     return true;
   }
 
-  $("conf-danfe").addEventListener("click", async () => {
+  /* Abre o DANFE da nota selecionada no MODO escolhido na aba azul:
+     "guia"   — nova guia do navegador (leitor de PDF do proprio Chrome);
+     "leitor" — leitor de PDF padrao do Windows, aberto pelo servidor
+                (os.startfile, como o desktop faz). */
+  let blobDanfeAnterior = null; // blob da guia anterior, revogado na proxima
+
+  async function abrirDanfe(modo) {
     if (!estado.chave) { toast("Selecione uma nota na tabela.", "erro"); return; }
     const nota = estado.notas.find((n) => n.chave === estado.chave);
     if (nota && !nota.tem_xml && !(await vincularXmls(nota))) return;
     try {
-      const resposta = await api(
-        `/api/conferencia/danfe?sessao_id=${estado.sessaoId}&chave=${estado.chave}`);
-      const blob = await resposta.blob();
-      window.open(URL.createObjectURL(blob), "_blank");
+      if (modo === "leitor") {
+        await api("/api/conferencia/danfe/abrir-leitor", { json: {
+          sessao_id: estado.sessaoId, chave: estado.chave } });
+        toast("DANFE aberto no leitor de PDF do Windows.");
+      } else {
+        const resposta = await api(
+          `/api/conferencia/danfe?sessao_id=${estado.sessaoId}&chave=${estado.chave}`);
+        const blob = await resposta.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const guia = window.open(blobUrl, "_blank");
+        // Revoga o blob da guia ANTERIOR (que ja terminou de carregar faz
+        // tempo): o vazamento fica limitado a um PDF, em vez de acumular um
+        // por DANFE aberto ao longo do dia de conferencia.
+        if (blobDanfeAnterior) URL.revokeObjectURL(blobDanfeAnterior);
+        blobDanfeAnterior = blobUrl;
+        // Pop-up bloqueado (acontece se o navegador nao contar o clique como
+        // gesto): sem o aviso, o DANFE simplesmente "nao abre" e ninguem sabe.
+        if (!guia) toast("O navegador bloqueou a guia do DANFE — libere "
+                         + "pop-ups para este site.", "erro");
+      }
     } catch (erro) { toast(erro.message, "erro"); }
-  });
+  }
+
+  $("conf-danfe").addEventListener("click", () => abrirDanfe(notaModo()));
 
   /* Resumo do SPED corrigido antes do download: a rota de download devolve o
      arquivo, entao o que aconteceu (e o que NAO entrou) vem da pre-checagem. */
@@ -634,4 +665,102 @@ Abas.registrar("conferencia", (container) => {
     }
     return confirmarSped(resumo);
   });
+
+  // ------------------------------------------------------------------
+  // Aba azul flutuante da nota (DANFE): alca "NOTA" recolhivel na lateral
+  // direita com os controles de visualizacao — modo de abertura (nova guia
+  // do navegador ou leitor de PDF do Windows), abertura automatica ao
+  // selecionar e o botao de abrir agora. Preferencias ficam no navegador.
+
+  let painelNota = null;   // null = usuario sem permissao de DANFE (sem aba)
+
+  function notaModo() {
+    return painelNota
+      ? painelNota.querySelector("#nota-modo").value
+      : localStorage.getItem("confNotaModo") || "guia";
+  }
+
+  function atualizarPainelNota() {
+    if (!painelNota) return;
+    const info = painelNota.querySelector(".aba-nota-info");
+    const nota = estado.notas.find((n) => n.chave === estado.chave);
+    if (!nota) {
+      info.textContent = estado.notas.length
+        ? "Nenhuma nota selecionada — clique numa linha da tabela."
+        : "Carregue as notas na aba Livro de Conferencia.";
+      return;
+    }
+    info.textContent = `NF ${nota.numero} — ${nota.fornecedor || "sem fornecedor"}` +
+      ` — ${nota.valor_contabil}` +
+      (nota.tem_xml ? "" : " — SEM XML vinculado (envie os XMLs para abrir)");
+  }
+
+  function autoAbrirNota() {
+    if (!painelNota) return;
+    if (!painelNota.querySelector("#nota-auto").checked) return;
+    const nota = estado.notas.find((n) => n.chave === estado.chave);
+    if (!nota || !nota.tem_xml) return;   // sem XML: o painel ja avisa
+    abrirDanfe(notaModo());
+  }
+
+  function montarAbaNota() {
+    if (!Sessao.pode("conferencia.danfe")) return;
+    const aba = document.createElement("div");
+    aba.className = "aba-nota";
+    aba.innerHTML = `
+      <button type="button" class="aba-nota-alca"
+              title="Mostrar/recolher os controles da nota (DANFE)">NOTA</button>
+      <div class="aba-nota-painel">
+        <h3>Nota fiscal (DANFE)</h3>
+        <p class="aba-nota-info dica">Carregue as notas na aba Livro de
+           Conferencia.</p>
+        <label>Abrir a nota em
+          <select id="nota-modo">
+            <option value="guia">Nova guia do navegador</option>
+            <option value="leitor">Leitor de PDF do Windows</option>
+          </select>
+        </label>
+        <label class="aba-nota-auto"><input id="nota-auto" type="checkbox">
+          <span>Abrir automaticamente ao selecionar a nota na tabela</span></label>
+        <button id="nota-abrir" class="botao-primario" type="button">
+          Abrir nota (PDF)</button>
+        <p class="dica aba-nota-rodape">No modo leitor, o PDF abre no
+           computador onde o servidor esta rodando.</p>
+      </div>`;
+    // Dentro de #tela-app (e nao no body): quando a sessao expira e a tela de
+    // login volta (#tela-app ganha .oculto), a aba flutuante some junto — por
+    // fora, ela ficaria pintada por cima do cartao de login (position: fixed).
+    document.getElementById("tela-app").appendChild(aba);
+    painelNota = aba;
+
+    const modoSel = aba.querySelector("#nota-modo");
+    const autoChk = aba.querySelector("#nota-auto");
+    modoSel.value = localStorage.getItem("confNotaModo") || "guia";
+    if (!modoSel.value) modoSel.value = "guia";   // valor salvo desconhecido
+    autoChk.checked = localStorage.getItem("confNotaAuto") !== "0";
+    modoSel.addEventListener("change",
+      () => localStorage.setItem("confNotaModo", modoSel.value));
+    autoChk.addEventListener("change",
+      () => localStorage.setItem("confNotaAuto", autoChk.checked ? "1" : "0"));
+
+    const alternar = (aberta) => {
+      aba.classList.toggle("aberta", aberta);
+      localStorage.setItem("confNotaAberta", aberta ? "1" : "0");
+    };
+    aba.querySelector(".aba-nota-alca").addEventListener("click",
+      () => alternar(!aba.classList.contains("aberta")));
+    alternar(localStorage.getItem("confNotaAberta") !== "0");
+
+    aba.querySelector("#nota-abrir").addEventListener("click",
+      () => abrirDanfe(notaModo()));
+
+    // A aba pertence ao Livro de Conferencia: some quando o usuario navega
+    // para outra ferramenta (a secao ganha .oculto) e volta com ela.
+    const secao = document.getElementById("aba-conferencia");
+    new MutationObserver(() => {
+      aba.classList.toggle("oculto", secao.classList.contains("oculto"));
+    }).observe(secao, { attributes: true, attributeFilter: ["class"] });
+  }
+
+  montarAbaNota();
 });

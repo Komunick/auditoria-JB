@@ -136,6 +136,34 @@ def main() -> int:
         checar(r.status_code == 422 and "DANFE" in r.json()["detail"],
                f"DANFE deveria chegar ao gerador: {r.status_code} {r.text[:120]}")
 
+    # DANFE no leitor do Windows: mesma tubulacao do DANFE, mas quem abre o
+    # PDF e o SERVIDOR (os.startfile via abrir_arquivo). O teste nao pode
+    # abrir o leitor de verdade: troca o abrir_arquivo da rota por um espiao
+    # e confere que ele recebeu um PDF existente.
+    from auditoria_fiscal.web import rotas_conferencia as _rotas
+    abertos: list[str] = []
+    original_abrir = _rotas.abrir_arquivo
+    _rotas.abrir_arquivo = abertos.append
+    try:
+        r = cliente.post("/api/conferencia/danfe/abrir-leitor", json={
+            "sessao_id": sessao, "chave": "9" * 44})
+        checar(r.status_code == 404,
+               "abrir-leitor de chave inexistente deveria dar 404")
+        checar(not abertos, "chave inexistente nao poderia chegar ao leitor")
+        r = cliente.post("/api/conferencia/danfe/abrir-leitor", json={
+            "sessao_id": sessao, "chave": CHAVE})
+        if r.status_code == 200:
+            checar(abertos and abertos[0].endswith(".pdf")
+                   and os.path.isfile(abertos[0]),
+                   "abrir-leitor deveria ter entregado um PDF ao leitor")
+        else:
+            checar(r.status_code == 422 and "DANFE" in r.json()["detail"],
+                   f"abrir-leitor deveria chegar ao gerador: "
+                   f"{r.status_code} {r.text[:120]}")
+            checar(not abertos, "gerador falhou mas o leitor foi chamado")
+    finally:
+        _rotas.abrir_arquivo = original_abrir
+
     # Logout encerra a sessao de login
     cliente.post("/api/logout")
     checar(cliente.get(
@@ -143,7 +171,8 @@ def main() -> int:
         "logout deveria invalidar a sessao")
 
     print("OK - plataforma web + Livro de Conferencia (auth, upload zip, "
-          "carga, conferencia, correcao, sobrescrita, PDF, DANFE) passaram.")
+          "carga, conferencia, correcao, sobrescrita, PDF, DANFE, DANFE no "
+          "leitor) passaram.")
     return 0
 
 
