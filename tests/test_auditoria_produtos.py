@@ -18,7 +18,8 @@ from auditoria_fiscal.ferramentas.auditoria_produtos import (  # noqa: E402
     TIPO_CEST_INCOMPATIVEL, TIPO_DIVERGENCIA_DESCRICAO, TIPO_NCM_AUSENTE,
     TIPO_NCM_INVALIDO, TIPO_ST_COMO_TRIBUTADO, TIPO_TRIBUTACAO_DIVERGENTE,
     TIPO_TRIBUTADO_COMO_ST, TRIB_INTEGRAL, TRIB_ISENTO, TRIB_MONOFASICO,
-    TRIB_ST, auditar_produtos, calcular_indicadores,
+    TRIB_ST, auditar_produtos, calcular_indicadores, cfop_para_normal,
+    cfop_para_st, cfop_venda_st, cfop_venda_tributada,
     formatar_cst_como_original, normalizar_cst,
 )
 from auditoria_fiscal.ferramentas.correcao_produtos import (  # noqa: E402
@@ -107,6 +108,23 @@ def main() -> int:
            "formatar 0500->0102")
     checar(formatar_cst_como_original("", "60") == "60", "formatar vazio->60")
 
+    # CFOP dinamico (2026-07-22): qualquer CFOP de 4 digitos e classificado
+    # pelo SUBGRUPO (x4xx = ST, x1xx = venda tributada) — sem lista fixa.
+    checar(cfop_venda_tributada("5116") and cfop_venda_tributada("6110"),
+           "5116/6110 deveriam contar como venda tributada")
+    checar(cfop_venda_st("5409") and cfop_venda_st("6414"),
+           "5409/6414 deveriam contar como ST")
+    checar(not cfop_venda_st("1403") and not cfop_venda_tributada("2102"),
+           "CFOPs de entrada nao sao venda")
+    checar(cfop_para_st("5102") == "5405", "de-para preferencial 5102->5405")
+    checar(cfop_para_st("5116") == "5405" and cfop_para_st("6110") == "6404",
+           "fallback de-para ST pelo subgrupo")
+    checar(cfop_para_normal("5409") == "5102"
+           and cfop_para_normal("6414") == "6102",
+           "fallback de-para normal pelo subgrupo")
+    checar(cfop_para_st("5949") is None and cfop_para_normal("5949") is None,
+           "5949 (outras saidas) fora dos dois generos")
+
     pasta_tmp = tempfile.mkdtemp(prefix="aud_prod_")
     try:
         pasta_dados = os.path.join(pasta_tmp, "dados")
@@ -191,6 +209,24 @@ def main() -> int:
         checar(r9.situacao == "ALERTA", f"r9 situacao: {r9.situacao} ({r9.tipos})")
         checar(r9.tipos == TIPO_CEST_INCOMPATIVEL, f"r9 tipos: {r9.tipos}")
         checar(not r9.tem_correcao, f"r9 correcoes: {r9.correcoes}")
+
+        # CFOPs FORA das listas antigas percorrem o fluxo inteiro (chamada
+        # isolada para nao mexer nos indicadores do lote principal).
+        x1, x2 = auditar_produtos([
+            ProdutoCadastro(indice=0, codigo="X1",
+                            descricao="REFRIGERANTE COLA 2L", ncm="22021000",
+                            cest="", cfops=["5116"], cst="00",
+                            aliquota=Decimal("20.5")),
+            ProdutoCadastro(indice=1, codigo="X2",
+                            descricao="PARAFUSO SEXTAVADO M8", ncm="73181500",
+                            cest="", cfops=["5409"], cst="060",
+                            aliquota=None),
+        ], base)
+        checar(TIPO_ST_COMO_TRIBUTADO in x1.tipos, f"x1 tipos: {x1.tipos}")
+        checar(x1.cfop_map == {"5116": "5405"}, f"x1 cfop_map: {x1.cfop_map}")
+        checar(x2.tributacao_atual == TRIB_ST,
+               f"x2 atual: {x2.tributacao_atual}")
+        checar(x2.cfop_map == {"5409": "5102"}, f"x2 cfop_map: {x2.cfop_map}")
 
         # Indicadores.
         ind = calcular_indicadores(resultados)

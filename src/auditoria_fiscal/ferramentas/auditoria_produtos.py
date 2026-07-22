@@ -28,11 +28,26 @@ from ..core.modelos import so_digitos
 
 # ----------------------------------------------------------------------
 # Constantes de CFOP / CST / CSOSN.
+#
+# A classificacao de CFOP e ESTRUTURAL (pedido do dono, 2026-07-22): qualquer
+# CFOP de 4 digitos e aceito e classificado pelo subgrupo da tabela nacional —
+# 5.4xx/6.4xx sao operacoes de saida no regime de ST e 5.1xx/6.1xx sao vendas
+# tributadas. Antes havia listas fixas e um CFOP fora delas (ex.: 5116, 5409)
+# deixava o produto "Indeterminada" e sem sugestao de correcao.
 # ----------------------------------------------------------------------
-CFOPS_ST = {"5401", "5402", "5403", "5405", "6401", "6402", "6403", "6404",
-            "6405"}
-CFOPS_TRIBUTADO = {"5101", "5102", "5103", "5104", "5115", "6101", "6102",
-                   "6103", "6104", "6107", "6108"}
+def cfop_venda_st(cfop: str) -> bool:
+    """Saida (5/6) do subgrupo x4xx: operacao sujeita a ST."""
+    return len(cfop) == 4 and cfop[0] in "56" and cfop[1] == "4"
+
+
+def cfop_venda_tributada(cfop: str) -> bool:
+    """Saida (5/6) do subgrupo x1xx: venda tributada normalmente."""
+    return len(cfop) == 4 and cfop[0] in "56" and cfop[1] == "1"
+
+
+# De-para PREFERENCIAL (pares consagrados da tabela CFOP). CFOPs de venda fora
+# do mapa caem no genero do subgrupo: x1xx -> 5405/6404 (ST de mercadoria
+# adquirida) e x4xx -> 5102/6102 (venda de mercadoria adquirida).
 DE_PARA_CFOP_ST = {"5101": "5401", "5102": "5405", "5103": "5405",
                    "5104": "5405", "5115": "5405", "6101": "6401",
                    "6102": "6404", "6103": "6404", "6104": "6404",
@@ -40,6 +55,26 @@ DE_PARA_CFOP_ST = {"5101": "5401", "5102": "5405", "5103": "5405",
 DE_PARA_CFOP_NORMAL = {"5401": "5101", "5402": "5101", "5403": "5102",
                        "5405": "5102", "6401": "6101", "6402": "6101",
                        "6403": "6102", "6404": "6102", "6405": "6102"}
+
+
+def cfop_para_st(cfop: str) -> str | None:
+    """CFOP ST equivalente a um CFOP de venda tributada (None se nao for)."""
+    preferido = DE_PARA_CFOP_ST.get(cfop)
+    if preferido:
+        return preferido
+    if cfop_venda_tributada(cfop):
+        return "5405" if cfop[0] == "5" else "6404"
+    return None
+
+
+def cfop_para_normal(cfop: str) -> str | None:
+    """CFOP tributado equivalente a um CFOP de ST (None se nao for ST)."""
+    preferido = DE_PARA_CFOP_NORMAL.get(cfop)
+    if preferido:
+        return preferido
+    if cfop_venda_st(cfop):
+        return "5102" if cfop[0] == "5" else "6102"
+    return None
 
 CSTS_VALIDOS = {"00", "10", "20", "30", "40", "41", "50", "51", "60", "70",
                 "90"}
@@ -267,8 +302,8 @@ def _auditar_um(produto: ProdutoCadastro, base: BaseLegal) -> ResultadoAuditoria
 
     # 2. Tributacao atual (CST prioridade; CFOP desempata).
     cfops_venda = [c for c in produto.cfops if c[:1] in ("5", "6")]
-    tem_cfop_st = any(c in CFOPS_ST for c in cfops_venda)
-    tem_cfop_trib = any(c in CFOPS_TRIBUTADO for c in cfops_venda)
+    tem_cfop_st = any(cfop_venda_st(c) for c in cfops_venda)
+    tem_cfop_trib = any(cfop_venda_tributada(c) for c in cfops_venda)
     if codigo in CSTS_ST or codigo in CSOSNS_ST or tem_cfop_st:
         atual = TRIB_ST
     elif codigo in CSTS_ISENTO or codigo in CSOSNS_ISENTO:
@@ -337,8 +372,8 @@ def _auditar_um(produto: ProdutoCadastro, base: BaseLegal) -> ResultadoAuditoria
             fundamentacao))
         novo = "500" if regime == "simples" else "60"
         res.correcoes["cst"] = formatar_cst_como_original(cst_original, novo)
-        mapa = {c: DE_PARA_CFOP_ST[c] for c in produto.cfops
-                if c in DE_PARA_CFOP_ST}
+        mapa = {c: st for c in produto.cfops
+                if (st := cfop_para_st(c)) is not None}
         if mapa:
             res.cfop_map.update(mapa)
         if not cest and match and match.item.cest:
@@ -360,8 +395,8 @@ def _auditar_um(produto: ProdutoCadastro, base: BaseLegal) -> ResultadoAuditoria
         if sugerida == TRIB_INTEGRAL:
             novo = "102" if regime == "simples" else "00"
             res.correcoes["cst"] = formatar_cst_como_original(cst_original, novo)
-            mapa = {c: DE_PARA_CFOP_NORMAL[c] for c in produto.cfops
-                    if c in DE_PARA_CFOP_NORMAL}
+            mapa = {c: normal for c in produto.cfops
+                    if (normal := cfop_para_normal(c)) is not None}
             if mapa:
                 res.cfop_map.update(mapa)
             if produto.aliquota is None or produto.aliquota == 0:
