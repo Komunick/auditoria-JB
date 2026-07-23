@@ -24,7 +24,10 @@ from fastapi import HTTPException, UploadFile
 
 from .infra import pasta_sessoes
 
-_MAX_UPLOAD_MB = int(os.environ.get("AUDITORIA_WEB_MAX_UPLOAD_MB", "300"))
+# Teto de upload. Padrao alto porque bancos Firebird (.FDB) de ERP passam de
+# 300 MB com facilidade; o arquivo e gravado em disco em blocos (nao fica na
+# memoria), entao o teto e so uma barra de sanidade. Ajustavel por ambiente.
+_MAX_UPLOAD_MB = int(os.environ.get("AUDITORIA_WEB_MAX_UPLOAD_MB", "2048"))
 
 
 @dataclass
