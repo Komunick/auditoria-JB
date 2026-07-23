@@ -7,8 +7,9 @@ Abas.registrar("produtos", (container) => {
     <div class="caixa">
       <h2>Cadastro de produtos</h2>
       <div class="linha-form">
-        <label>Planilha do cadastro (xlsx, xlsm, xls, csv ou txt)
-          <input id="prod-arquivo" type="file" accept=".xlsx,.xlsm,.xls,.csv,.txt">
+        <label>Cadastro: planilha (xlsx, xlsm, xls, csv, txt) ou banco Firebird (.fdb)
+          <input id="prod-arquivo" type="file"
+                 accept=".xlsx,.xlsm,.xls,.csv,.txt,.fdb">
         </label>
         <button id="prod-auditar" class="botao-primario">Importar e auditar</button>
         <label>Exibir
@@ -130,9 +131,46 @@ Abas.registrar("produtos", (container) => {
   // ------------------------------------------------------------------
   // Importar e auditar (upload + job)
 
+  /* Bancos Firebird (.fdb) tem varias tabelas com nomes codificados: depois do
+     upload, o servidor lista as tabelas (nome + nº de linhas) e o usuario
+     escolhe qual tem o cadastro de produtos. Devolve o nome ou null (cancelou). */
+  function escolherTabelaFdb(tabelas) {
+    return new Promise((resolver) => {
+      const fundo = document.createElement("div");
+      fundo.className = "modal-fundo";
+      fundo.innerHTML = `
+        <div class="modal">
+          <h3>Escolha a tabela do cadastro de produtos</h3>
+          <p class="dica">O arquivo .FDB tem varias tabelas. Selecione a que
+             contem os produtos (a contagem de linhas ajuda a identificar).</p>
+          <label>Tabela <select id="fdb-tabela"></select></label>
+          <div class="acoes">
+            <button class="cancelar">Cancelar</button>
+            <button class="confirmar botao-primario">Usar esta tabela</button>
+          </div>
+        </div>`;
+      const sel = fundo.querySelector("#fdb-tabela");
+      // Maior primeiro: a tabela de produtos costuma ser das mais povoadas.
+      for (const t of [...tabelas].sort((a, b) => b.linhas - a.linhas)) {
+        const op = document.createElement("option");
+        op.value = t.nome;
+        const qtd = t.mais ? `${t.linhas}+` : `${t.linhas}`;
+        op.textContent = t.linhas >= 0
+          ? `${t.nome} (${qtd} linha(s))`
+          : `${t.nome} (sem acesso de leitura)`;
+        sel.appendChild(op);
+      }
+      const fechar = (valor) => { fundo.remove(); resolver(valor); };
+      fundo.querySelector(".cancelar").onclick = () => fechar(null);
+      fundo.querySelector(".confirmar").onclick = () => fechar(sel.value);
+      document.body.appendChild(fundo);
+    });
+  }
+
   $("prod-auditar").addEventListener("click", async () => {
     const arquivo = $("prod-arquivo").files[0];
-    if (!arquivo) { toast("Selecione a planilha do cadastro.", "erro"); return; }
+    if (!arquivo) { toast("Selecione o cadastro (planilha ou .FDB).", "erro"); return; }
+    const ehFdb = /\.fdb$/i.test(arquivo.name);
     const botao = $("prod-auditar");
     botao.disabled = true;
     habilitar(false);
@@ -141,8 +179,22 @@ Abas.registrar("produtos", (container) => {
       estado.sessaoId = sessao_id;
       status(`Enviando ${arquivo.name}...`);
       await apiUpload(`/api/produtos/upload?sessao_id=${sessao_id}`, arquivo);
+
+      let tabelaFdb = null;
+      if (ehFdb) {
+        status("Lendo as tabelas do banco Firebird...");
+        const { tabelas } = await api(
+          `/api/produtos/fdb/tabelas?sessao_id=${sessao_id}`);
+        if (!tabelas.length) {
+          status(""); toast("O .FDB nao tem tabelas legiveis.", "erro"); return;
+        }
+        tabelaFdb = await escolherTabelaFdb(tabelas);
+        if (!tabelaFdb) { status("Importacao cancelada."); return; }
+      }
+
       status("Importando e auditando produtos...");
-      const { job_id } = await api("/api/produtos/auditar", { json: { sessao_id } });
+      const { job_id } = await api("/api/produtos/auditar", { json: {
+        sessao_id, tabela_fdb: tabelaFdb } });
       const resultado = await esperarJob(job_id);
       for (const aviso of resultado.avisos || []) toast(aviso);
       await atualizarResultados();

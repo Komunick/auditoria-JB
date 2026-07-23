@@ -246,7 +246,45 @@ def ler_base_produtos(caminho: str) -> BaseProdutos:
         layout = LayoutBase(tipo="csv", separador=sep, encoding=enc)
 
     linha_cab = _detectar_linha_cabecalho(df_bruto)
-    cabecalho = [_texto(c) for c in df_bruto.iloc[linha_cab].tolist()]
+    return _montar_base(caminho, df_bruto, layout, linha_cab)
+
+
+def ler_base_produtos_fdb(caminho: str, tabela: str) -> BaseProdutos:
+    """Le uma TABELA de um banco Firebird (.FDB) como base de produtos.
+
+    Usa o leitor compartilhado (core.fdb_reader) para trazer a tabela como
+    texto, monta um df_bruto com o cabecalho na primeira linha (nomes reais
+    das colunas do Firebird) e reaproveita EXATAMENTE o mesmo mapeamento por
+    palavra-chave do fluxo de planilha. A nova base corrigida sai em CSV
+    (nao se regrava no .FDB): o layout fica como csv/utf-8 para isso.
+    """
+    from . import fdb_reader
+
+    # A leitura roda isolada num subprocesso (ver fdb_reader): um .fdb
+    # corrompido nao derruba o servidor.
+    colunas, linhas, truncado = fdb_reader.ler_tabela(caminho, tabela)
+    # df_bruto = cabecalho (linha 0) + dados; tudo string, como no csv.
+    df_bruto = pd.DataFrame([colunas] + linhas, dtype=str) if colunas \
+        else pd.DataFrame()
+    layout = LayoutBase(tipo="csv", separador=";", encoding="utf-8-sig",
+                        nome_aba=tabela)
+    # No FDB o cabecalho e SEMPRE a primeira linha (nomes das colunas), sem a
+    # deteccao heuristica que planilhas baguncadas exigem.
+    base = _montar_base(caminho, df_bruto, layout, linha_cab=0)
+    if truncado:
+        base.diagnostico["avisos"].insert(
+            0, f"Tabela grande: apenas as primeiras {len(linhas)} linhas foram "
+               "lidas do .FDB (as demais foram ignoradas).")
+    return base
+
+
+def _montar_base(caminho: str, df_bruto: "pd.DataFrame", layout: LayoutBase,
+                 linha_cab: int) -> BaseProdutos:
+    """Nucleo comum: do df_bruto + layout, mapeia colunas e extrai produtos."""
+    if df_bruto.empty:
+        cabecalho: list[str] = []
+    else:
+        cabecalho = [_texto(c) for c in df_bruto.iloc[linha_cab].tolist()]
     mapa, colunas_cfop = _mapear_colunas(cabecalho)
 
     layout.linha_cabecalho = linha_cab

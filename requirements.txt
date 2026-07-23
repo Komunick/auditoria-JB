@@ -13,6 +13,11 @@ pandas>=2.2
 # Geracao do DANFE (PDF) a partir do XML da NF-e (Livro de Conferencia)
 brazilfiscalreport>=1.0
 
+# Leitura de bancos Firebird (.FDB) — cadastro de produtos vindo de ERP (Symac
+# etc.). O motor Firebird 2.5 "embedded" NAO vem no pip: baixe conforme o
+# README (vendor/firebird25) para nao precisar instalar Firebird na maquina.
+fdb>=2.0
+
 # Versao web (site interno): servidor da API + uploads multipart
 fastapi>=0.115
 uvicorn[standard]>=0.30

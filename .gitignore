@@ -10,3 +10,6 @@ amostras/*
 !amostras/LEIA-ME.txt
 
 dados_web/
+
+# Runtime Firebird embedded (baixar conforme README; binario nao versionado):
+vendor/

@@ -20,8 +20,11 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
+from ..core import fdb_reader
 from ..core.base_legal import carregar_base_legal, localizar_pasta_dados
-from ..core.cadastro_produtos import gerar_nova_base, ler_base_produtos
+from ..core.cadastro_produtos import (
+    gerar_nova_base, ler_base_produtos, ler_base_produtos_fdb,
+)
 from ..ferramentas.auditoria_produtos import (
     ResultadoAuditoria, auditar_produtos, calcular_indicadores,
 )
@@ -173,8 +176,41 @@ async def upload(sessao_id: str, arquivo: UploadFile, request: Request,
     return {"ok": True, "arquivo": os.path.basename(caminho)}
 
 
+# ----------------------------------------------------------------------
+# Fonte Firebird (.FDB): listar tabelas e escolher a do cadastro de produtos
+
+
+@router.get("/fdb/tabelas")
+def fdb_tabelas(sessao_id: str, request: Request,
+                usuario: Usuario = Depends(
+                    acesso("produtos.upload"))) -> dict:
+    """Abre o .FDB enviado e lista as tabelas (nome + nº de linhas).
+
+    O usuario escolhe qual tabela tem o cadastro de produtos — os bancos de
+    ERP (Symac etc.) tem nomes de tabela codificados (T06_001...), entao a
+    contagem de linhas ajuda a achar a certa.
+    """
+    ok, motivo = fdb_reader.firebird_disponivel()
+    if not ok:
+        raise HTTPException(status_code=503, detail=motivo)
+    sessao = obter_sessao(sessao_id)
+    caminho = sessao.estado.get("caminho_base", "")
+    if not caminho or not os.path.isfile(caminho):
+        raise HTTPException(status_code=422,
+                            detail="Envie o arquivo .FDB antes.")
+    detalhar(request, f"arquivo: {os.path.basename(caminho)}")
+    try:
+        tabelas = [{"nome": t.nome, "linhas": t.linhas, "mais": t.mais}
+                   for t in fdb_reader.listar_tabelas(caminho)]
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"tabelas": tabelas}
+
+
 class AuditarEntrada(BaseModel):
     sessao_id: str
+    # Preenchido SO quando a fonte e um .FDB: qual tabela virar cadastro.
+    tabela_fdb: str | None = None
 
 
 @router.post("/auditar")
@@ -182,11 +218,21 @@ def auditar(entrada: AuditarEntrada,
             usuario: Usuario = Depends(acesso("produtos.auditar"))) -> dict:
     sessao = obter_sessao(entrada.sessao_id)
     caminho = sessao.estado.get("caminho_base", "")
+    tabela_fdb = (entrada.tabela_fdb or "").strip()
 
     def _executar() -> dict:
         if not caminho or not os.path.isfile(caminho):
-            raise ValueError("Envie a planilha do cadastro antes de auditar.")
-        base = ler_base_produtos(caminho)
+            raise ValueError("Envie o cadastro (planilha ou .FDB) antes de "
+                             "auditar.")
+        # A FONTE e decidida pela EXTENSAO do arquivo, nao por tabela_fdb ter
+        # vindo — assim uma planilha nunca e aberta como Firebird por engano.
+        if caminho.lower().endswith(".fdb"):
+            if not tabela_fdb:
+                raise ValueError("Escolha a tabela do .FDB com o cadastro de "
+                                 "produtos.")
+            base = ler_base_produtos_fdb(caminho, tabela_fdb)
+        else:
+            base = ler_base_produtos(caminho)
         base_legal = carregar_base_legal(_pasta_dados_legais())
         resultados = auditar_produtos(base.produtos, base_legal)
         indicadores = calcular_indicadores(resultados)
@@ -329,6 +375,11 @@ def nova_base(sessao_id: str, request: Request,
                    "a nova base.")
     detalhar(request, f"{len(alteracoes)} produto(s) corrigido(s) na base")
     raiz_nome, ext = os.path.splitext(base.caminho)
+    # Fonte .fdb nao se regrava: gerar_nova_base emite CSV (layout.tipo=="csv").
+    # O nome/tipo do download precisam acompanhar o CONTEUDO, senao sairia um
+    # "..._corrigida.fdb" que na verdade e um CSV.
+    if base.layout.tipo == "csv" and ext.lower() not in (".csv", ".txt"):
+        ext = ".csv"
     destino = tempfile.mktemp(prefix="nova_base_", suffix=ext or ".csv")
     with sessao.trava:
         gerar_nova_base(base, destino, alteracoes)

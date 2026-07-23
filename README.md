@@ -19,8 +19,9 @@ de SPED*, *Livro de Conferência*, *Extração de Itens* e *Auditoria de Produto
 
 ## Auditoria de Produtos (aba 5)
 
-Importa a base do **cadastro de produtos** do cliente (xlsx, xls, csv ou txt,
-com detecção automática de colunas) e audita a tributação de cada item contra
+Importa a base do **cadastro de produtos** do cliente (xlsx, xls, csv, txt ou
+**banco Firebird `.fdb`** de ERP — ver abaixo, com detecção automática de
+colunas) e audita a tributação de cada item contra
 as bases legais da pasta `dados/`: **Anexo I do RICMS/BA** (substituição
 tributária, via CEST/NCM/descrição), TIPI, monofásicos, isenções, reduções de
 base e diferimento. Aponta, por exemplo, produto de ST vendido como tributado
@@ -33,6 +34,45 @@ layout do arquivo original (pronta para reimportar no sistema do cliente).
 > (ao lado do `.exe`, em `%LOCALAPPDATA%\AuditoriaFiscal\dados` ou na raiz do
 > projeto). Para atualizar Anexo I, TIPI, alíquota padrão etc., basta editar
 > esses arquivos — **sem alterar código**. Veja `dados/LEIA-ME.txt`.
+
+### Leitura de banco Firebird (.FDB) — cadastro vindo de ERP
+
+Muitos ERPs do comércio (ex.: **Symac**) guardam o cadastro em bancos
+**Firebird** (`.fdb`). Na versão **web**, a Auditoria de Produtos aceita o
+`.fdb` direto: enviado o arquivo, o servidor lista as **tabelas** (nome + nº de
+linhas) e o usuário **escolhe** qual contém os produtos; as colunas são
+mapeadas automaticamente pelas mesmas palavras-chave da planilha (código, NCM,
+CEST, CFOP, CST, alíquota). A *nova base corrigida* sai em **CSV** (o `.fdb` do
+cliente nunca é reescrito).
+
+O leitor é uma **capacidade compartilhada do site** (`core/fdb_reader.py`) —
+qualquer ferramenta pode abrir um `.fdb`. Ele descobre sozinho um login de
+leitura mesmo quando o `SYSDBA`/dono colidem com um *role* de mesmo nome (comum
+nesses bancos): tenta `SYSDBA` direto e, se colidir, usa o dono ou um usuário
+com `GRANT` de `SELECT` (no Symac, o `SYMAC`).
+
+**Isolamento e limites (segurança).** O Firebird 2.5 embedded é EOL e roda
+dentro do processo; abrir um `.fdb` de terceiro tem risco. Por isso **toda
+leitura roda num processo filho dedicado** (`sys.executable core/fdb_reader.py
+…`): um arquivo corrompido derruba só o filho — vira erro tratado na tela, não
+uma queda do site — e cada leitura tem seu próprio processo (o motor embedded
+não é *thread-safe*). A leitura é **limitada a 200 000 linhas** por tabela
+(evita OOM; ajustável por `AUDITORIA_FB_MAX_LINHAS`) e a contagem de linhas na
+escolha da tabela é limitada (mostra `1000+`) para não varrer tabelas enormes.
+O `firebird.conf` empacotado fixa `ExternalFileAccess = None` e
+`UdfAccess = None` — um `.fdb` malicioso não alcança o disco nem carrega
+bibliotecas nativas.
+
+**Requer o motor Firebird 2.5 embedded** (não instala Firebird na máquina):
+baixe o zip oficial **`Firebird-2.5.9.x_x64_embed.zip`** e extraia em
+`vendor/firebird25/` (deve conter `fbembed.dll`). Ao baixar de novo, repita o
+endurecimento do `firebird.conf` acima (`ExternalFileAccess`/`UdfAccess =
+None`) — a pasta `vendor/` não é versionada. O driver Python é o `fdb` (no
+`requirements.txt`). Sem esses dois, a opção `.fdb` avisa que o motor não está
+disponível — o resto do sistema segue funcionando. Variáveis de ambiente:
+`AUDITORIA_FB_HOME` (pasta do embedded), `AUDITORIA_FB_CHARSET` (padrão
+`WIN1252`; use `ISO8859_1`/`UTF8` se o banco reclamar de transliteração),
+`AUDITORIA_FB_MAX_LINHAS` (teto de linhas).
 
 No **Livro de Conferência**, importe o **SPED Fiscal** do cliente (por padrão,
 somente as **notas de entrada**) ou uma pasta de XMLs; marque cada nota como
@@ -138,6 +178,7 @@ auditoria-fiscal/
 │   │   ├── correcoes.py        # correcoes com auditoria e precedencia (item 3)
 │   │   ├── sefaz_relacao.py    # leitor da relacao da SEFAZ (flexivel)
 │   │   ├── cadastro_produtos.py# leitor/regravador da base de produtos (item 5)
+│   │   ├── fdb_reader.py       # leitor de banco Firebird (.fdb) — compartilhado
 │   │   ├── base_legal.py       # carga das bases legais de dados/ (item 5)
 │   │   └── utils.py            # conversoes (decimal BR, data, encoding)
 │   ├── ferramentas/
@@ -201,6 +242,8 @@ auditoria-fiscal/
 .\.venv\Scripts\python.exe tests\test_web_diff.py         # item 2 na web
 .\.venv\Scripts\python.exe tests\test_web_extracao.py     # item 4 na web
 .\.venv\Scripts\python.exe tests\test_web_produtos.py     # item 5 na web
+.\.venv\Scripts\python.exe tests\test_web_produtos_fdb.py # item 5 via .FDB (pula sem Firebird)
+.\.venv\Scripts\python.exe tests\test_fdb_reader.py       # leitor de .FDB (pula sem Firebird)
 .\.venv\Scripts\python.exe tests\test_web_permissoes.py   # permissoes + historico
 
 # validacoes com o SPED real (ajuste o caminho nos scripts)
