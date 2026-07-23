@@ -336,6 +336,16 @@ label.permissao {
 }
 label.permissao input { margin-top: 3px; }
 
+/* Botao "Abrir DANFE" + seletor do modo de abertura, colados como um grupo */
+.danfe-grupo { display: inline-flex; align-items: stretch; }
+.danfe-grupo #conf-danfe {
+  border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: 0;
+}
+.danfe-grupo #conf-danfe-modo {
+  border-top-left-radius: 0; border-bottom-left-radius: 0;
+  border-left: 1px solid var(--borda); font-size: 12.5px;
+}
+
 /* ------------------------------------------------------------------ */
 /* Telas estreitas: a lateral vira barra horizontal */
 

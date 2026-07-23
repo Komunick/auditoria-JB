@@ -37,7 +37,13 @@ Abas.registrar("conferencia", (container) => {
         </label>
         <label>Busca <input id="conf-busca" placeholder="numero, fornecedor, CNPJ, chave"></label>
         <button id="conf-corrigir">Corrigir campo fiscal...</button>
-        <button id="conf-danfe">Abrir DANFE</button>
+        <span class="danfe-grupo">
+          <button id="conf-danfe">Abrir DANFE</button>
+          <select id="conf-danfe-modo" title="Como abrir o DANFE (fica salvo neste navegador)">
+            <option value="guia">em nova guia do navegador</option>
+            <option value="leitor">no leitor de PDF do Windows</option>
+          </select>
+        </span>
         <button id="conf-livro">Livro Fiscal (PDF)</button>
         <button id="conf-inconsistencias">Inconsistencias (PDF)</button>
         <button id="conf-sped">SPED corrigido</button>
@@ -538,27 +544,51 @@ Abas.registrar("conferencia", (container) => {
     return true;
   }
 
-  let blobDanfeAnterior = null; // blob da guia anterior, revogado na proxima
+  // Modo de abertura do DANFE: nova guia do navegador ou leitor de PDF do
+  // Windows (aberto pelo servidor). A escolha fica salva neste navegador.
+  const modoSalvo = localStorage.getItem("confDanfeModo");
+  if (modoSalvo) $("conf-danfe-modo").value = modoSalvo;
+  $("conf-danfe-modo").addEventListener("change", (e) =>
+    localStorage.setItem("confDanfeModo", e.target.value));
+
+  /* Abre o DANFE em nova guia do navegador NAVEGANDO ate a rota (que serve o
+     PDF inline). Um clique programatico num <a target="_blank"> conta como
+     navegacao iniciada pelo usuario — o Chrome NAO bloqueia, ao contrario do
+     window.open depois de um fetch (que virava pop-up bloqueado). Por isso o
+     clique tem de ser sincrono aqui, sem await antes. */
+  function abrirEmGuia() {
+    const url = `/api/conferencia/danfe?sessao_id=${
+      encodeURIComponent(estado.sessaoId)}&chave=${
+      encodeURIComponent(estado.chave)}`;
+    const a = document.createElement("a");
+    a.href = url;
+    a.target = "_blank";
+    a.rel = "noopener";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  async function abrirNoLeitor() {
+    await api("/api/conferencia/danfe/abrir-leitor", { json: {
+      sessao_id: estado.sessaoId, chave: estado.chave } });
+    toast("DANFE aberto no leitor de PDF do Windows.");
+  }
 
   $("conf-danfe").addEventListener("click", async () => {
     if (!estado.chave) { toast("Selecione uma nota na tabela.", "erro"); return; }
     const nota = estado.notas.find((n) => n.chave === estado.chave);
-    if (nota && !nota.tem_xml && !(await vincularXmls(nota))) return;
+    const noLeitor = $("conf-danfe-modo").value === "leitor";
+    // Nota do SPED sem XML: vincula antes (fluxo async). Isso "gasta" o gesto
+    // do clique, mas so acontece na nova guia, e o clique sintetico no <a>
+    // logo apos o dialogo ainda costuma abrir. O caminho comum (nota ja com
+    // XML) abre a guia de forma SINCRONA, sem passar por await.
+    if (nota && !nota.tem_xml) {
+      if (!(await vincularXmls(nota))) return;
+    }
     try {
-      const resposta = await api(
-        `/api/conferencia/danfe?sessao_id=${estado.sessaoId}&chave=${estado.chave}`);
-      const blob = await resposta.blob();
-      const blobUrl = URL.createObjectURL(blob);
-      const guia = window.open(blobUrl, "_blank");
-      // Revoga o blob da guia ANTERIOR (que ja terminou de carregar faz
-      // tempo): o vazamento fica limitado a um PDF, em vez de acumular um
-      // por DANFE aberto ao longo do dia de conferencia.
-      if (blobDanfeAnterior) URL.revokeObjectURL(blobDanfeAnterior);
-      blobDanfeAnterior = blobUrl;
-      // Pop-up bloqueado (acontece se o navegador nao contar o clique como
-      // gesto): sem o aviso, o DANFE simplesmente "nao abre" e ninguem sabe.
-      if (!guia) toast("O navegador bloqueou a guia do DANFE — libere "
-                       + "pop-ups para este site.", "erro");
+      if (noLeitor) await abrirNoLeitor();
+      else abrirEmGuia();
     } catch (erro) { toast(erro.message, "erro"); }
   });
 
