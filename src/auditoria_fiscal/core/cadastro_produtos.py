@@ -260,14 +260,34 @@ def ler_base_produtos_fdb(caminho: str, tabela: str) -> BaseProdutos:
     """
     from . import fdb_reader
 
-    # A leitura roda isolada num subprocesso (ver fdb_reader): um .fdb
+    # Toda leitura roda isolada num subprocesso (ver fdb_reader): um .fdb
     # corrompido nao derruba o servidor.
-    colunas, linhas, truncado = fdb_reader.ler_tabela(caminho, tabela)
-    # df_bruto = cabecalho (linha 0) + dados; tudo string, como no csv.
-    df_bruto = pd.DataFrame([colunas] + linhas, dtype=str) if colunas \
-        else pd.DataFrame()
+    #
+    # DESEMPENHO: tabelas de ERP tem dezenas/centenas de colunas, mas a
+    # auditoria so usa ~9. Primeiro pegamos SO os nomes das colunas (barato,
+    # sem dados), mapeamos os campos, e entao lemos APENAS as colunas
+    # necessarias — em tabela larga isso corta a leitura em varias vezes.
+    nomes = fdb_reader.colunas_tabela(caminho, tabela)
+    cabecalho = [_texto(c) for c in nomes]
+    mapa, colunas_cfop = _mapear_colunas(cabecalho)
+    indices = sorted(set(mapa.values()) | set(colunas_cfop))
+
     layout = LayoutBase(tipo="csv", separador=";", encoding="utf-8-sig",
                         nome_aba=tabela)
+    if not indices:
+        # Nenhuma coluna reconhecida: le tudo para o diagnostico ser honesto
+        # (o usuario ve que o layout nao bateu).
+        _c, linhas, truncado = fdb_reader.ler_tabela(caminho, tabela)
+        df_bruto = pd.DataFrame([cabecalho] + linhas, dtype=str) if cabecalho \
+            else pd.DataFrame()
+    else:
+        sel = [nomes[i] for i in indices]
+        _c, linhas, truncado = fdb_reader.ler_tabela(caminho, tabela,
+                                                     colunas=sel)
+        # df_bruto = cabecalho (nomes reais das colunas lidas) + dados. O
+        # _montar_base remapeia sobre esse subconjunto — os mesmos campos, so
+        # que nas novas posicoes.
+        df_bruto = pd.DataFrame([[_texto(n) for n in sel]] + linhas, dtype=str)
     # No FDB o cabecalho e SEMPRE a primeira linha (nomes das colunas), sem a
     # deteccao heuristica que planilhas baguncadas exigem.
     base = _montar_base(caminho, df_bruto, layout, linha_cab=0)
@@ -298,10 +318,13 @@ def _montar_base(caminho: str, df_bruto: "pd.DataFrame", layout: LayoutBase,
             return ""
         return _texto(linha[idx])
 
-    dados = df_bruto.iloc[linha_cab + 1:]
+    # Materializa as linhas de dados de UMA vez (df.values.tolist()) em vez de
+    # df.iloc[i] a cada iteracao — iloc por linha e O(n) escondido e domina o
+    # tempo em base grande (100k+ linhas de um .FDB).
+    dados = df_bruto.iloc[linha_cab + 1:].values.tolist() if not df_bruto.empty \
+        else []
     produtos: list[ProdutoCadastro] = []
-    for indice in range(len(dados)):
-        linha = dados.iloc[indice].tolist()
+    for indice, linha in enumerate(dados):
         codigo = pega(linha, "codigo")
         descricao = pega(linha, "descricao")
         # Linha de dados valida = tem codigo OU descricao nao vazios.

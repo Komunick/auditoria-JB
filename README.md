@@ -59,6 +59,10 @@ uma queda do site — e cada leitura tem seu próprio processo (o motor embedded
 não é *thread-safe*). A leitura é **limitada a 200 000 linhas** por tabela
 (evita OOM; ajustável por `AUDITORIA_FB_MAX_LINHAS`) e a contagem de linhas na
 escolha da tabela é limitada (mostra `1000+`) para não varrer tabelas enormes.
+**Desempenho**: tabelas de ERP têm dezenas/centenas de colunas, mas a auditoria
+usa ~9 — os campos são mapeados pelos nomes das colunas (barato) e só as
+colunas necessárias são lidas, em vez da tabela inteira (numa tabela de 100 mil
+linhas × 40 colunas, isso levou a importação de ~45 s para ~13 s).
 O `firebird.conf` empacotado fixa `ExternalFileAccess = None` e
 `UdfAccess = None` — um `.fdb` malicioso não alcança o disco nem carrega
 bibliotecas nativas.

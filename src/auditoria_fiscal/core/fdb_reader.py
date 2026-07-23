@@ -102,41 +102,53 @@ class TabelaInfo:
 
 def listar_tabelas(caminho: str) -> list[TabelaInfo]:
     """Tabelas de dados do .FDB (nome + contagem limitada de linhas)."""
-    dados = _rodar_isolado("listar", caminho)
+    dados = _rodar_isolado({"op": "listar", "caminho": caminho})
     return [TabelaInfo(t["nome"], t["linhas"], t["mais"]) for t in dados]
 
 
-def ler_tabela(caminho: str, tabela: str,
+def colunas_tabela(caminho: str, tabela: str) -> list[str]:
+    """Nomes das colunas de uma tabela (barato: só metadados, sem ler dados).
+
+    Usado para mapear os campos ANTES de ler, e então trazer só as colunas
+    necessárias — tabelas de ERP têm dezenas/centenas de colunas."""
+    return _rodar_isolado({"op": "colunas", "caminho": caminho,
+                           "tabela": tabela})
+
+
+def ler_tabela(caminho: str, tabela: str, colunas: list[str] | None = None,
                limite: int | None = None
                ) -> tuple[list[str], list[list[str]], bool]:
     """Lê uma tabela como texto: devolve (colunas, linhas, truncado).
 
-    `truncado` é True quando a tabela tem mais linhas que o teto (as excedentes
-    não vêm). `tabela` é validado contra a lista real de tabelas dentro do
-    filho (o nome vai entre aspas numa query — essa checagem é a barreira
-    contra injeção de SQL)."""
-    teto = _limite_padrao() if limite is None else limite
-    dados = _rodar_isolado("ler", caminho, tabela=tabela, limite=teto)
+    `colunas` restringe a leitura a essas colunas (grande ganho em tabelas
+    largas); None lê todas. `truncado` é True quando a tabela tem mais linhas
+    que o teto. `tabela` e cada nome de coluna são validados dentro do filho
+    contra os nomes reais (barreira contra injeção de SQL)."""
+    dados = _rodar_isolado({
+        "op": "ler", "caminho": caminho, "tabela": tabela,
+        "colunas": colunas,
+        "limite": _limite_padrao() if limite is None else limite})
     return dados["colunas"], dados["linhas"], dados["truncado"]
 
 
-def _rodar_isolado(op: str, caminho: str, tabela: str | None = None,
-                   limite: int | None = None):
+def _rodar_isolado(req: dict):
     """Roda uma operação de leitura num processo filho e devolve o resultado.
 
-    Crash do filho (arquivo corrompido) vira ValueError tratável — o processo
-    do site sobrevive."""
+    A requisição vai por arquivo JSON (aceita lista de colunas sem estourar a
+    linha de comando). Crash do filho (arquivo corrompido) vira ValueError
+    tratável — o processo do site sobrevive."""
     ok, motivo = firebird_disponivel()
     if not ok:
         raise ValueError(motivo)
-    if not os.path.isfile(caminho):
+    if not os.path.isfile(req["caminho"]):
         raise ValueError("Arquivo .FDB não encontrado.")
 
-    fd, saida = tempfile.mkstemp(prefix="fdb_out_", suffix=".json")
-    os.close(fd)
-    args = [sys.executable, os.path.abspath(__file__), op, caminho, saida]
-    if op == "ler":
-        args += [tabela or "", str(limite or _limite_padrao())]
+    fd_r, entrada = tempfile.mkstemp(prefix="fdb_req_", suffix=".json")
+    with os.fdopen(fd_r, "w", encoding="utf-8") as fh:
+        json.dump(req, fh, ensure_ascii=False)
+    fd_o, saida = tempfile.mkstemp(prefix="fdb_out_", suffix=".json")
+    os.close(fd_o)
+    args = [sys.executable, os.path.abspath(__file__), entrada, saida]
     try:
         proc = subprocess.run(args, capture_output=True,
                               timeout=_TIMEOUT_SUBPROCESSO_S)
@@ -152,8 +164,9 @@ def _rodar_isolado(op: str, caminho: str, tabela: str | None = None,
     except subprocess.TimeoutExpired as exc:
         raise ValueError("Leitura do .FDB excedeu o tempo limite.") from exc
     finally:
-        with contextlib.suppress(OSError):
-            os.remove(saida)
+        for tmp in (entrada, saida):
+            with contextlib.suppress(OSError):
+                os.remove(tmp)
     if "erro" in dados:
         raise ValueError(dados["erro"])
     return dados["resultado"]
@@ -292,47 +305,68 @@ def _texto_celula(valor) -> str:
     return str(valor).strip()
 
 
-def _ler_local(con, tabela: str, limite: int) -> dict:
+def _colunas_local(con, tabela: str) -> list[str]:
     if tabela not in set(_nomes_tabelas(con)):
         raise ValueError(f"Tabela {tabela!r} não existe neste .FDB.")
     cur = con.cursor()
     cur.execute("SELECT TRIM(RDB$FIELD_NAME) FROM RDB$RELATION_FIELDS "
                 "WHERE RDB$RELATION_NAME = ? ORDER BY RDB$FIELD_POSITION",
                 (tabela,))
-    colunas = [linha[0] for linha in cur.fetchall()]
+    return [linha[0] for linha in cur.fetchall()]
+
+
+def _ler_local(con, tabela: str, limite: int,
+               colunas: list[str] | None) -> dict:
+    todas = _colunas_local(con, tabela)
+    if colunas:
+        # Cada nome pedido tem de existir de fato: validacao contra a lista
+        # real E a barreira contra injecao (os nomes vao entre aspas no SELECT).
+        validas = set(todas)
+        alvo = [c for c in colunas if c in validas]
+        if not alvo:
+            raise ValueError("Nenhuma das colunas pedidas existe na tabela.")
+    else:
+        alvo = todas
+    lista_sql = ", ".join(f'"{c}"' for c in alvo)
+    cur = con.cursor()
     # Lê teto+1 para saber se truncou, sem carregar a tabela inteira.
-    cur.execute(f'SELECT FIRST {int(limite) + 1} * FROM "{tabela}"')
+    cur.execute(f'SELECT FIRST {int(limite) + 1} {lista_sql} FROM "{tabela}"')
     brutas = cur.fetchall()
     truncado = len(brutas) > limite
     if truncado:
         brutas = brutas[:limite]
     linhas = [[_texto_celula(v) for v in registro] for registro in brutas]
-    return {"colunas": colunas, "linhas": linhas, "truncado": truncado}
+    return {"colunas": alvo, "linhas": linhas, "truncado": truncado}
 
 
 def _main(argv: list[str]) -> int:
-    """Ponto de entrada do PROCESSO FILHO. Escreve JSON no arquivo de saída.
+    """Ponto de entrada do PROCESSO FILHO: lê a requisição JSON, escreve o
+    resultado JSON no arquivo de saída.
 
     Erros tratados viram {"erro": msg} (returncode 0); um crash nativo do
     Firebird não chega aqui — o pai detecta pelo returncode/arquivo vazio."""
-    op, caminho, saida = argv[1], argv[2], argv[3]
+    entrada, saida = argv[1], argv[2]
     try:
-        if op == "listar":
-            with _abrir_local(caminho) as con:
+        with open(entrada, encoding="utf-8") as fh:
+            req = json.load(fh)
+        op, caminho = req["op"], req["caminho"]
+        with _abrir_local(caminho) as con:
+            if op == "listar":
                 resultado = _listar_local(con)
-        elif op == "ler":
-            tabela, limite = argv[4], int(argv[5])
-            with _abrir_local(caminho) as con:
-                resultado = _ler_local(con, tabela, limite)
-        else:
-            raise ValueError(f"operação desconhecida: {op}")
+            elif op == "colunas":
+                resultado = _colunas_local(con, req["tabela"])
+            elif op == "ler":
+                resultado = _ler_local(con, req["tabela"], int(req["limite"]),
+                                       req.get("colunas"))
+            else:
+                raise ValueError(f"operação desconhecida: {op}")
         conteudo = {"resultado": resultado}
     except ValueError as exc:
         conteudo = {"erro": str(exc)}
     except Exception as exc:  # noqa: BLE001 — vira mensagem amigável no site
         conteudo = {"erro": _amigavel(exc)}
     with open(saida, "w", encoding="utf-8") as fh:
-        json.dump(conteudo, fh, ensure_ascii=True)
+        json.dump(conteudo, fh, ensure_ascii=False)
     return 0
 
 
