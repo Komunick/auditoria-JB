@@ -37,13 +37,7 @@ Abas.registrar("conferencia", (container) => {
         </label>
         <label>Busca <input id="conf-busca" placeholder="numero, fornecedor, CNPJ, chave"></label>
         <button id="conf-corrigir">Corrigir campo fiscal...</button>
-        <span class="danfe-grupo">
-          <button id="conf-danfe">Abrir DANFE</button>
-          <select id="conf-danfe-modo" title="Como abrir o DANFE (fica salvo neste navegador)">
-            <option value="guia">em nova guia do navegador</option>
-            <option value="leitor">no leitor de PDF do Windows</option>
-          </select>
-        </span>
+        <button id="conf-danfe">Abrir DANFE</button>
         <button id="conf-livro">Livro Fiscal (PDF)</button>
         <button id="conf-inconsistencias">Inconsistencias (PDF)</button>
         <button id="conf-sped">SPED corrigido</button>
@@ -544,18 +538,13 @@ Abas.registrar("conferencia", (container) => {
     return true;
   }
 
-  // Modo de abertura do DANFE: nova guia do navegador ou leitor de PDF do
-  // Windows (aberto pelo servidor). A escolha fica salva neste navegador.
-  const modoSalvo = localStorage.getItem("confDanfeModo");
-  if (modoSalvo) $("conf-danfe-modo").value = modoSalvo;
-  $("conf-danfe-modo").addEventListener("change", (e) =>
-    localStorage.setItem("confDanfeModo", e.target.value));
-
   /* Abre o DANFE em nova guia do navegador NAVEGANDO ate a rota (que serve o
      PDF inline). Um clique programatico num <a target="_blank"> conta como
      navegacao iniciada pelo usuario — o Chrome NAO bloqueia, ao contrario do
      window.open depois de um fetch (que virava pop-up bloqueado). Por isso o
-     clique tem de ser sincrono aqui, sem await antes. */
+     clique tem de ser sincrono aqui, sem await antes.
+     (O antigo modo "leitor de PDF do Windows" abria no SERVIDOR — inutil no
+     acesso remoto e falhava fora de sessao interativa; foi removido.) */
   function abrirEmGuia() {
     const url = `/api/conferencia/danfe?sessao_id=${
       encodeURIComponent(estado.sessaoId)}&chave=${
@@ -569,26 +558,18 @@ Abas.registrar("conferencia", (container) => {
     a.remove();
   }
 
-  async function abrirNoLeitor() {
-    await api("/api/conferencia/danfe/abrir-leitor", { json: {
-      sessao_id: estado.sessaoId, chave: estado.chave } });
-    toast("DANFE aberto no leitor de PDF do Windows.");
-  }
-
   $("conf-danfe").addEventListener("click", async () => {
     if (!estado.chave) { toast("Selecione uma nota na tabela.", "erro"); return; }
     const nota = estado.notas.find((n) => n.chave === estado.chave);
-    const noLeitor = $("conf-danfe-modo").value === "leitor";
     // Nota do SPED sem XML: vincula antes (fluxo async). Isso "gasta" o gesto
-    // do clique, mas so acontece na nova guia, e o clique sintetico no <a>
-    // logo apos o dialogo ainda costuma abrir. O caminho comum (nota ja com
-    // XML) abre a guia de forma SINCRONA, sem passar por await.
+    // do clique, mas o clique sintetico no <a> logo apos o dialogo ainda
+    // costuma abrir. O caminho comum (nota ja com XML) abre a guia de forma
+    // SINCRONA, sem passar por await.
     if (nota && !nota.tem_xml) {
       if (!(await vincularXmls(nota))) return;
     }
     try {
-      if (noLeitor) await abrirNoLeitor();
-      else abrirEmGuia();
+      abrirEmGuia();
     } catch (erro) { toast(erro.message, "erro"); }
   });
 
