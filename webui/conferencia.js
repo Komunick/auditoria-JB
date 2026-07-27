@@ -538,17 +538,34 @@ Abas.registrar("conferencia", (container) => {
     return true;
   }
 
-  /* Abre o DANFE em nova guia do navegador NAVEGANDO ate a rota (que serve o
-     PDF inline). Um clique programatico num <a target="_blank"> conta como
-     navegacao iniciada pelo usuario — o Chrome NAO bloqueia, ao contrario do
-     window.open depois de um fetch (que virava pop-up bloqueado). Por isso o
-     clique tem de ser sincrono aqui, sem await antes.
+  /* Abre o DANFE numa JANELA separada do navegador (nao uma guia): passar
+     "popup" + largura/altura faz o Chrome criar uma janela propria, que da
+     para arrastar para outro monitor e deixar lado a lado com a conferencia.
+
+     A janela tem NOME fixo: a proxima nota reaproveita a MESMA janela (fica
+     onde voce a posicionou, em vez de acumular uma janela por nota).
+
+     window.open sincrono no clique nao e bloqueado (o problema antigo era
+     chama-lo DEPOIS de um await, que consome o gesto). Se ainda assim o
+     navegador barrar, caimos para nova guia via <a target="_blank">, que
+     nenhum bloqueador impede. A rota serve o PDF inline, entao a janela
+     EXIBE o DANFE no leitor do proprio navegador.
      (O antigo modo "leitor de PDF do Windows" abria no SERVIDOR — inutil no
      acesso remoto e falhava fora de sessao interativa; foi removido.) */
-  function abrirEmGuia() {
+  function abrirDanfe() {
     const url = `/api/conferencia/danfe?sessao_id=${
       encodeURIComponent(estado.sessaoId)}&chave=${
       encodeURIComponent(estado.chave)}`;
+    const telaL = screen.availWidth || 1280;
+    const telaA = screen.availHeight || 900;
+    const largura = Math.min(1100, telaL - 80);
+    const altura = Math.min(950, telaA - 80);
+    const esquerda = Math.max(0, Math.round((telaL - largura) / 2));
+    const topo = Math.max(0, Math.round((telaA - altura) / 2));
+    const janela = window.open(url, "danfeAuditoria",
+      `popup=yes,width=${largura},height=${altura},left=${esquerda},` +
+      `top=${topo},resizable=yes,scrollbars=yes`);
+    if (janela) { janela.focus(); return; }
     const a = document.createElement("a");
     a.href = url;
     a.target = "_blank";
@@ -556,6 +573,8 @@ Abas.registrar("conferencia", (container) => {
     document.body.appendChild(a);
     a.click();
     a.remove();
+    toast("O navegador bloqueou a janela do DANFE — abri em nova guia. " +
+          "Libere pop-ups para este site para usar a janela separada.", "erro");
   }
 
   $("conf-danfe").addEventListener("click", async () => {
@@ -569,7 +588,7 @@ Abas.registrar("conferencia", (container) => {
       if (!(await vincularXmls(nota))) return;
     }
     try {
-      abrirEmGuia();
+      abrirDanfe();
     } catch (erro) { toast(erro.message, "erro"); }
   });
 
