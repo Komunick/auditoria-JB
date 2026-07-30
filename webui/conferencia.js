@@ -39,7 +39,7 @@ Abas.registrar("conferencia", (container) => {
         <button id="conf-corrigir">Corrigir campo fiscal...</button>
         <button id="conf-danfe">Abrir DANFE</button>
         <button id="conf-livro">Livro Fiscal (PDF)</button>
-        <button id="conf-inconsistencias">Inconsistencias (PDF)</button>
+        <button id="conf-inconsistencias">Carta de Inconsistencias (PDF)</button>
         <button id="conf-sped">SPED corrigido</button>
       </div>
       <div class="rolagem"><table id="conf-tabela">
@@ -408,7 +408,7 @@ Abas.registrar("conferencia", (container) => {
           const ok = await confirmar("Confirmar correcao",
             `Alterar de ${td.dataset.original} para ${texto}? O valor original ` +
             "fica no historico de auditoria e a correcao vale para a tela, o " +
-            "Livro Fiscal, o relatorio de inconsistencias e o SPED corrigido.");
+            "Livro Fiscal, a Carta de Inconsistencias e o SPED corrigido.");
           if (!ok) { await carregarComposicao(); return; }
         }
         const comp = await api("/api/conferencia/composicao/editar", { json: {
@@ -664,7 +664,7 @@ Abas.registrar("conferencia", (container) => {
     });
   };
   baixar("conf-livro", "/api/conferencia/livro-fiscal", "Livro Fiscal");
-  baixar("conf-inconsistencias", "/api/conferencia/inconsistencias", "Relatorio de Inconsistencias");
+  baixar("conf-inconsistencias", "/api/conferencia/inconsistencias", "Carta de Inconsistencias");
   baixar("conf-sped", "/api/conferencia/sped-corrigido", "SPED corrigido",
          async () => {
     const resumo = await api("/api/conferencia/sped-corrigido/resumo" +

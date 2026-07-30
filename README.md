@@ -109,10 +109,9 @@ persistindo entre sessões.
   CFOP → Valor Contábil → Base de Cálculo → Alíquota → Valor do ICMS, com a
   observação/inconsistência abaixo dos valores, **sem data de conferência** e
   sem separar o cabeçalho da nota dos seus valores entre páginas.
-- **Relatório de Inconsistências (PDF)**: somente notas com observação e/ou
-  correção — identificação completa (nº, série, chave, emitente, UF),
-  detalhamento **por alíquota**, descrição da inconsistência e a trilha das
-  correções.
+- **Carta de Inconsistências (PDF)**: somente notas com observação e/ou
+  correção — identificação pelo número e emitente, detalhamento **por
+  alíquota**, descrição da inconsistência e correções sem metadados internos.
 - **SPED Fiscal corrigido**: reescreve o arquivo SPED importado aplicando as
   correções de CFOP/CST nos **C170**, reagrupando os **C190** (grupos que
   coincidem são mesclados, sem duplicidade) e recalculando os contadores
@@ -193,7 +192,7 @@ auditoria-fiscal/
 │   │   ├── conferencia_store.py       # persistencia SQLite (item 3, + correcoes)
 │   │   ├── danfe.py                   # geracao de DANFE do XML (item 3)
 │   │   ├── livro_fiscal.py            # Livro Fiscal em PDF (item 3)
-│   │   ├── livro_inconsistencias.py   # relatorio de inconsistencias em PDF (item 3)
+│   │   ├── livro_inconsistencias.py   # Carta de Inconsistencias em PDF (item 3)
 │   │   ├── sped_corrigido.py          # SPED com correcoes aplicadas (item 3)
 │   │   ├── extracao_itens.py          # extracao de itens (item 4)
 │   │   ├── auditoria_produtos.py      # motor de auditoria (item 5)

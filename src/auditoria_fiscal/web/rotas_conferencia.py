@@ -634,13 +634,11 @@ def inconsistencias(sessao_id: str, request: Request,
             detail="Nenhuma nota carregada tem observacao ou correcao.")
     detalhar(request, f"{len(inconsistentes)} nota(s) inconsistente(s)")
     destino = tempfile.mktemp(prefix="inconsistencias_", suffix=".pdf")
-    filtro = ("Somente documentos de entrada"
-              if sessao.estado.get("apenas_entradas") else "")
     gerar_livro_inconsistencias(sessao.estado["notas"], estados, destino,
                                 contexto=sessao.estado.get("contexto", ""),
-                                filtro=filtro, correcoes_por_chave=correcoes)
+                                correcoes_por_chave=correcoes)
     return FileResponse(destino, media_type="application/pdf",
-                        filename="relatorio_inconsistencias.pdf")
+                        filename="carta_inconsistencias.pdf")
 
 
 def _exigir_fonte_sped(sessao) -> None:

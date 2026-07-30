@@ -1,11 +1,11 @@
-"""Livro/Relatorio de Inconsistencias (PDF) do Livro de Conferencia Fiscal.
+"""Carta de Inconsistencias (PDF) do Livro de Conferencia Fiscal.
 
 Relaciona exclusivamente as notas com inconsistencia: observacao registrada
 na conferencia e/ou correcao de campo fiscal. Para cada nota apresenta a
-identificacao completa (numero, serie, chave, emitente, UF), a composicao
-fiscal por CFOP -> CST -> aliquota (com valor contabil, base, aliquota e
-ICMS separados POR ALIQUOTA), a descricao da inconsistencia e a trilha das
-correcoes (valor original -> corrigido, tipo, situacao, usuario, motivo).
+identificacao necessaria para a carta (numero e emitente), a composicao fiscal
+por CFOP -> CST -> aliquota (com valor contabil, base, aliquota e ICMS
+separados POR ALIQUOTA), a descricao da inconsistencia e as correcoes no
+formato campo: valor original -> corrigido.
 
 Usa a MESMA composicao e a MESMA regra de precedencia da tela e do Livro
 Fiscal (core/composicao_fiscal.py e core/correcoes.py), garantindo que nao
@@ -14,15 +14,13 @@ haja divergencia entre as saidas. Renderizado com fpdf2.
 
 from __future__ import annotations
 
-from datetime import datetime
-
 from ..core.composicao_fiscal import compor_nota
 from ..core.correcoes import CAMPOS_CORRIGIVEIS, aplicar_correcoes
 from ..core.modelos import NotaFiscal
 from ..core.utils import formatar_cfop, formatar_moeda, formatar_percentual
 from .livro_fiscal import ALTURA_LINHA, _latin1, _linha
 
-TITULO = "Relatorio de Inconsistencias - Conferencia Fiscal"
+TITULO = "CARTA DE INCONSISTÊNCIAS"
 
 
 def notas_com_observacao(notas, estados) -> list[tuple[NotaFiscal, object]]:
@@ -61,9 +59,6 @@ def montar_blocos_inconsistencias(notas, estados,
         comp = compor_nota(corrigida)
 
         forn = corrigida.participante.nome if corrigida.participante else ""
-        dt = corrigida.dt_emissao.strftime("%d/%m/%Y") if corrigida.dt_emissao else ""
-        situacao = "Conferida" if (estado and estado.conferida) else "Pendente"
-
         grupos = []
         for g in comp.grupos:
             linhas = [f"CFOP {formatar_cfop(g.cfop) or '--'} - CST "
@@ -80,20 +75,11 @@ def montar_blocos_inconsistencias(notas, estados,
         trilha = []
         for c in correcoes:
             nome = CAMPOS_CORRIGIVEIS.get(c.campo, c.campo)
-            trilha.append(
-                f"{nome}: {c.valor_original} -> {c.valor_corrigido}"
-                f" | tipo: {c.tipo} | situacao: {c.status}"
-                f" | usuario: {c.usuario} | {c.data_hora}"
-                + (f" | motivo: {c.motivo}" if c.motivo else "")
-                + (f" | inconsistencia: {c.inconsistencia}"
-                   if c.inconsistencia else ""))
+            trilha.append(f"{nome}: {c.valor_original} -> {c.valor_corrigido}")
 
         blocos.append({
-            "titulo": (f"NF {corrigida.numero}  Serie {corrigida.serie}  {dt}"
-                       f"  UF {corrigida.uf_origem or '--'}"
-                       f"  Situacao: {situacao}"),
+            "titulo": f"NF {corrigida.numero}",
             "subtitulo": f"{forn}  CNPJ {corrigida.cnpj_emitente}",
-            "chave_texto": f"Chave de acesso: {chave}",
             "total": ("Valor total da nota: "
                       f"{formatar_moeda(comp.total_nota, True)}"),
             "grupos": grupos,
@@ -107,9 +93,9 @@ def montar_blocos_inconsistencias(notas, estados,
 
 
 def gerar_livro_inconsistencias(notas, estados, pdf_path: str,
-                                contexto: str = "", filtro: str = "",
+                                contexto: str = "",
                                 correcoes_por_chave=None) -> str:
-    """Gera o PDF de inconsistencias. Retorna o caminho do PDF.
+    """Gera a Carta de Inconsistencias em PDF. Retorna o caminho do PDF.
 
     Levanta ValueError se nenhuma nota tiver observacao nem correcao.
     """
@@ -135,17 +121,11 @@ def gerar_livro_inconsistencias(notas, estados, pdf_path: str,
     if contexto:
         pdf.cell(0, 5, _latin1(f"Origem: {contexto}"),
                  new_x="LMARGIN", new_y="NEXT")
-    if filtro:
-        pdf.cell(0, 5, _latin1(filtro), new_x="LMARGIN", new_y="NEXT")
-    emissao = datetime.now().strftime("%d/%m/%Y %H:%M")
-    pdf.cell(0, 5, _latin1(
-        f"Emitido em {emissao} - {len(blocos)} nota(s) com inconsistencia "
-        f"(de {len(notas)} carregadas)"), new_x="LMARGIN", new_y="NEXT")
     pdf.ln(2)
 
     limite = pdf.h - 16
     for bloco in blocos:
-        linhas = (4 + sum(len(g) + 0.5 for g in bloco["grupos"])
+        linhas = (3 + sum(len(g) + 0.5 for g in bloco["grupos"])
                   + len(bloco["correcoes"]) + len(bloco["alertas"]) + 3)
         altura = linhas * ALTURA_LINHA + 6
         if pdf.get_y() + altura > limite and altura <= limite - pdf.t_margin:
@@ -153,7 +133,6 @@ def gerar_livro_inconsistencias(notas, estados, pdf_path: str,
 
         _linha(pdf, bloco["titulo"], estilo="B", tamanho=10)
         _linha(pdf, bloco["subtitulo"])
-        _linha(pdf, bloco["chave_texto"], tamanho=8)
         _linha(pdf, bloco["total"], estilo="B")
         for grupo in bloco["grupos"]:
             if pdf.get_y() + (len(grupo) + 1) * ALTURA_LINHA > limite:
