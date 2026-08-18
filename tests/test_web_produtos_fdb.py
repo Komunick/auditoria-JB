@@ -27,9 +27,10 @@ def checar(cond, msg):
         raise SystemExit(1)
 
 
-def esperar_job(cliente, job_id: str) -> dict:
+def esperar_job(cliente, job_id: str, ferramenta: str = "produtos") -> dict:
     for _ in range(100):
-        job = cliente.get(f"/api/jobs/{job_id}").json()
+        job = cliente.get(f"/api/jobs/{job_id}",
+                          params={"ferramenta": ferramenta}).json()
         if job["status"] == "concluido":
             return job["resultado"]
         if job["status"] == "erro":
@@ -92,12 +93,14 @@ def main() -> int:
     # Auditar SEM escolher a tabela: erro claro.
     job = cliente.post("/api/produtos/auditar",
                        json={"sessao_id": sessao}).json()
-    res = cliente.get(f"/api/jobs/{job['job_id']}").json()
+    res = cliente.get(f"/api/jobs/{job['job_id']}",
+                      params={"ferramenta": "produtos"}).json()
     for _ in range(50):
         if res["status"] in ("concluido", "erro"):
             break
         time.sleep(0.1)
-        res = cliente.get(f"/api/jobs/{job['job_id']}").json()
+        res = cliente.get(f"/api/jobs/{job['job_id']}",
+                      params={"ferramenta": "produtos"}).json()
     checar(res["status"] == "erro" and "tabela" in res["erro"].lower(),
            f"auditar sem tabela deveria falhar: {res}")
 

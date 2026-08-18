@@ -35,6 +35,26 @@ def caminho_db_conferencia() -> str:
     return os.path.join(pasta_dados_web(), "conferencia.db")
 
 
+def caminho_db_conciliacao() -> str:
+    """Banco proprio da Conciliacao Fiscal.
+
+    Separado de `auditoria_web.db` (usuarios/trilha de uso) e de
+    `conferencia.db`: o dominio fiscal versionado tem ciclo de vida, trilha
+    imutavel e backup proprios (plan.md, Complexity Tracking)."""
+    return os.path.join(pasta_dados_web(), "conciliacao.db")
+
+
+def pasta_origens_conciliacao() -> str:
+    """XLSX originais, imutaveis, nomeados pelo SHA-256.
+
+    NAO fica em `sessoes/`: aquela pasta pode ser limpa a qualquer momento, e
+    a fonte precisa sobreviver junto da proveniencia que aponta para ela
+    (research R5)."""
+    pasta = os.path.join(pasta_dados_web(), "conciliacao", "origens")
+    os.makedirs(pasta, exist_ok=True)
+    return pasta
+
+
 def caminho_historico_produtos() -> str:
     return os.path.join(pasta_dados_web(), "historico_produtos.csv")
 

@@ -1,0 +1,933 @@
+openapi: 3.1.0
+info:
+  title: Auditoria-JB - API de Conciliação Fiscal
+  version: 1.0.0
+  description: >-
+    Contrato da sexta ferramenta. A autenticação usa o cookie de sessão já
+    existente no Auditoria-JB. Respostas 403 também entram na trilha geral.
+servers:
+  - url: /
+security:
+  - sessionCookie: []
+tags:
+  - name: Conciliação
+  - name: Exceções
+  - name: Exportações
+paths:
+  /api/conciliacao/upload:
+    post:
+      tags: [Conciliação]
+      operationId: uploadConciliacao
+      summary: Envia um XLSX para o staging de uma sessão
+      description: >-
+        Requer aba.conciliacao e conciliacao.importar. A sessão deve pertencer
+        ao usuário e ter ferramenta conciliacao. Chamar uma vez por arquivo.
+      parameters:
+        - $ref: '#/components/parameters/SessaoIdQuery'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [arquivo]
+              properties:
+                arquivo:
+                  type: string
+                  format: binary
+      responses:
+        '200':
+          description: Arquivo recebido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadResult'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '413': { $ref: '#/components/responses/TooLarge' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/conciliacao/processar:
+    post:
+      tags: [Conciliação]
+      operationId: processarConciliacao
+      summary: Processa todos os XLSX enviados na sessão
+      description: Requer aba.conciliacao e conciliacao.importar.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sessao_id]
+              properties:
+                sessao_id: { type: string }
+      responses:
+        '200':
+          description: Job iniciado
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [job_id, lote_id]
+                properties:
+                  job_id: { type: string }
+                  lote_id: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/jobs/{job_id}:
+    get:
+      tags: [Conciliação]
+      operationId: obterJob
+      summary: Acompanha um job de processamento (rota compartilhada)
+      description: >-
+        Rota genérica já existente no Auditoria-JB, compartilhada pelas seis
+        ferramentas. Documentada aqui porque /processar devolve `job_id` e o
+        contrato ficaria incompleto sem o endpoint que o consome.
+
+        Exige apenas login: o controle de acesso é a PROPRIEDADE do job, não
+        uma permissão de ação. Job de outro usuário responde 404 com o mesmo
+        corpo de um job inexistente — um 403 confirmaria que aquele ID existe.
+
+        `ferramenta` é obrigatória e amarra o job à aba que o criou (FR-005 e
+        SEC003): um job_id de outra aba responde como inexistente, mesmo sendo
+        do próprio usuário. Omiti-la é erro de contrato (422), nunca um atalho
+        silencioso. Ferramenta desconhecida cai no mesmo 404 — a rota jamais
+        revela se o problema foi o ID, o dono ou a aba.
+
+        Fora da trilha geral de propósito: o front consulta a cada 700 ms e
+        auditar isso afogaria o que importa.
+      parameters:
+        - $ref: '#/components/parameters/JobId'
+        - $ref: '#/components/parameters/FerramentaQuery'
+      responses:
+        '200':
+          description: >-
+            Estado do job. Concluído o processamento da conciliação,
+            `resultado` é um ImportBatchResult; o mesmo objeto continua
+            disponível de forma persistente em /api/conciliacao/lotes/{lote_id}.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, erro, resultado, descricao]
+                properties:
+                  status:
+                    type: string
+                    enum: [executando, concluido, erro]
+                  erro: { type: string }
+                  descricao: { type: string }
+                  resultado:
+                    oneOf:
+                      - { $ref: '#/components/schemas/ImportBatchResult' }
+                      - { type: 'null' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/conciliacao/lotes/{lote_id}:
+    get:
+      tags: [Conciliação]
+      operationId: obterLoteConciliacao
+      summary: Recupera o resultado persistente de um lote
+      description: >-
+        Requer aba.conciliacao e conciliacao.importar. O lote deve pertencer ao usuário; recurso
+        alheio responde como não encontrado. O mesmo objeto é retornado no
+        campo resultado do job quando o processamento termina — ver
+        GET /api/jobs/{job_id}, que mantém seu envelope atual. Esta rota é a
+        fonte PERSISTENTE: o job vive em memória e some no reinício do
+        servidor, o lote não.
+      parameters:
+        - $ref: '#/components/parameters/LoteId'
+      responses:
+        '200':
+          description: Resultado do lote e de cada arquivo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportBatchResult'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/conciliacao/resumo:
+    get:
+      tags: [Conciliação]
+      operationId: resumoConciliacao
+      summary: Indicadores filtrados
+      description: Requer aba.conciliacao.
+      parameters:
+        - $ref: '#/components/parameters/Cnpj'
+        - $ref: '#/components/parameters/Texto'
+        - $ref: '#/components/parameters/CompetenciaDe'
+        - $ref: '#/components/parameters/CompetenciaAte'
+        - $ref: '#/components/parameters/Estado'
+        - $ref: '#/components/parameters/Layout'
+        - $ref: '#/components/parameters/Excecao'
+      responses:
+        '200':
+          description: Resumo
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Summary'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/conciliacao/conciliacoes:
+    get:
+      tags: [Conciliação]
+      operationId: listarConciliacoes
+      summary: Lista conciliações vigentes com filtros e paginação
+      description: Requer aba.conciliacao.
+      parameters:
+        - $ref: '#/components/parameters/Cnpj'
+        - $ref: '#/components/parameters/Texto'
+        - $ref: '#/components/parameters/CompetenciaDe'
+        - $ref: '#/components/parameters/CompetenciaAte'
+        - $ref: '#/components/parameters/Estado'
+        - $ref: '#/components/parameters/Layout'
+        - $ref: '#/components/parameters/Excecao'
+        - name: pagina
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: limite
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: ordenar
+          in: query
+          schema:
+            type: string
+            enum: [competencia_desc, competencia_asc, empresa_asc, diferenca_desc]
+            default: competencia_desc
+      responses:
+        '200':
+          description: Página de conciliações
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationPage'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/conciliacao/conciliacoes/{conciliacao_id}:
+    get:
+      tags: [Conciliação]
+      operationId: obterConciliacao
+      summary: Obtém detalhe, versão vigente, candidatas e trilhas
+      description: Requer aba.conciliacao.
+      parameters:
+        - $ref: '#/components/parameters/ConciliacaoId'
+      responses:
+        '200':
+          description: Detalhe
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReconciliationDetail'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/conciliacao/conciliacoes/{conciliacao_id}/revisar:
+    post:
+      tags: [Conciliação]
+      operationId: revisarConciliacao
+      summary: Rejeita ou devolve a conciliação para revisão
+      description: Requer aba.conciliacao e conciliacao.revisar. O ator vem do cookie.
+      parameters:
+        - $ref: '#/components/parameters/ConciliacaoId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewRequest'
+      responses:
+        '200':
+          description: Estado atualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DecisionResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/conciliacao/conciliacoes/{conciliacao_id}/aprovar:
+    post:
+      tags: [Conciliação]
+      operationId: aprovarConciliacao
+      summary: Aprova a versão vigente sem pendências bloqueantes
+      description: Requer aba.conciliacao e conciliacao.aprovar. O ator vem do cookie.
+      parameters:
+        - $ref: '#/components/parameters/ConciliacaoId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, justificativa]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                justificativa: { type: string, minLength: 1, maxLength: 2000 }
+      responses:
+        '200':
+          description: Estado atualizado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DecisionResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/conciliacao/excecoes:
+    get:
+      tags: [Exceções]
+      operationId: listarExcecoes
+      summary: Lista avisos e bloqueios
+      description: Requer aba.conciliacao.
+      parameters:
+        - name: estado
+          in: query
+          schema: { type: string, enum: [aberta, resolvida] }
+        - name: severidade
+          in: query
+          schema: { type: string, enum: [aviso, bloqueio] }
+        - $ref: '#/components/parameters/Cnpj'
+        - name: pagina
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: limite
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: Página de exceções
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [itens, total, pagina, limite]
+                properties:
+                  itens:
+                    type: array
+                    items: { $ref: '#/components/schemas/Issue' }
+                  total: { type: integer }
+                  pagina: { type: integer }
+                  limite: { type: integer }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/conciliacao/conflitos:
+    get:
+      tags: [Exceções]
+      operationId: listarConflitos
+      summary: Lista conflitos entre versões
+      description: Requer aba.conciliacao.
+      parameters:
+        - name: estado
+          in: query
+          schema:
+            type: string
+            enum: [aberto, mantida_vigente, promovida_candidata]
+        - $ref: '#/components/parameters/Cnpj'
+        - $ref: '#/components/parameters/CompetenciaDe'
+        - $ref: '#/components/parameters/CompetenciaAte'
+        - name: pagina
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: limite
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: Página de conflitos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConflictPage'
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+  /api/conciliacao/excecoes/{excecao_id}/resolver:
+    post:
+      tags: [Exceções]
+      operationId: resolverExcecao
+      summary: Resolve uma exceção não conflitante
+      description: Requer aba.conciliacao e conciliacao.resolver_excecao.
+      parameters:
+        - name: excecao_id
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, justificativa]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                justificativa: { type: string, minLength: 1, maxLength: 2000 }
+      responses:
+        '200':
+          description: Exceção resolvida
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DecisionResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/conciliacao/conflitos/{conflito_id}/resolver:
+    post:
+      tags: [Exceções]
+      operationId: resolverConflito
+      summary: Mantém a versão vigente ou promove a candidata
+      description: Requer aba.conciliacao e conciliacao.resolver_excecao.
+      parameters:
+        - name: conflito_id
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [revision, decisao, justificativa]
+              properties:
+                revision: { type: integer, minimum: 1 }
+                decisao:
+                  type: string
+                  enum: [manter_vigente, promover_candidata]
+                justificativa: { type: string, minLength: 1, maxLength: 2000 }
+      responses:
+        '200':
+          description: Conflito resolvido
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DecisionResult' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/conciliacao/fontes/{fonte_id}/download:
+    get:
+      tags: [Conciliação]
+      operationId: downloadFonte
+      summary: Baixa a evidência XLSX original
+      description: Requer aba.conciliacao e gera evento de auditoria.
+      parameters:
+        - name: fonte_id
+          in: path
+          required: true
+          schema: { type: integer, minimum: 1 }
+      responses:
+        '200':
+          description: XLSX original
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /api/conciliacao/exportar:
+    post:
+      tags: [Exportações]
+      operationId: exportarConciliacoes
+      summary: Gera o consolidado auditável
+      description: Requer aba.conciliacao e conciliacao.exportar.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ExportFilter' }
+      responses:
+        '200':
+          description: XLSX consolidado
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/conciliacao/preencher-modelo:
+    post:
+      tags: [Exportações]
+      operationId: preencherModelo
+      summary: Preenche uma cópia da planilha-mestre para um CNPJ
+      description: >-
+        Requer aba.conciliacao e conciliacao.preencher_modelo. Se
+        incluir_em_revisao=true, requer também conciliacao.incluir_pendentes.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [modelo, cnpj]
+              properties:
+                modelo: { type: string, format: binary }
+                cnpj: { type: string, pattern: '^[0-9]{14}$' }
+                competencia_de: { type: string, pattern: '^[0-9]{6}$' }
+                competencia_ate: { type: string, pattern: '^[0-9]{6}$' }
+                incluir_em_revisao: { type: boolean, default: false }
+                confirmacao_pendentes: { type: boolean, default: false }
+      responses:
+        '200':
+          description: Cópia preenchida
+          content:
+            application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+              schema: { type: string, format: binary }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: auditoria_sessao
+  parameters:
+    SessaoIdQuery:
+      name: sessao_id
+      in: query
+      required: true
+      schema: { type: string }
+    ConciliacaoId:
+      name: conciliacao_id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    LoteId:
+      name: lote_id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    JobId:
+      name: job_id
+      in: path
+      required: true
+      schema: { type: string }
+    FerramentaQuery:
+      name: ferramenta
+      in: query
+      required: true
+      description: >-
+        Aba que criou o recurso. Valor divergente do job, ou desconhecido,
+        responde 404 — igual a um ID inexistente.
+      schema:
+        type: string
+        enum: [comparador, diff, conferencia, extracao, produtos, conciliacao]
+    Cnpj:
+      name: cnpj
+      in: query
+      schema: { type: string, pattern: '^[0-9]{14}$' }
+    Texto:
+      name: texto
+      in: query
+      schema: { type: string, maxLength: 100 }
+    CompetenciaDe:
+      name: competencia_de
+      in: query
+      schema: { type: string, pattern: '^[0-9]{6}$' }
+    CompetenciaAte:
+      name: competencia_ate
+      in: query
+      schema: { type: string, pattern: '^[0-9]{6}$' }
+    Estado:
+      name: estado
+      in: query
+      schema:
+        type: string
+        enum: [em_revisao, aprovada, rejeitada]
+    Layout:
+      name: layout
+      in: query
+      schema:
+        type: string
+        enum: [quadro_50_5, quadro_50_3_dimp]
+    Excecao:
+      name: excecao
+      in: query
+      schema:
+        type: string
+        enum: [aviso, bloqueio, conflito]
+  responses:
+    Unauthorized:
+      description: Login necessário
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Permissão insuficiente
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Recurso inexistente ou não pertencente ao usuário
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooLarge:
+      description: Arquivo excede o limite da ferramenta
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationError:
+      description: Entrada inválida ou regra de negócio não atendida
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Revisão desatualizada ou conflito de estado
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Error:
+      type: object
+      required: [detail]
+      properties:
+        detail: { type: string }
+        code: { type: string }
+        current_revision: { type: integer }
+    UploadResult:
+      type: object
+      required: [ok, upload_id, arquivo, tamanho]
+      properties:
+        ok: { type: boolean }
+        upload_id: { type: string }
+        arquivo: { type: string }
+        tamanho: { type: integer }
+    ImportItemResult:
+      type: object
+      required: [id, nome_recebido, resultado, mensagem]
+      properties:
+        id: { type: integer }
+        fonte_id: { type: [integer, 'null'] }
+        conciliacao_id: { type: [integer, 'null'] }
+        nome_recebido: { type: string }
+        sha256: { type: [string, 'null'], pattern: '^[a-f0-9]{64}$' }
+        resultado:
+          type: string
+          enum: [processado, duplicado, conflitante, rejeitado]
+        mensagem: { type: string }
+        codigo: { type: [string, 'null'] }
+    ImportBatchResult:
+      type: object
+      required:
+        - id
+        - estado
+        - total_arquivos
+        - processados
+        - duplicados
+        - conflitantes
+        - rejeitados
+        - itens
+      properties:
+        id: { type: integer }
+        estado:
+          type: string
+          enum: [recebido, processando, concluido, interrompido]
+        total_arquivos: { type: integer, minimum: 0 }
+        processados: { type: integer, minimum: 0 }
+        duplicados: { type: integer, minimum: 0 }
+        conflitantes: { type: integer, minimum: 0 }
+        rejeitados: { type: integer, minimum: 0 }
+        criado_em: { type: string, format: date-time }
+        iniciado_em: { type: [string, 'null'], format: date-time }
+        concluido_em: { type: [string, 'null'], format: date-time }
+        itens:
+          type: array
+          items: { $ref: '#/components/schemas/ImportItemResult' }
+    Money:
+      type: object
+      description: Valor para API; centavos preservam exatidão e texto é para UI.
+      required: [centavos, texto]
+      properties:
+        centavos: { type: integer }
+        texto: { type: string, example: 'R$ 1.234,56' }
+    Summary:
+      type: object
+      required: [total, em_revisao, aprovadas, rejeitadas, avisos, bloqueios, conflitos, diferenca_total]
+      properties:
+        total: { type: integer }
+        em_revisao: { type: integer }
+        aprovadas: { type: integer }
+        rejeitadas: { type: integer }
+        avisos: { type: integer }
+        bloqueios: { type: integer }
+        conflitos: { type: integer }
+        diferenca_total: { $ref: '#/components/schemas/Money' }
+    ReconciliationRow:
+      type: object
+      required: [id, cnpj, razao_social, competencia, estado, revision, versao, avisos_abertos, bloqueios_abertos, conflitos_abertos]
+      properties:
+        id: { type: integer }
+        cnpj: { type: string }
+        razao_social: { type: string }
+        competencia: { type: string }
+        estado: { type: string, enum: [em_revisao, aprovada, rejeitada] }
+        revision: { type: integer }
+        versao: { $ref: '#/components/schemas/VersionSummary' }
+        avisos_abertos: { type: integer }
+        bloqueios_abertos: { type: integer }
+        conflitos_abertos: { type: integer }
+    ReconciliationPage:
+      type: object
+      required: [itens, total, pagina, limite]
+      properties:
+        itens:
+          type: array
+          items: { $ref: '#/components/schemas/ReconciliationRow' }
+        total: { type: integer }
+        pagina: { type: integer }
+        limite: { type: integer }
+        paginas: { type: integer }
+    VersionSummary:
+      type: object
+      required: [id, numero, estado, layout, receita_declarada, receita_calculada, diferenca_receita, total_pix, total_nao_pix]
+      properties:
+        id: { type: integer }
+        numero: { type: integer }
+        estado: { type: string, enum: [vigente, candidata, substituida, descartada] }
+        layout: { type: string }
+        receita_declarada: { $ref: '#/components/schemas/Money' }
+        receita_calculada: { $ref: '#/components/schemas/Money' }
+        diferenca_receita: { $ref: '#/components/schemas/Money' }
+        total_pix:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+        total_nao_pix:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: 'null'
+    SourceReference:
+      type: object
+      required: [id, arquivo, sha256, versao_parser]
+      properties:
+        id: { type: integer }
+        arquivo: { type: string }
+        sha256: { type: string, pattern: '^[a-f0-9]{64}$' }
+        versao_parser: { type: string }
+    VersionDetail:
+      allOf:
+        - $ref: '#/components/schemas/VersionSummary'
+        - type: object
+          required:
+            - declarada_com_st
+            - declarada_sem_st
+            - calculada_com_st
+            - calculada_sem_st
+            - diferenca_com_st
+            - diferenca_sem_st
+            - razao_social
+            - fonte
+            - aba_origem
+            - linha_resumo
+          properties:
+            declarada_com_st: { $ref: '#/components/schemas/Money' }
+            declarada_sem_st: { $ref: '#/components/schemas/Money' }
+            calculada_com_st: { $ref: '#/components/schemas/Money' }
+            calculada_sem_st: { $ref: '#/components/schemas/Money' }
+            diferenca_com_st: { $ref: '#/components/schemas/Money' }
+            diferenca_sem_st: { $ref: '#/components/schemas/Money' }
+            razao_social: { type: string }
+            fonte: { $ref: '#/components/schemas/SourceReference' }
+            aba_origem: { type: string }
+            linha_resumo: { type: integer, minimum: 1 }
+    ReconciliationDetail:
+      allOf:
+        - $ref: '#/components/schemas/ReconciliationRow'
+        - type: object
+          required: [versao_vigente, versoes, movimentos, fatos, excecoes, revisoes, conflitos]
+          properties:
+            versao_vigente: { $ref: '#/components/schemas/VersionDetail' }
+            versoes:
+              type: array
+              items: { $ref: '#/components/schemas/VersionDetail' }
+            movimentos:
+              type: array
+              items: { $ref: '#/components/schemas/Movement' }
+            fatos:
+              type: array
+              items: { $ref: '#/components/schemas/Fact' }
+            excecoes:
+              type: array
+              items: { $ref: '#/components/schemas/Issue' }
+            revisoes:
+              type: array
+              items: { $ref: '#/components/schemas/Review' }
+            conflitos:
+              type: array
+              items: { $ref: '#/components/schemas/ImportConflict' }
+    Movement:
+      type: object
+      required: [id, versao_id, instituicao, linha_origem, debito, credito, transferencia, pix, voucher, outras, total_dimp, total_nao_pix, proveniencia]
+      properties:
+        id: { type: integer }
+        versao_id: { type: integer }
+        instituicao: { type: string }
+        linha_origem: { type: integer }
+        debito: { $ref: '#/components/schemas/Money' }
+        credito: { $ref: '#/components/schemas/Money' }
+        transferencia: { $ref: '#/components/schemas/Money' }
+        pix: { $ref: '#/components/schemas/Money' }
+        voucher: { $ref: '#/components/schemas/Money' }
+        outras: { $ref: '#/components/schemas/Money' }
+        total_dimp: { $ref: '#/components/schemas/Money' }
+        total_nao_pix: { $ref: '#/components/schemas/Money' }
+        proveniencia:
+          $ref: '#/components/schemas/MovementProvenance'
+    MovementProvenance:
+      type: object
+      required: [fonte, aba, celulas]
+      properties:
+        fonte: { $ref: '#/components/schemas/SourceReference' }
+        aba: { type: string }
+        celulas:
+          type: object
+          required: [instituicao, debito, credito, transferencia, pix, voucher, outras, total_dimp]
+          additionalProperties: false
+          properties:
+            instituicao: { type: string, pattern: '^[A-Z]+[1-9][0-9]*$' }
+            debito: { type: string, pattern: '^[A-Z]+[1-9][0-9]*$' }
+            credito: { type: string, pattern: '^[A-Z]+[1-9][0-9]*$' }
+            transferencia: { type: string, pattern: '^[A-Z]+[1-9][0-9]*$' }
+            pix: { type: string, pattern: '^[A-Z]+[1-9][0-9]*$' }
+            voucher: { type: string, pattern: '^[A-Z]+[1-9][0-9]*$' }
+            outras: { type: string, pattern: '^[A-Z]+[1-9][0-9]*$' }
+            total_dimp: { type: string, pattern: '^[A-Z]+[1-9][0-9]*$' }
+    Fact:
+      type: object
+      required: [id, versao_id, metrica, valor, tipo_origem, regra_parser, fonte]
+      properties:
+        id: { type: integer }
+        versao_id: { type: integer }
+        metrica: { type: string }
+        valor:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: string
+            - type: 'null'
+        tipo_origem: { type: string, enum: [celula, formula] }
+        aba: { type: string }
+        celula: { type: string }
+        rotulo: { type: string }
+        regra_parser: { type: string }
+        fonte: { $ref: '#/components/schemas/SourceReference' }
+        formula: { type: string }
+        fatos_origem:
+          type: array
+          items: { type: string }
+    Issue:
+      type: object
+      required: [id, codigo, severidade, mensagem, estado]
+      properties:
+        id: { type: integer }
+        conciliacao_id: { type: integer }
+        versao_id: { type: integer }
+        codigo: { type: string }
+        severidade: { type: string, enum: [aviso, bloqueio] }
+        mensagem: { type: string }
+        estado: { type: string, enum: [aberta, resolvida] }
+        resolucao: { type: string }
+        resolvida_por: { type: string }
+        criada_em: { type: string }
+        resolvida_em: { type: string }
+    Review:
+      type: object
+      required: [id, versao_id, revision_anterior, estado_anterior, estado_novo, justificativa, usuario, criada_em]
+      properties:
+        id: { type: integer }
+        versao_id: { type: integer }
+        revision_anterior: { type: integer }
+        estado_anterior: { type: string }
+        estado_novo: { type: string }
+        justificativa: { type: string }
+        usuario: { type: string }
+        criada_em: { type: string }
+    ImportConflict:
+      type: object
+      required: [id, conciliacao_id, cnpj, competencia, revision, versao_vigente_id, versao_candidata_id, estado, diferencas]
+      properties:
+        id: { type: integer }
+        conciliacao_id: { type: integer }
+        cnpj: { type: string }
+        competencia: { type: string }
+        revision: { type: integer }
+        versao_vigente_id: { type: integer }
+        versao_candidata_id: { type: integer }
+        estado: { type: string, enum: [aberto, mantida_vigente, promovida_candidata] }
+        diferencas:
+          type: array
+          items:
+            $ref: '#/components/schemas/FieldDifference'
+        justificativa: { type: string }
+        criada_em: { type: string, format: date-time }
+        resolvida_em: { type: [string, 'null'], format: date-time }
+    FieldDifference:
+      type: object
+      required: [campo, tipo, vigente, candidata]
+      properties:
+        campo: { type: string }
+        tipo: { type: string, enum: [dinheiro, texto, nulo] }
+        vigente:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: string
+            - type: 'null'
+        candidata:
+          oneOf:
+            - $ref: '#/components/schemas/Money'
+            - type: string
+            - type: 'null'
+    ConflictPage:
+      type: object
+      required: [itens, total, pagina, limite]
+      properties:
+        itens:
+          type: array
+          items: { $ref: '#/components/schemas/ImportConflict' }
+        total: { type: integer }
+        pagina: { type: integer }
+        limite: { type: integer }
+        paginas: { type: integer }
+    ReviewRequest:
+      type: object
+      required: [revision, estado, justificativa]
+      properties:
+        revision: { type: integer, minimum: 1 }
+        estado: { type: string, enum: [em_revisao, rejeitada] }
+        justificativa: { type: string, minLength: 1, maxLength: 2000 }
+    DecisionResult:
+      type: object
+      required: [ok, conciliacao_id, estado, revision]
+      properties:
+        ok: { type: boolean }
+        conciliacao_id: { type: integer }
+        estado: { type: string }
+        revision: { type: integer }
+    ExportFilter:
+      type: object
+      properties:
+        cnpj: { type: string, pattern: '^[0-9]{14}$' }
+        texto: { type: string, maxLength: 100 }
+        competencia_de: { type: string, pattern: '^[0-9]{6}$' }
+        competencia_ate: { type: string, pattern: '^[0-9]{6}$' }
+        layout:
+          type: string
+          enum: [quadro_50_5, quadro_50_3_dimp]
+        excecao:
+          type: string
+          enum: [aviso, bloqueio, conflito]
+        estados:
+          type: array
+          items: { type: string, enum: [em_revisao, aprovada, rejeitada] }

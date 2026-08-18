@@ -104,7 +104,7 @@ Abas.registrar("extracao", (container) => {
       status("Extraindo itens...");
       const { job_id } = await api("/api/extracao/extrair", { json: {
         sessao_id, fonte, operacao: $("ext-operacao").value } });
-      const resultado = await esperarJob(job_id);
+      const resultado = await esperarJob(job_id, "extracao");
       estado.total = resultado.total;
       renderPrevia(resultado);
       $("ext-exportar").disabled = resultado.total === 0;

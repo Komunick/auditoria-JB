@@ -126,7 +126,7 @@ async def upload(sessao_id: str, tipo: str, arquivo: UploadFile,
     A extensao e preservada: a leitura da SEFAZ decide o parser (xlsx/csv)
     pelo final do caminho.
     """
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "comparador")
     nome = (arquivo.filename or "").lower()
     if tipo == "sped":
         if not nome.endswith(".txt"):
@@ -157,7 +157,7 @@ class CompararEntrada(BaseModel):
 def comparar_arquivos(entrada: CompararEntrada, request: Request,
                       usuario: Usuario = Depends(
                           acesso("comparador.comparar"))) -> dict:
-    sessao = obter_sessao(entrada.sessao_id)
+    sessao = obter_sessao(entrada.sessao_id, usuario, "comparador")
     caminho_sped = _arquivo_da_subpasta(
         sessao, "sped", "Envie o arquivo SPED (.txt) antes de comparar.")
     caminho_sefaz = _arquivo_da_subpasta(
@@ -184,7 +184,7 @@ def exportar(sessao_id: str, request: Request,
              usuario: Usuario = Depends(
                  acesso("comparador.exportar"))) -> FileResponse:
     """Excel de 5 abas gerado do resultado guardado na sessao."""
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "comparador")
     with sessao.trava:
         resultado = sessao.estado.get("resultado")
         empresa = sessao.estado.get("empresa", "")

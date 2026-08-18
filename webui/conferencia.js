@@ -129,7 +129,7 @@ Abas.registrar("conferencia", (container) => {
     status("Carregando notas...");
     const { job_id } = await api("/api/conferencia/carregar", { json: {
       sessao_id: estado.sessaoId, fonte, apenas_entradas: apenasEntradas } });
-    const resultado = await esperarJob(job_id);
+    const resultado = await esperarJob(job_id, "conferencia");
     await atualizarNotas();
     return resultado;
   }

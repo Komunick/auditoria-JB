@@ -109,8 +109,27 @@ async function api(caminho, opcoes = {}) {
   }
   if (!resposta.ok) {
     let detalhe = `Erro ${resposta.status}`;
-    try { detalhe = (await resposta.json()).detail || detalhe; } catch {}
-    throw new Error(detalhe);
+    let extras = null;
+    try { extras = (await resposta.json()).detail; } catch {}
+    /* O erro pode vir como texto simples (rotas antigas) ou como o objeto
+       {detail, code, ...} do contrato da conciliacao. Sem tratar o objeto,
+       `new Error(obj)` viraria a mensagem inutil "[object Object]" na cara do
+       usuario. O `code` fica no erro para quem precisa reagir a um caso
+       especifico sem depender do texto, que muda. */
+    if (extras && typeof extras === "object") {
+      detalhe = extras.detail || detalhe;
+    } else if (extras) {
+      detalhe = extras;
+    }
+    const erro = new Error(detalhe);
+    erro.status = resposta.status;
+    if (extras && typeof extras === "object") {
+      erro.codigo = extras.code || "";
+      if (extras.current_revision !== undefined) {
+        erro.revisionAtual = extras.current_revision;
+      }
+    }
+    throw erro;
   }
   const tipo = resposta.headers.get("content-type") || "";
   return tipo.includes("application/json") ? resposta.json() : resposta;
@@ -134,10 +153,18 @@ async function apiDownload(caminho, opcoes = {}) {
   return nome;
 }
 
-/* Polling de job em segundo plano (equivalente aos QThread do desktop). */
-async function esperarJob(jobId) {
+/* Polling de job em segundo plano (equivalente aos QThread do desktop).
+
+   `ferramenta` e a aba que iniciou o processamento e vai obrigatoriamente na
+   consulta: a rota /api/jobs/ e compartilhada pelas seis ferramentas e, alem
+   de conferir o dono, confere a aba esperada. Sem ela o servidor responde
+   422. Falhar aqui, no cliente, deixa o erro obvio na primeira execucao em
+   vez de virar um 422 confuso no meio de um processamento. */
+async function esperarJob(jobId, ferramenta) {
+  if (!ferramenta) throw new Error("esperarJob exige a ferramenta da aba.");
+  const consulta = `/api/jobs/${jobId}?ferramenta=${encodeURIComponent(ferramenta)}`;
   for (;;) {
-    const job = await api(`/api/jobs/${jobId}`);
+    const job = await api(consulta);
     if (job.status === "concluido") return job.resultado;
     if (job.status === "erro") throw new Error(job.erro);
     await new Promise((r) => setTimeout(r, 700));

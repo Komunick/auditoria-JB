@@ -36,9 +36,10 @@ def checar(cond, msg):
         raise SystemExit(1)
 
 
-def esperar_job(cliente, job_id: str) -> dict:
+def esperar_job(cliente, job_id: str, ferramenta: str = "diff") -> dict:
     for _ in range(100):
-        job = cliente.get(f"/api/jobs/{job_id}").json()
+        job = cliente.get(f"/api/jobs/{job_id}",
+                          params={"ferramenta": ferramenta}).json()
         if job["status"] == "concluido":
             return job["resultado"]
         if job["status"] == "erro":

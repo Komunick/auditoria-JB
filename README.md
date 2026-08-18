@@ -13,9 +13,63 @@ SPED Fiscal e XML de NF-e, indexado pela **chave de acesso de 44 dígitos**.
 | 3 | **Livro Digital de Conferência Fiscal** | ✅ funcional (app, aba 3) |
 | 4 | **Extração de itens para auditoria tributária** | ✅ funcional (app, aba 4) |
 | 5 | **Auditoria da tributação do cadastro de produtos (BA)** | ✅ funcional (app, aba 5) |
+| 6 | **Conciliação Fiscal — Receita e DIMP (SEFAZ/BA)** | ✅ funcional (**somente web**, aba 6) |
 
 O app desktop tem **cinco abas**: *Comparador SPED × SEFAZ*, *Comparar versões
 de SPED*, *Livro de Conferência*, *Extração de Itens* e *Auditoria de Produtos*.
+A **Conciliação Fiscal** existe apenas na versão web, porque depende do banco
+de permissões e da trilha de auditoria do servidor.
+
+## Conciliação Fiscal — Receita e DIMP (aba 6, web)
+
+Importa os relatórios da **Malha Fiscal da SEFAZ/BA** em `.xlsx` — layouts
+**Quadro 50-5** e **Quadro 50-3/DIMP** — e concilia a receita **declarada**
+contra a **calculada**, com e sem substituição tributária, além dos movimentos
+**DIMP** por instituição financeira.
+
+Como funciona, em uma frase por etapa:
+
+- **Importação**: envie um ou vários arquivos. O layout, o CNPJ e a
+  competência saem do **conteúdo**; o nome do arquivo não decide nada.
+- **Deduplicação**: o mesmo arquivo com outro nome é reconhecido pelo
+  **SHA-256** e marcado como duplicado, sem criar registro novo.
+- **Retificação**: um arquivo *diferente* para uma competência que já existe
+  entra como **versão candidata** e abre **conflito**. A versão vigente nunca
+  é sobrescrita automaticamente.
+- **Revisão**: toda competência nasce *Em revisão*. Aprovar exige permissão
+  própria e é **impedido** enquanto houver bloqueio ou conflito em aberto.
+- **Rastreabilidade**: cada valor mostra a **aba e a célula** de onde saiu, ou
+  a **fórmula** e os fatos de origem quando é derivado. O arquivo original
+  pode ser baixado a qualquer momento.
+- **Saídas**: consolidado auditável com 8 abas, e preenchimento de uma
+  **cópia** da planilha-mestre para um CNPJ.
+
+### Semântica de "não PIX"
+
+O campo `total_nao_pix` é **Total DIMP menos PIX**. Ele inclui voucher,
+transferência e outras operações — chamá-lo simplesmente de "cartão" é
+incorreto, e o consolidado registra essa ressalva nos metadados.
+
+No **Quadro 50-5** não existe bloco DIMP: PIX e não-PIX ficam **não
+informados** (célula vazia), nunca `R$ 0,00`. Ausência e zero são coisas
+diferentes.
+
+### Permissões (8 slugs)
+
+`aba.conciliacao` é o portão da ferramenta; toda ação exige **cumulativamente**
+a aba e o slug próprio: `conciliacao.importar`, `conciliacao.revisar`,
+`conciliacao.aprovar`, `conciliacao.resolver_excecao`, `conciliacao.exportar`,
+`conciliacao.preencher_modelo` e `conciliacao.incluir_pendentes`.
+
+Usuário novo recebe, por sugestão da tela de administração, apenas **a aba e
+importar**. Decidir e gerar saída oficial exigem liberação explícita.
+
+### Limites de upload
+
+Só `.xlsx`, no máximo **50 MB por arquivo** (`AUDITORIA_CONCILIACAO_MAX_UPLOAD_MB`),
+100 arquivos e 500 MB por lote. O pacote é validado **antes** do openpyxl:
+macro, vínculo externo, caminho inseguro, excesso de entradas e razão de
+compressão abusiva são recusados.
 
 ## Auditoria de Produtos (aba 5)
 

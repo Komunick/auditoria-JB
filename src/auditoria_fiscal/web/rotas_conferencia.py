@@ -188,7 +188,7 @@ async def upload(sessao_id: str, arquivo: UploadFile, request: Request,
                  usuario: Usuario = Depends(
                      acesso("conferencia.upload"))) -> dict:
     """Recebe SPED (.txt) na raiz da sessao e XMLs/zips em xml/."""
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "conferencia")
     nome = (arquivo.filename or "").lower()
     subpasta = "" if nome.endswith(".txt") else "xml"
     caminho = await salvar_upload(sessao, arquivo, subpasta)
@@ -206,7 +206,7 @@ class CargaEntrada(BaseModel):
 def carregar(entrada: CargaEntrada, request: Request,
              usuario: Usuario = Depends(
                  acesso("conferencia.carregar"))) -> dict:
-    sessao = obter_sessao(entrada.sessao_id)
+    sessao = obter_sessao(entrada.sessao_id, usuario, "conferencia")
     pasta_xml = os.path.join(sessao.pasta, "xml")
     escopo = ("somente entradas" if entrada.apenas_entradas
               else "entradas e saidas")
@@ -257,7 +257,7 @@ def carregar(entrada: CargaEntrada, request: Request,
 @router.get("/notas")
 def notas(sessao_id: str,
           usuario: Usuario = Depends(exigir_aba("conferencia"))) -> dict:
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "conferencia")
     # `fonte`/`apenas_entradas` voltam para a tela poder REPETIR a carga com
     # os mesmos parametros ao vincular XMLs novos (DANFE de nota do SPED).
     return {"contexto": sessao.estado.get("contexto", ""),
@@ -282,7 +282,7 @@ class ConferirEntrada(BaseModel):
 def conferir(entrada: ConferirEntrada, request: Request,
              usuario: Usuario = Depends(
                  acesso("conferencia.conferir"))) -> dict:
-    obter_sessao(entrada.sessao_id)
+    obter_sessao(entrada.sessao_id, usuario, "conferencia")
     store = _store()
     try:
         estado = store.salvar(entrada.chave, entrada.conferida,
@@ -322,7 +322,7 @@ def corrigir(entrada: CorrecaoEntrada, request: Request,
             usuario, "conferencia.corrigir_lote",
             "Voce nao tem permissao para corrigir em lote. Fale com o "
             "administrador.")
-    sessao = obter_sessao(entrada.sessao_id)
+    sessao = obter_sessao(entrada.sessao_id, usuario, "conferencia")
     try:
         validar_correcao(entrada.campo, entrada.original, entrada.novo,
                          usuario.usuario)
@@ -435,7 +435,8 @@ def _composicao_json(sessao, chave: str) -> dict:
 @router.get("/composicao")
 def composicao(sessao_id: str, chave: str,
                usuario: Usuario = Depends(exigir_aba("conferencia"))) -> dict:
-    return _composicao_json(obter_sessao(sessao_id), chave)
+    sessao = obter_sessao(sessao_id, usuario, "conferencia")
+    return _composicao_json(sessao, chave)
 
 
 @router.get("/valores-corrigiveis")
@@ -447,7 +448,7 @@ def valores_corrigiveis(sessao_id: str, chave: str,
     Os valores saem da nota JA corrigida (como no desktop): o proximo passo
     corrige sobre o que esta valendo, nao sobre o que foi importado.
     """
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "conferencia")
     corrigida = sessao.estado.get("corrigidas", {}).get(chave)
     if corrigida is None:
         raise HTTPException(status_code=404, detail="Nota nao encontrada.")
@@ -475,7 +476,7 @@ def editar_composicao(entrada: EdicaoComposicao, request: Request,
                           acesso("conferencia.composicao_editar"))) -> dict:
     """Colunas 0-2 dos grupos registram CORRECAO; o resto vira SOBRESCRITA
     de texto persistida (tela + Livro Fiscal), como no desktop."""
-    sessao = obter_sessao(entrada.sessao_id)
+    sessao = obter_sessao(entrada.sessao_id, usuario, "conferencia")
     campo = _CAMPO_POR_COLUNA.get(entrada.coluna)
     eh_correcao = entrada.grupo != GRUPO_TOTAL and campo is not None
     tipo = "correcao" if eh_correcao else "sobrescrita de texto"
@@ -574,7 +575,7 @@ def _gerar_danfe(nota, destino: str) -> None:
 def danfe(sessao_id: str, chave: str, request: Request,
           usuario: Usuario = Depends(
               acesso("conferencia.danfe"))) -> FileResponse:
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "conferencia")
     # Detalhe da INTENCAO antes das checagens (padrao de /corrigir): o 422 de
     # nota sem XML precisa dizer no historico QUAL nota foi tentada.
     detalhar(request, f"nota {_rotulo_nota(chave)}: tentativa")
@@ -602,7 +603,7 @@ def _estados_e_correcoes():
 def livro_fiscal(sessao_id: str, request: Request,
                  usuario: Usuario = Depends(acesso(
                      "conferencia.livro_fiscal"))) -> FileResponse:
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "conferencia")
     if not sessao.estado.get("notas"):
         raise HTTPException(status_code=422, detail="Carregue as notas antes.")
     detalhar(request, f"{len(sessao.estado['notas'])} nota(s) no PDF")
@@ -622,7 +623,7 @@ def livro_fiscal(sessao_id: str, request: Request,
 def inconsistencias(sessao_id: str, request: Request,
                     usuario: Usuario = Depends(acesso(
                         "conferencia.inconsistencias"))) -> FileResponse:
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "conferencia")
     if not sessao.estado.get("notas"):
         raise HTTPException(status_code=422, detail="Carregue as notas antes.")
     estados, correcoes, _ = _estados_e_correcoes()
@@ -667,7 +668,7 @@ def resumo_sped_corrigido(sessao_id: str,
         usuario, "conferencia.sped_corrigido",
         "Voce nao tem permissao para gerar o SPED corrigido. Fale com o "
         "administrador.")
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "conferencia")
     _exigir_fonte_sped(sessao)
     _, correcoes, _ = _estados_e_correcoes()
     ativas = [c for lista in correcoes.values() for c in lista if c.ativa]
@@ -697,7 +698,7 @@ def resumo_sped_corrigido(sessao_id: str,
 def sped_corrigido(sessao_id: str, request: Request,
                    usuario: Usuario = Depends(acesso(
                        "conferencia.sped_corrigido"))) -> FileResponse:
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "conferencia")
     _exigir_fonte_sped(sessao)
     _, correcoes, _ = _estados_e_correcoes()
     destino = tempfile.mktemp(prefix="sped_corrigido_", suffix=".txt")

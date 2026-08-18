@@ -337,6 +337,55 @@ label.permissao {
 label.permissao input { margin-top: 3px; }
 
 /* ------------------------------------------------------------------ */
+/* Conciliacao Fiscal (aba 6) — apenas o que nao existia.
+   Indicadores, tabelas, formularios e modais reusam .cartoes/.cartao,
+   .rolagem, .linha-form e .caixa das outras abas. */
+
+.conc-subtelas {
+  display: flex; gap: 4px; flex-wrap: wrap;
+  border-bottom: 1px solid var(--borda); margin-bottom: 14px;
+}
+.conc-subtelas button {
+  background: transparent; border: none; border-bottom: 2px solid transparent;
+  border-radius: 4px 4px 0 0; padding: 8px 14px; cursor: pointer;
+  color: var(--texto); font-size: 13px; font-weight: 600; opacity: .7;
+}
+.conc-subtelas button:hover { background: var(--aba-inativa); opacity: 1; }
+.conc-subtelas button.ativa {
+  border-bottom-color: var(--dourado); color: var(--destaque); opacity: 1;
+}
+
+/* Situacao de cada arquivo na fila de importacao e pendencias da lista */
+.conc-ok { color: var(--ok); font-weight: 600; }
+.conc-alerta { color: var(--alerta); font-weight: 600; }
+.conc-erro { color: var(--erro); font-weight: 600; }
+
+/* Coluna monetaria alinhada a direita: com os centavos na mesma vertical, a
+   diferenca entre 1.000,00 e 10.000,00 salta aos olhos. */
+.conc-num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.conc-divisor { border: none; border-top: 1px solid var(--borda); margin: 18px 0; }
+.conc-clicavel { cursor: pointer; }
+.conc-clicavel:hover td { background: var(--aba-inativa); }
+
+.conc-paginacao {
+  display: flex; align-items: center; gap: 12px; margin-top: 10px;
+  flex-wrap: wrap; font-size: 13px;
+}
+.conc-paginacao button:disabled { opacity: .45; cursor: default; }
+
+/* Blocos do detalhe: caixas dentro da caixa da aba */
+.conc-bloco { margin-top: 14px; background: var(--fundo); }
+.conc-bloco h3 {
+  margin: 0 0 8px; font-size: 14px; color: var(--destaque);
+  letter-spacing: -.01em;
+}
+.conc-bloco details { margin-top: 10px; }
+.conc-bloco summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+.conc-bloco table td, .conc-bloco table th { white-space: nowrap; }
+.conc-bloco table td:last-child { white-space: normal; }
+
+/* ------------------------------------------------------------------ */
 /* Telas estreitas: a lateral vira barra horizontal */
 
 @media (max-width: 920px) {
@@ -349,3 +398,6 @@ label.permissao input { margin-top: 3px; }
   #tela-app { flex-direction: column; }
   .conteudo { margin-left: 0; }
 }
+
+.conc-acoes { gap: 10px; align-items: center; margin-top: 10px; }
+.conc-acoes span { font-size: 12.5px; }

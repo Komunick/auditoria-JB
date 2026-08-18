@@ -22,6 +22,7 @@ from .auth import Usuario, exigir_usuario
 from .infra import raiz_projeto
 from .sessoes import criar_sessao, descartar_sessao, obter_job, obter_sessao
 from .rotas_admin import router as rotas_admin
+from .rotas_conciliacao import router as rotas_conciliacao
 from .rotas_conferencia import router as rotas_conferencia
 from .rotas_comparador import router as rotas_comparador
 from .rotas_diff import router as rotas_diff
@@ -179,15 +180,22 @@ def criar_app() -> FastAPI:
     def remover_sessao(sessao_id: str, request: Request,
                        usuario: Usuario = Depends(
                            acesso("sessao.trabalho_descartada"))) -> dict:
-        sessao = obter_sessao(sessao_id)
+        sessao = obter_sessao(sessao_id, usuario)
         auditoria.detalhar(request, f"ferramenta: {sessao.ferramenta}")
-        descartar_sessao(sessao_id)
+        descartar_sessao(sessao_id, usuario)
         return {"ok": True}
 
     @app.get("/api/jobs/{job_id}")
-    def job(job_id: str, usuario: Usuario = Depends(exigir_usuario)) -> dict:
-        """Fora do historico de proposito: o front consulta a cada 700 ms."""
-        j = obter_job(job_id)
+    def job(job_id: str, ferramenta: str,
+            usuario: Usuario = Depends(exigir_usuario)) -> dict:
+        """Fora do historico de proposito: o front consulta a cada 700 ms.
+
+        Rota COMPARTILHADA pelas seis ferramentas, por isso `ferramenta` e
+        obrigatoria: alem do dono, o cliente declara qual aba espera, e um
+        job_id de outra aba responde como inexistente. Ferramenta
+        desconhecida cai no mesmo 404 — a rota nunca diz se o problema foi o
+        ID, o dono ou a aba."""
+        j = obter_job(job_id, usuario, ferramenta)
         return {"status": j.status, "erro": j.erro,
                 "resultado": j.resultado, "descricao": j.descricao}
 
@@ -200,7 +208,11 @@ def criar_app() -> FastAPI:
     app.include_router(rotas_diff)
     app.include_router(rotas_extracao)
     app.include_router(rotas_produtos)
+    app.include_router(rotas_conciliacao)
 
+    # O mount estatico e' curinga em "/": tem de ser o ULTIMO. Registrado
+    # antes, engoliria /api/conciliacao/** e a ferramenta responderia 404 do
+    # frontend em vez da API.
     webui = os.path.join(raiz_projeto(), "webui")
     app.mount("/", WebuiSemCache(directory=webui, html=True), name="webui")
     return app

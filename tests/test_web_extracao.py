@@ -40,10 +40,11 @@ def checar(cond, msg):
         raise SystemExit(1)
 
 
-def esperar_job(cliente, job_id: str) -> dict:
+def esperar_job(cliente, job_id: str, ferramenta: str = "extracao") -> dict:
     """Espera o job terminar e devolve o job inteiro (status + resultado)."""
     for _ in range(200):
-        job = cliente.get(f"/api/jobs/{job_id}").json()
+        job = cliente.get(f"/api/jobs/{job_id}",
+                          params={"ferramenta": ferramenta}).json()
         if job["status"] in ("concluido", "erro"):
             return job
         time.sleep(0.1)

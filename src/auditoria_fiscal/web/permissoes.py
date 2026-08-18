@@ -27,6 +27,7 @@ GRUPO_ABAS = "Abas (ferramentas)"
 GRUPO_CONFERENCIA = "Livro de Conferencia"
 GRUPO_COMPARADORES = "Comparadores e Extracao"
 GRUPO_PRODUTOS = "Auditoria de Produtos"
+GRUPO_CONCILIACAO = "Conciliacao Fiscal"
 GRUPO_ADMIN = "Administracao"
 
 
@@ -52,6 +53,8 @@ CATALOGO: tuple[Permissao, ...] = (
               "Abrir a aba e extrair os itens para auditoria."),
     Permissao("aba.produtos", "5. Auditoria de Produtos", GRUPO_ABAS,
               "Abrir a aba e auditar a tributacao do cadastro."),
+    Permissao("aba.conciliacao", "6. Conciliacao Fiscal", GRUPO_ABAS,
+              "Abrir a aba e consultar as conciliacoes de receita e DIMP."),
 
     # ------------------------------------------------------------------
     # Livro de Conferencia: acoes que gravam ou geram documento
@@ -102,6 +105,39 @@ CATALOGO: tuple[Permissao, ...] = (
               "Gerar a planilha do cadastro ja com as correcoes."),
 
     # ------------------------------------------------------------------
+    # Conciliacao Fiscal: importar e' rotina; decidir e gerar a saida oficial
+    # exigem liberacao explicita. Toda acao exige CUMULATIVAMENTE
+    # "aba.conciliacao" e o slug proprio.
+    Permissao("conciliacao.importar", "Importar relatorios da SEFAZ",
+              GRUPO_CONCILIACAO,
+              "Enviar os .xlsx e processar o lote. Nao decide nada: o "
+              "resultado nasce Em revisao."),
+    Permissao("conciliacao.revisar", "Revisar e devolver a revisao",
+              GRUPO_CONCILIACAO,
+              "Rejeitar uma competencia ou devolve-la para Em revisao, "
+              "sempre com justificativa."),
+    Permissao("conciliacao.aprovar", "Aprovar competencia",
+              GRUPO_CONCILIACAO,
+              "Aprovar a versao vigente. Bloqueio ou conflito aberto impede."),
+    Permissao("conciliacao.resolver_excecao",
+              "Resolver excecoes e conflitos de versao", GRUPO_CONCILIACAO,
+              "Encerrar aviso/bloqueio e decidir entre manter a versao "
+              "vigente ou promover a candidata."),
+    Permissao("conciliacao.exportar", "Exportar o consolidado (Excel)",
+              GRUPO_CONCILIACAO,
+              "Baixar a planilha com dados, movimentos, proveniencia, "
+              "excecoes, revisoes e metadados."),
+    Permissao("conciliacao.preencher_modelo", "Preencher a planilha-mestre",
+              GRUPO_CONCILIACAO,
+              "Enviar o modelo e receber uma COPIA preenchida para um CNPJ. "
+              "O arquivo enviado nunca e alterado."),
+    Permissao("conciliacao.incluir_pendentes",
+              "Incluir competencias Em revisao no modelo", GRUPO_CONCILIACAO,
+              "Preencher o modelo com competencias ainda nao aprovadas, "
+              "sempre sinalizadas no arquivo. Exige tambem a permissao de "
+              "preencher o modelo."),
+
+    # ------------------------------------------------------------------
     # Administracao
     Permissao("admin.usuarios", "Administrar usuarios e permissoes",
               GRUPO_ADMIN,
@@ -117,10 +153,17 @@ _VALIDOS = frozenset(SLUGS)
 # nelas, mas as acoes que mudam numero fiscal ou geram a saida oficial ficam
 # de fora ate o administrador liberar. A tela de administracao mostra estas
 # caixas ja marcadas — o admin ve exatamente o que esta concedendo.
+#
+# Da conciliacao entram EXATAMENTE a aba e importar. Revisar, aprovar,
+# resolver, exportar, preencher o modelo e incluir pendentes ficam fora: sao
+# decisao fiscal e saida oficial (research R13). Este padrao vale so para
+# usuario NOVO — quem ja existe nao ganha slug por migracao silenciosa, porque
+# a tabela guarda apenas concessoes explicitas.
 PADRAO_NOVO_USUARIO: tuple[str, ...] = (
     "aba.comparador", "aba.diff", "aba.conferencia", "aba.extracao",
-    "aba.produtos", "conferencia.conferir", "conferencia.danfe",
-    "comparador.exportar", "diff.exportar", "extracao.exportar",
+    "aba.produtos", "aba.conciliacao", "conferencia.conferir",
+    "conferencia.danfe", "comparador.exportar", "diff.exportar",
+    "extracao.exportar", "conciliacao.importar",
 )
 
 
