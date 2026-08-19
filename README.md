@@ -13,9 +13,107 @@ SPED Fiscal e XML de NF-e, indexado pela **chave de acesso de 44 dígitos**.
 | 3 | **Livro Digital de Conferência Fiscal** | ✅ funcional (app, aba 3) |
 | 4 | **Extração de itens para auditoria tributária** | ✅ funcional (app, aba 4) |
 | 5 | **Auditoria da tributação do cadastro de produtos (BA)** | ✅ funcional (app, aba 5) |
+| 6 | **Conciliação Fiscal — Receita e DIMP (SEFAZ/BA)** | ✅ funcional (**somente web**, aba 6) |
+| 7 | **Patrimônio — bens e responsabilidade** | ✅ funcional (**somente web**, aba 7) |
 
 O app desktop tem **cinco abas**: *Comparador SPED × SEFAZ*, *Comparar versões
 de SPED*, *Livro de Conferência*, *Extração de Itens* e *Auditoria de Produtos*.
+A **Conciliação Fiscal** e o **Patrimônio** existem apenas na versão web,
+porque dependem do banco de permissões e da trilha de auditoria do servidor.
+
+## Patrimônio (aba 7, web)
+
+Controla o que a empresa tem, **com quem está** e o que já aconteceu com cada
+item. Três decisões estruturam a ferramenta:
+
+- **A etiqueta é um contrato com o mundo físico.** `JBF-000001` é impressa e
+  colada no equipamento, e o banco recusa qualquer tentativa de alterá-la —
+  renumerar faria alguém ler o adesivo na mesa e encontrar outro bem.
+- **Um responsável por vez, garantido pelo banco.** Um índice parcial único
+  impede que duas atribuições simultâneas criem dois donos do mesmo notebook.
+- **Bem não se exclui: dá-se baixa.** A baixa exige justificativa, é terminal
+  e preserva todo o histórico. Excluir apagaria a vida de um patrimônio que
+  existiu e foi usado por alguém.
+
+Movimentações registradas: aquisição, atribuição, devolução, envio e retorno
+de manutenção, empréstimo (home office), transferência de local e baixa. Cada
+uma grava autor, data e motivo **na mesma transação** da mudança de situação.
+
+O inventário funciona por sessão e **congela** a lista de bens no momento da
+abertura — item cadastrado depois entra só na conferência seguinte, senão a
+taxa de localização mudaria sozinha no meio do trabalho.
+
+Saídas: relação em Excel (com os filtros da tela) e **termo de
+responsabilidade em PDF** para o colaborador assinar.
+
+### Por que não reusamos o sistema da Brazil Transports
+
+O `controle-patrimonial` da Brazil resolve um problema de transportadora —
+EPI, turno de motorista, inspeção de veículo, assinatura em campo — e já tem
+destino definido no plano de unificação daquela empresa. Uma contabilidade
+não entrega botina de segurança. O que se aproveitou foi conhecimento de
+domínio, não código.
+
+### Permissões (6 slugs)
+
+`aba.patrimonio` é o portão; toda ação exige **cumulativamente** a aba e o
+slug próprio: `patrimonio.cadastrar`, `patrimonio.movimentar`,
+`patrimonio.baixar`, `patrimonio.inventariar` e `patrimonio.exportar`.
+
+A **baixa tem slug próprio** de propósito: quem move um equipamento de sala
+não deveria, pelo mesmo direito, encerrar a vida dele. Usuário novo recebe só
+a aba.
+
+## Conciliação Fiscal — Receita e DIMP (aba 6, web)
+
+Importa os relatórios da **Malha Fiscal da SEFAZ/BA** em `.xlsx` — layouts
+**Quadro 50-5** e **Quadro 50-3/DIMP** — e concilia a receita **declarada**
+contra a **calculada**, com e sem substituição tributária, além dos movimentos
+**DIMP** por instituição financeira.
+
+Como funciona, em uma frase por etapa:
+
+- **Importação**: envie um ou vários arquivos. O layout, o CNPJ e a
+  competência saem do **conteúdo**; o nome do arquivo não decide nada.
+- **Deduplicação**: o mesmo arquivo com outro nome é reconhecido pelo
+  **SHA-256** e marcado como duplicado, sem criar registro novo.
+- **Retificação**: um arquivo *diferente* para uma competência que já existe
+  entra como **versão candidata** e abre **conflito**. A versão vigente nunca
+  é sobrescrita automaticamente.
+- **Revisão**: toda competência nasce *Em revisão*. Aprovar exige permissão
+  própria e é **impedido** enquanto houver bloqueio ou conflito em aberto.
+- **Rastreabilidade**: cada valor mostra a **aba e a célula** de onde saiu, ou
+  a **fórmula** e os fatos de origem quando é derivado. O arquivo original
+  pode ser baixado a qualquer momento.
+- **Saídas**: consolidado auditável com 8 abas, e preenchimento de uma
+  **cópia** da planilha-mestre para um CNPJ.
+
+### Semântica de "não PIX"
+
+O campo `total_nao_pix` é **Total DIMP menos PIX**. Ele inclui voucher,
+transferência e outras operações — chamá-lo simplesmente de "cartão" é
+incorreto, e o consolidado registra essa ressalva nos metadados.
+
+No **Quadro 50-5** não existe bloco DIMP: PIX e não-PIX ficam **não
+informados** (célula vazia), nunca `R$ 0,00`. Ausência e zero são coisas
+diferentes.
+
+### Permissões (8 slugs)
+
+`aba.conciliacao` é o portão da ferramenta; toda ação exige **cumulativamente**
+a aba e o slug próprio: `conciliacao.importar`, `conciliacao.revisar`,
+`conciliacao.aprovar`, `conciliacao.resolver_excecao`, `conciliacao.exportar`,
+`conciliacao.preencher_modelo` e `conciliacao.incluir_pendentes`.
+
+Usuário novo recebe, por sugestão da tela de administração, apenas **a aba e
+importar**. Decidir e gerar saída oficial exigem liberação explícita.
+
+### Limites de upload
+
+Só `.xlsx`, no máximo **50 MB por arquivo** (`AUDITORIA_CONCILIACAO_MAX_UPLOAD_MB`),
+100 arquivos e 500 MB por lote. O pacote é validado **antes** do openpyxl:
+macro, vínculo externo, caminho inseguro, excesso de entradas e razão de
+compressão abusiva são recusados.
 
 ## Auditoria de Produtos (aba 5)
 

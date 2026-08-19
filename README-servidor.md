@@ -21,6 +21,31 @@ Acesse `http://<ip-do-servidor>:8600`. No **primeiro acesso** o site pede a
 criação do usuário administrador. A partir daí tudo é feito pela aba
 **Administração** do próprio site — veja a seção abaixo.
 
+## Patrimônio (aba 7)
+
+Somente web. O administrador libera `aba.patrimonio` e, separadamente,
+`patrimonio.cadastrar`, `.movimentar`, `.baixar`, `.inventariar` e
+`.exportar`. A **baixa** tem permissão própria por ser irreversível.
+
+O schema do `patrimonio.db` é criado e migrado sozinho na primeira abertura.
+As etiquetas (`JBF-000001`) são sequenciais e **imutáveis** — o banco recusa
+alteração por trigger, porque elas ficam coladas nos equipamentos.
+
+## Conciliação Fiscal (aba 6)
+
+A ferramenta é **somente web**. Depois de atualizar, o administrador precisa
+liberar as permissões: `aba.conciliacao` é o portão, e cada ação exige
+cumulativamente a aba e o slug próprio (`conciliacao.importar`,
+`.revisar`, `.aprovar`, `.resolver_excecao`, `.exportar`,
+`.preencher_modelo`, `.incluir_pendentes`).
+
+Usuários **já existentes não recebem nada automaticamente** — a tabela de
+permissões guarda só concessões explícitas. Para usuários novos, a tela de
+administração pré-marca apenas *abrir a aba* e *importar*.
+
+O schema do `conciliacao.db` é criado e migrado sozinho na primeira abertura;
+não há passo manual de migração.
+
 ## Usuários, permissões e histórico
 
 A aba **Administração** (visível para administradores) tem duas telas:
@@ -84,14 +109,49 @@ Tudo em `dados_web\` (fora do git):
 - `sessoes\<id>\` — uploads das sessões de trabalho (SPED/XMLs/planilhas);
   podem ser limpos periodicamente sem perder conferências
 - `historico_produtos.csv` — trilha das correções de produtos
+- `conciliacao.db` — Conciliação Fiscal: conciliações, versões, movimentos
+  DIMP, proveniência, exceções, conflitos, revisões e a **trilha fiscal**
+  (append-only, protegida por trigger no próprio SQLite)
+- `patrimonio.db` — Patrimônio: bens, pessoas, locais, responsabilidades,
+  movimentações (append-only) e inventários
+- `conciliacao\origens\<sha256>.xlsx` — os relatórios da SEFAZ **originais**,
+  imutáveis, nomeados pelo hash do conteúdo. São a evidência de cada número
+  exibido: sem eles, a proveniência aponta para o vazio
 
-**Backup** = copiar a pasta `dados_web\` inteira.
+### Backup
+
+Copiar a pasta `dados_web\` inteira — **com o servidor parado**.
+
+Os bancos rodam em modo **WAL**: parte das transações confirmadas vive no
+arquivo `-wal` até o checkpoint. Copiar `dados_web\` com o site no ar pode
+produzir um conjunto que abre sem erro e **está incompleto**, o que é pior que
+uma falha visível. Duas formas seguras:
+
+1. Parar o `servidor.ps1`, copiar a pasta, subir de novo (mais simples); ou
+2. Com o site no ar, usar a API de backup do SQLite em cada `.db`:
+   `.\.venv\Scripts\python.exe -c "import sqlite3; o=sqlite3.connect(r'dados_web\conciliacao.db'); d=sqlite3.connect(r'backup\conciliacao.db'); o.backup(d); d.close(); o.close()"`
+   e copiar `conciliacao\origens\` normalmente (os arquivos lá nunca mudam
+   depois de criados).
+
+Backup online automatizado é uma feature à parte; não presuma que a cópia
+simples do diretório dá um snapshot consistente.
 
 ## Variáveis de ambiente (opcionais)
 
 - `AUDITORIA_WEB_PORTA` — porta do site (padrão 8600)
 - `AUDITORIA_WEB_DADOS` — pasta de dados (padrão `dados_web\` no projeto)
-- `AUDITORIA_WEB_MAX_UPLOAD_MB` — limite por arquivo enviado (padrão 300)
+- `AUDITORIA_WEB_MAX_UPLOAD_MB` — limite por arquivo enviado (padrão 2048; alto
+  porque bancos Firebird `.fdb` de ERP passam de 300 MB)
+- `AUDITORIA_CONCILIACAO_MAX_UPLOAD_MB` — limite **só** da Conciliação Fiscal
+  (padrão 50). Relatório da SEFAZ tem poucos MB; um teto próprio e baixo reduz
+  a superfície de zip bomb e de negação de serviço nessa porta. Valor inválido
+  volta ao padrão — nunca vira "sem limite".
+
+### Um worker, por enquanto
+
+Sessões de trabalho e jobs vivem **em memória do processo**. Rodar o uvicorn
+com mais de um worker faria um pedido cair num processo que não conhece a
+sessão do outro. Mantenha um worker até que a fila seja externalizada.
 
 ## Rodar como serviço (opcional)
 

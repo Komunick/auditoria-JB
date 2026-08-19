@@ -5,9 +5,10 @@ um segundo administrador e de um usuario comum com permissoes recortadas,
 bloqueio 403 nas abas e nas acoes que ele nao alcanca, a tentativa de
 escalacao de privilegio (corrigir em LOTE tendo so a permissao de corrigir
 uma nota), o efeito imediato de uma mudanca de permissao, a protecao do
-ultimo administrador, a desativacao derrubando o login, e o historico
-respondendo quando entrou, o que acessou, o que fez e quando saiu (inclusive
-as tentativas negadas). Usa dados_web isolado em pasta temporaria
+ultimo administrador, a desativacao derrubando o login, a PROPRIEDADE das
+sessoes de trabalho e dos jobs (conhecer o ID nao autoriza ninguem), e o
+historico respondendo quando entrou, o que acessou, o que fez e quando saiu
+(inclusive as tentativas negadas). Usa dados_web isolado em pasta temporaria
 (AUDITORIA_WEB_DADOS).
 """
 
@@ -26,6 +27,7 @@ os.environ["AUDITORIA_WEB_DADOS"] = _TMP
 from fastapi.testclient import TestClient  # noqa: E402
 
 from auditoria_fiscal.web import auditoria  # noqa: E402
+from auditoria_fiscal.web.infra import pasta_sessoes  # noqa: E402
 from auditoria_fiscal.web.servidor import criar_app  # noqa: E402
 
 
@@ -46,6 +48,256 @@ def eventos(cliente, **filtros) -> list[dict]:
 def tem_evento(itens, acao: str, resultado: str = "") -> bool:
     return any(i["acao"] == acao and (not resultado or i["resultado"] == resultado)
                for i in itens)
+
+
+def propriedade_de_sessoes_e_jobs(app, adm) -> None:
+    """Conhecer o ID de uma sessao/job alheio NAO e autorizacao.
+
+    Os IDs sao sorteados com `secrets.token_urlsafe`, mas alta entropia e
+    segredo, nao controle de acesso: um ID vaza em log, historico, print de
+    tela ou URL colada no chat. Sem dono, qualquer usuario AUTENTICADO que
+    conheca o ID le o estado da sessao de outro (notas, empresa, valores),
+    acompanha o job dele e — pior — DESCARTA a sessao alheia, apagando os
+    uploads de quem estava trabalhando.
+
+    Recurso alheio responde 404, nunca 403: um 403 confirmaria que aquele ID
+    existe (research R7). A regra vale tambem para administrador: sessao de
+    trabalho e estado transitorio de UMA pessoa, nao recurso administrado.
+    """
+    permitidas = ["aba.conferencia", "conferencia.conferir", "aba.produtos"]
+    for login, nome in (("dono", "Dono"), ("xereta", "Xereta")):
+        r = adm.post("/api/admin/usuarios", json={
+            "usuario": login, "nome": nome, "senha": f"{login}12345",
+            "admin": False, "permissoes": permitidas})
+        checar(r.status_code == 200, f"criar {login} falhou: {r.text}")
+
+    dono, xereta = TestClient(app), TestClient(app)
+    for cliente, login in ((dono, "dono"), (xereta, "xereta")):
+        checar(cliente.post("/api/login", json={"usuario": login,
+                                                "senha": f"{login}12345"}
+                            ).status_code == 200, f"{login} deveria entrar")
+
+    r = dono.post("/api/sessoes", json={"ferramenta": "conferencia"})
+    checar(r.status_code == 200, f"sessao do dono: {r.text}")
+    sessao_dono = r.json()["sessao_id"]
+    r = xereta.post("/api/sessoes", json={"ferramenta": "conferencia"})
+    checar(r.status_code == 200, f"sessao do xereta: {r.text}")
+    sessao_xereta = r.json()["sessao_id"]
+    checar(sessao_dono != sessao_xereta, "as sessoes deveriam ser distintas")
+
+    # O dono trabalha normalmente na PROPRIA sessao (a correcao nao pode
+    # quebrar o uso legitimo).
+    checar(dono.get("/api/conferencia/notas",
+                    params={"sessao_id": sessao_dono}).status_code == 200,
+           "o dono deveria ler a propria sessao")
+
+    # LEITURA de sessao alheia.
+    r = xereta.get("/api/conferencia/notas", params={"sessao_id": sessao_dono})
+    checar(r.status_code == 404,
+           f"ler a sessao do dono deveria dar 404: {r.status_code} "
+           f"{r.text[:120]}")
+
+    # MUTACAO usando sessao alheia.
+    r = xereta.post("/api/conferencia/conferir", json={
+        "sessao_id": sessao_dono, "chave": "3" * 44, "conferida": True,
+        "observacao": "escrevendo na sessao dos outros"})
+    checar(r.status_code == 404,
+           f"conferir na sessao do dono deveria dar 404: {r.status_code}")
+
+    # JOB alheio: o polling nao pode virar janela para o processamento de
+    # outra pessoa (a carga falha por falta de arquivo, mas o job existe).
+    r = dono.post("/api/conferencia/carregar",
+                  json={"sessao_id": sessao_dono, "fonte": "sped"})
+    checar(r.status_code == 200, f"carregar do dono: {r.text}")
+    job_dono = r.json()["job_id"]
+    checar(dono.get(f"/api/jobs/{job_dono}",
+                    params={"ferramenta": "conferencia"}).status_code == 200,
+           "o dono deveria acompanhar o proprio job")
+    r = xereta.get(f"/api/jobs/{job_dono}",
+                   params={"ferramenta": "conferencia"})
+    checar(r.status_code == 404,
+           f"consultar o job do dono deveria dar 404: {r.status_code} "
+           f"{r.text[:120]}")
+
+    # O job tambem carrega a FERRAMENTA. A rota de polling e compartilhada
+    # pelas seis abas: sem declarar qual delas o cliente espera, um job_id da
+    # conciliacao poderia ser consumido pelo cliente da conferencia e vice-
+    # versa. `ferramenta` e obrigatoria — omiti-la e erro de contrato (422),
+    # nao um atalho silencioso.
+    r = dono.get(f"/api/jobs/{job_dono}", params={"ferramenta": "produtos"})
+    checar(r.status_code == 404,
+           f"job proprio com ferramenta divergente deveria dar 404: "
+           f"{r.status_code} {r.text[:120]}")
+    r = dono.get(f"/api/jobs/{job_dono}")
+    checar(r.status_code == 422,
+           f"job sem a ferramenta deveria dar 422: {r.status_code} "
+           f"{r.text[:120]}")
+    r = dono.get(f"/api/jobs/{job_dono}", params={"ferramenta": "inventada"})
+    checar(r.status_code == 404,
+           f"ferramenta desconhecida deveria dar 404, nao revelar nada: "
+           f"{r.status_code}")
+
+    # A sessao carrega a FERRAMENTA: uma sessao de produtos nao serve de
+    # passe para as rotas da conferencia.
+    r = dono.post("/api/sessoes", json={"ferramenta": "produtos"})
+    checar(r.status_code == 200, f"sessao de produtos: {r.text}")
+    sessao_produtos = r.json()["sessao_id"]
+    r = dono.get("/api/conferencia/notas",
+                 params={"sessao_id": sessao_produtos})
+    checar(r.status_code == 404,
+           f"sessao de produtos na rota de conferencia deveria dar 404: "
+           f"{r.status_code}")
+
+    # DESCARTE de sessao alheia: o dano aqui e destrutivo (apaga os uploads).
+    pasta_do_dono = os.path.join(pasta_sessoes(), sessao_dono)
+    checar(os.path.isdir(pasta_do_dono),
+           "a pasta da sessao do dono deveria existir")
+    r = xereta.delete(f"/api/sessoes/{sessao_dono}")
+    checar(r.status_code == 404,
+           f"descartar a sessao do dono deveria dar 404: {r.status_code}")
+    checar(os.path.isdir(pasta_do_dono),
+           "a pasta da sessao do dono NAO podia ter sido apagada")
+
+    # Nem o administrador opera a sessao de trabalho de outra pessoa.
+    checar(adm.get("/api/conferencia/notas",
+                   params={"sessao_id": sessao_dono}).status_code == 404,
+           "nem o admin le a sessao de trabalho alheia")
+    checar(adm.delete(f"/api/sessoes/{sessao_dono}").status_code == 404,
+           "nem o admin descarta a sessao de trabalho alheia")
+    checar(os.path.isdir(pasta_do_dono),
+           "a pasta da sessao do dono deveria seguir intacta")
+
+    # ID inexistente responde igual a ID alheio: nada e revelado.
+    r = xereta.get("/api/conferencia/notas",
+                   params={"sessao_id": "sessao-que-nunca-existiu"})
+    checar(r.status_code == 404, f"ID inexistente: {r.status_code}")
+    inexistente = xereta.get("/api/jobs/job-que-nunca-existiu",
+                             params={"ferramenta": "conferencia"})
+    checar(inexistente.status_code == 404, f"job inexistente: {inexistente.status_code}")
+    alheio = xereta.get(f"/api/jobs/{job_dono}",
+                        params={"ferramenta": "conferencia"})
+    checar(alheio.json() == inexistente.json(),
+           f"job alheio e job inexistente deveriam responder igual: "
+           f"{alheio.json()} != {inexistente.json()}")
+    # Job proprio com a ferramenta errada tambem nao pode se distinguir de um
+    # job que nunca existiu.
+    divergente = dono.get(f"/api/jobs/{job_dono}",
+                          params={"ferramenta": "produtos"})
+    checar(divergente.json() == inexistente.json(),
+           f"ferramenta divergente deveria responder igual a inexistente: "
+           f"{divergente.json()} != {inexistente.json()}")
+
+    # O dono continua no controle do que e dele, do inicio ao fim.
+    checar(dono.get("/api/conferencia/notas",
+                    params={"sessao_id": sessao_dono}).status_code == 200,
+           "o dono deveria continuar lendo a propria sessao")
+    checar(dono.delete(f"/api/sessoes/{sessao_dono}").status_code == 200,
+           "o dono deveria descartar a propria sessao")
+    checar(not os.path.isdir(pasta_do_dono),
+           "descartar a propria sessao deveria remover a pasta")
+    checar(xereta.get("/api/conferencia/notas",
+                      params={"sessao_id": sessao_xereta}).status_code == 200,
+           "a sessao do xereta nao podia ser afetada")
+
+
+SLUGS_CONCILIACAO = (
+    "aba.conciliacao", "conciliacao.importar", "conciliacao.revisar",
+    "conciliacao.aprovar", "conciliacao.resolver_excecao",
+    "conciliacao.exportar", "conciliacao.preencher_modelo",
+    "conciliacao.incluir_pendentes",
+)
+
+# O que um usuario comum NOVO recebe por padrao: entrar e importar. Decidir,
+# exportar e preencher o modelo oficial ficam de fora ate o admin liberar
+# (menor privilegio, research R13).
+PADRAO_ESPERADO_CONCILIACAO = ("aba.conciliacao", "conciliacao.importar")
+
+
+def catalogo_e_permissoes_da_conciliacao(app, adm) -> None:
+    """Sexta ferramenta no catalogo, no padrao e no 403 de quem nao tem."""
+    catalogo = adm.get("/api/admin/usuarios").json()["catalogo"]
+    do_catalogo = {item["slug"] for grupo in catalogo for item in grupo["itens"]}
+    faltando = [s for s in SLUGS_CONCILIACAO if s not in do_catalogo]
+    checar(not faltando, f"slugs ausentes do catalogo: {faltando}")
+
+    grupos = {grupo["grupo"] for grupo in catalogo}
+    checar(any("Concilia" in g for g in grupos),
+           f"o catalogo deveria ter o grupo da conciliacao: {sorted(grupos)}")
+
+    # Admin alcanca tudo implicitamente.
+    permissoes_admin = adm.get("/api/estado").json()["usuario"]["permissoes"]
+    ausentes = [s for s in SLUGS_CONCILIACAO if s not in permissoes_admin]
+    checar(not ausentes, f"admin deveria alcancar tudo, faltou: {ausentes}")
+
+    # Padrao sugerido para usuario NOVO: exatamente aba + importar da
+    # conciliacao. O servidor nao concede nada sozinho — quem marca as caixas
+    # e a tela de administracao, a partir deste `padrao_novo`; e ele que
+    # precisa estar certo, senao o admin concede demais sem perceber.
+    padrao = set(adm.get("/api/admin/usuarios").json()["padrao_novo"])
+    for slug in PADRAO_ESPERADO_CONCILIACAO:
+        checar(slug in padrao, f"o padrao deveria sugerir {slug}: {sorted(padrao)}")
+    sobrando = [s for s in SLUGS_CONCILIACAO
+                if s not in PADRAO_ESPERADO_CONCILIACAO and s in padrao]
+    checar(not sobrando,
+           f"o padrao NAO podia sugerir {sobrando} — decisao fiscal e saida "
+           f"oficial exigem liberacao explicita")
+
+    # Criar sem informar permissoes nao concede nada (o padrao e' sugestao da
+    # tela, nunca um default silencioso do servidor).
+    r = adm.post("/api/admin/usuarios", json={
+        "usuario": "novato", "nome": "Novato", "senha": "novato12345"})
+    checar(r.status_code == 200, f"criar novato falhou: {r.text}")
+    novato_id = r.json()["id"]
+    checar(r.json()["permissoes"] == [],
+           f"sem permissoes no corpo, nada e concedido: {r.json()['permissoes']}")
+
+    # Usuario que ja existia nao ganha slug novo por migracao silenciosa.
+    usuarios = {u["usuario"]: u for u in adm.get(
+        "/api/admin/usuarios").json()["usuarios"]}
+    antigo = usuarios.get("junior")
+    checar(antigo is not None, "o junior deveria continuar cadastrado")
+    invadiram = [s for s in SLUGS_CONCILIACAO if s in antigo["permissoes"]]
+    checar(not invadiram,
+           f"usuario existente nao pode receber {invadiram} automaticamente")
+
+    # Sem a aba: nao abre sessao, nao navega e nao alcanca a rota.
+    sem_aba = TestClient(app)
+    r = adm.post("/api/admin/usuarios", json={
+        "usuario": "forasteiro", "nome": "Forasteiro",
+        "senha": "forasteiro12345", "permissoes": ["aba.conferencia"]})
+    checar(r.status_code == 200, f"criar forasteiro falhou: {r.text}")
+    checar(sem_aba.post("/api/login", json={"usuario": "forasteiro",
+                                            "senha": "forasteiro12345"}
+                        ).status_code == 200, "forasteiro deveria entrar")
+    checar(sem_aba.post("/api/sessoes",
+                        json={"ferramenta": "conciliacao"}).status_code == 403,
+           "sem a aba, criar sessao da conciliacao deveria dar 403")
+    checar(sem_aba.post("/api/eventos/aba",
+                        json={"aba": "conciliacao"}).status_code == 403,
+           "sem a aba, navegar para a conciliacao deveria dar 403")
+    checar(sem_aba.get("/api/conciliacao/resumo").status_code == 403,
+           "sem a aba, o resumo deveria dar 403")
+
+    # Concessao e remocao valem na acao seguinte, sem novo login.
+    checar(adm.put(f"/api/admin/usuarios/{novato_id}/permissoes", json={
+        "permissoes": ["aba.conciliacao", "conciliacao.importar",
+                       "conciliacao.aprovar"]}).status_code == 200,
+           "conceder aprovar ao novato")
+    novato = TestClient(app)
+    checar(novato.post("/api/login", json={"usuario": "novato",
+                                           "senha": "novato12345"}
+                       ).status_code == 200, "novato deveria entrar")
+    checar("conciliacao.aprovar" in
+           novato.get("/api/estado").json()["usuario"]["permissoes"],
+           "a concessao deveria valer na hora")
+    checar(adm.put(f"/api/admin/usuarios/{novato_id}/permissoes",
+                   json={"permissoes": ["aba.conciliacao"]}).status_code == 200,
+           "retirar as permissoes do novato")
+    checar(novato.get("/api/estado").json()["usuario"]["permissoes"]
+           == ["aba.conciliacao"],
+           "a remocao deveria valer na hora, sem novo login")
+    checar(novato.get("/api/conciliacao/resumo").status_code == 200,
+           "com a aba, o resumo continua acessivel")
 
 
 def main() -> int:
@@ -375,6 +627,16 @@ def main() -> int:
            f"{corpo.get('usuarios')}")
 
     # ------------------------------------------------------------------
+    # Propriedade das sessoes de trabalho e dos jobs
+
+    propriedade_de_sessoes_e_jobs(app, adm)
+
+    # ------------------------------------------------------------------
+    # Sexta ferramenta: catalogo, padrao de usuario novo e negacao
+
+    catalogo_e_permissoes_da_conciliacao(app, adm)
+
+    # ------------------------------------------------------------------
     # Exportacao CSV nao corta em 1000 linhas (paginacao no servidor)
 
     # Grava direto no historico (login de verdade faria PBKDF2 mil vezes).
@@ -393,8 +655,8 @@ def main() -> int:
     print("OK - permissoes e historico web (abas e acoes por usuario, 403 em "
           "aba e acao negadas, bloqueio da correcao em lote, mudanca de "
           "permissao na hora, ultimo administrador protegido, desativacao, "
-          "troca de senha e trilha de entrada/navegacao/acoes/negadas/saida) "
-          "passaram.")
+          "troca de senha, propriedade de sessoes/jobs e trilha de "
+          "entrada/navegacao/acoes/negadas/saida) passaram.")
     return 0
 
 

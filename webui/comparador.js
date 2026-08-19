@@ -152,7 +152,7 @@ Abas.registrar("comparador", (container) => {
       status("Comparando pela chave de acesso...");
       const { job_id } = await api("/api/comparador/comparar", { json: {
         sessao_id, apenas_entradas: $("cmp-entradas").checked } });
-      const r = await esperarJob(job_id);
+      const r = await esperarJob(job_id, "comparador");
       render(r);
       $("cmp-exportar").disabled = false;
       status(`Comparacao concluida — ${r.empresa}.` +

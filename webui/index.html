@@ -3,46 +3,90 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Auditoria Fiscal — JB Fraga Contabilidade</title>
+  <meta name="color-scheme" content="light dark">
+  <title>Plataforma Fiscal — JB Fraga Contabilidade</title>
   <link rel="icon" href="logo.jpg">
   <link rel="stylesheet" href="estilo.css">
 </head>
 <body>
-  <!-- Login / bootstrap -->
+  <!-- ================================================================= -->
+  <!-- Login / bootstrap — cena dividida: painel de marca + cartao        -->
+
   <div id="tela-login" class="tela-login oculto">
-    <div class="cartao-login">
-      <img src="logo.jpg" alt="JB Fraga" width="64">
-      <p class="marca">JB FRAGA CONTABILIDADE</p>
-      <h1>Ferramentas de Auditoria Fiscal</h1>
-      <form id="form-login" class="oculto">
-        <label>Usuário <input id="login-usuario" autocomplete="username" required></label>
-        <label>Senha <input id="login-senha" type="password" autocomplete="current-password" required></label>
-        <button type="submit" class="botao-primario">Entrar</button>
-        <p id="login-erro" class="erro"></p>
-      </form>
-      <form id="form-bootstrap" class="oculto">
-        <p class="aviso">Primeiro acesso: crie o usuário administrador.</p>
-        <label>Usuário <input id="boot-usuario" required></label>
-        <label>Nome <input id="boot-nome"></label>
-        <label>Senha (mín. 6) <input id="boot-senha" type="password" required></label>
-        <button type="submit" class="botao-primario">Criar administrador</button>
-        <p id="boot-erro" class="erro"></p>
-      </form>
-      <p class="dica" style="margin:16px 0 0">Acesso restrito aos colaboradores.</p>
+    <div class="login-cena">
+      <aside class="login-marca">
+        <div class="login-marca-topo">
+          <img src="logo.jpg" alt="" class="login-selo" width="56" height="56">
+          <p class="marca">JB Fraga Contabilidade</p>
+        </div>
+        <h2 class="login-titulo">A auditoria fiscal do escritório em um só lugar.</h2>
+        <p class="login-texto">
+          Sete ferramentas que cruzam SPED, SEFAZ, XML e cadastro — com
+          permissão por pessoa e trilha de acesso.
+        </p>
+        <ul class="login-lista">
+          <li>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5L20 7"/></svg>
+            <span>Comparação de SPED com a SEFAZ e entre versões</span>
+          </li>
+          <li>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5L20 7"/></svg>
+            <span>Livro de conferência, DANFE e SPED corrigido</span>
+          </li>
+          <li>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 5 5L20 7"/></svg>
+            <span>Conciliação fiscal, auditoria de produtos e patrimônio</span>
+          </li>
+        </ul>
+        <p class="login-rodape">Acesso restrito aos colaboradores.</p>
+      </aside>
+
+      <div class="cartao-login">
+        <p class="eyebrow">Área restrita</p>
+        <h1>Entrar na plataforma</h1>
+
+        <form id="form-login" class="oculto">
+          <label>Usuário <input id="login-usuario" autocomplete="username" required></label>
+          <label>Senha <input id="login-senha" type="password" autocomplete="current-password" required></label>
+          <button type="submit" class="botao-primario">Entrar</button>
+          <p id="login-erro" class="erro" role="alert"></p>
+        </form>
+
+        <form id="form-bootstrap" class="oculto">
+          <p class="aviso">Primeiro acesso: crie o usuário administrador.</p>
+          <label>Usuário <input id="boot-usuario" required></label>
+          <label>Nome <input id="boot-nome"></label>
+          <label>Senha (mín. 6) <input id="boot-senha" type="password" required></label>
+          <button type="submit" class="botao-primario">Criar administrador</button>
+          <p id="boot-erro" class="erro" role="alert"></p>
+        </form>
+
+        <p class="dica login-dica">Em caso de dúvida, procure o administrador do sistema.</p>
+      </div>
     </div>
   </div>
 
-  <!-- Aplicacao -->
+  <!-- ================================================================= -->
+  <!-- Aplicacao                                                          -->
+
   <div id="tela-app" class="oculto">
     <aside class="lateral">
       <div class="lateral-marca">
         <img src="logo.jpg" alt="JB Fraga">
         <div>
           <p class="lateral-nome">JB Fraga</p>
-          <p class="lateral-sub">Auditoria Fiscal</p>
+          <p class="lateral-sub">Plataforma Fiscal</p>
         </div>
       </div>
+
       <nav class="abas" id="abas-nav">
+        <button data-aba="inicio">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>
+          <span>Início</span>
+        </button>
+
+        <p class="abas-grupo">Ferramentas</p>
+
         <button data-aba="comparador">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3 4 7l4 4"/><path d="M4 7h16"/><path d="m16 21 4-4-4-4"/><path d="M20 17H4"/></svg>
           <span>1. Comparador SPED x SEFAZ</span>
@@ -63,35 +107,61 @@
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
           <span>5. Auditoria de Produtos</span>
         </button>
+        <button data-aba="conciliacao">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M7 12h10"/><path d="M10 18h4"/><path d="M5 3v3"/><path d="M19 3v3"/></svg>
+          <span>6. Conciliação Fiscal</span>
+        </button>
+        <button data-aba="patrimonio">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 13h18"/></svg>
+          <span>7. Patrimônio</span>
+        </button>
+
         <button data-aba="admin">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           <span>Administração</span>
         </button>
       </nav>
+
       <button id="botao-lateral" class="lateral-toggle" type="button"
               title="Minimizar o menu">&#171;<span> Minimizar menu</span></button>
     </aside>
 
     <div class="conteudo">
       <header class="cabecalho">
-        <h1 id="titulo-tela">Ferramentas de Auditoria Fiscal</h1>
+        <div class="cabecalho-titulo">
+          <p class="eyebrow" id="eyebrow-tela">Painel</p>
+          <h1 id="titulo-tela">Início</h1>
+        </div>
         <div class="acoes-cabecalho">
-          <button id="botao-tema" type="button" title="A escolha fica salva neste navegador">Modo escuro</button>
-          <span id="usuario-logado"></span>
-          <span id="perfil-logado" class="cracha"></span>
+          <button id="botao-tema" class="icone-botao" type="button"
+                  title="A escolha fica salva neste navegador">
+            <svg class="icone-claro" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+            <svg class="icone-escuro" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+            <span class="so-leitor" id="rotulo-tema">Modo escuro</span>
+          </button>
+          <div class="usuario-chip">
+            <span class="avatar" id="avatar-usuario" aria-hidden="true"></span>
+            <span class="usuario-info">
+              <span id="usuario-logado"></span>
+              <span id="perfil-logado" class="cracha"></span>
+            </span>
+          </div>
           <button id="botao-sair" type="button">Sair</button>
         </div>
       </header>
 
       <main>
+        <section id="aba-inicio" class="aba oculto"></section>
         <section id="aba-comparador" class="aba oculto"></section>
         <section id="aba-diff" class="aba oculto"></section>
         <section id="aba-conferencia" class="aba"></section>
         <section id="aba-extracao" class="aba oculto"></section>
         <section id="aba-produtos" class="aba oculto"></section>
+        <section id="aba-conciliacao" class="aba oculto"></section>
+        <section id="aba-patrimonio" class="aba oculto"></section>
         <section id="aba-admin" class="aba oculto"></section>
         <section id="sem-acesso" class="aba oculto">
-          <div class="caixa">
+          <div class="caixa vazio">
             <h2>Sem acesso liberado</h2>
             <p class="aviso">Seu usuário ainda não tem nenhuma ferramenta
                liberada. Peça ao administrador para liberar o seu acesso.</p>
@@ -101,14 +171,17 @@
     </div>
   </div>
 
-  <div id="toasts"></div>
+  <div id="toasts" role="status" aria-live="polite"></div>
 
   <script src="app.js"></script>
+  <script src="inicio.js"></script>
   <script src="conferencia.js"></script>
   <script src="comparador.js"></script>
   <script src="diff.js"></script>
   <script src="extracao.js"></script>
   <script src="produtos.js"></script>
+  <script src="conciliacao.js"></script>
+  <script src="patrimonio.js"></script>
   <script src="admin.js"></script>
 </body>
 </html>

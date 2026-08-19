@@ -151,7 +151,7 @@ Abas.registrar("diff", (container) => {
       status("Comparando as duas versoes...");
       const { job_id } = await api("/api/diff/comparar", { json: {
         sessao_id, apenas_entradas: $("dif-entradas").checked } });
-      const r = await esperarJob(job_id);
+      const r = await esperarJob(job_id, "diff");
       render(r);
       $("dif-exportar").disabled = false;
       status(`Comparacao concluida: ${r.resumo.divergentes} nota(s) ` +

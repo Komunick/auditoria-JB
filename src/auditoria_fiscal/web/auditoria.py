@@ -141,6 +141,48 @@ ACOES: dict[str, Acao] = dict((
        CAT_DOWNLOAD, "produtos.nova_base", "produtos"),
 
     # ------------------------------------------------------------------
+    # Conciliacao Fiscal
+    #
+    # Esta trilha registra USO: quem tentou, quando, de onde e com que
+    # resultado HTTP. Ela e fail-open de proposito (registrar() nunca derruba
+    # a rota), entao NAO substitui a trilha fiscal de conciliacao.db, que e
+    # gravada na mesma transacao da mutacao (research R6). O detalhe destas
+    # linhas evita valores fiscais: identifica competencia e CNPJ, nao receita.
+    _a("conciliacao.upload", "Enviou relatorio para a Conciliacao Fiscal",
+       CAT_PROCESSAMENTO, "conciliacao.importar", "conciliacao"),
+    _a("conciliacao.processar", "Processou o lote de relatorios",
+       CAT_PROCESSAMENTO, "conciliacao.importar", "conciliacao"),
+    _a("conciliacao.revisar", "Revisou uma competencia",
+       CAT_MUTACAO, "conciliacao.revisar", "conciliacao"),
+    _a("conciliacao.aprovar", "Aprovou uma competencia",
+       CAT_MUTACAO, "conciliacao.aprovar", "conciliacao"),
+    _a("conciliacao.resolver_excecao", "Resolveu uma excecao",
+       CAT_MUTACAO, "conciliacao.resolver_excecao", "conciliacao"),
+    _a("conciliacao.resolver_conflito", "Resolveu um conflito de versao",
+       CAT_MUTACAO, "conciliacao.resolver_excecao", "conciliacao"),
+    _a("conciliacao.fonte_download", "Baixou o arquivo-fonte de uma conciliacao",
+       CAT_DOWNLOAD, aba="conciliacao"),
+    _a("conciliacao.exportar", "Exportou o consolidado da Conciliacao Fiscal",
+       CAT_DOWNLOAD, "conciliacao.exportar", "conciliacao"),
+    _a("conciliacao.preencher_modelo", "Preencheu uma copia da planilha-mestre",
+       CAT_DOWNLOAD, "conciliacao.preencher_modelo", "conciliacao"),
+
+    # ------------------------------------------------------------------
+    # Patrimonio
+    _a("patrimonio.cadastrar", "Cadastrou ou editou um bem",
+       CAT_MUTACAO, "patrimonio.cadastrar", "patrimonio"),
+    _a("patrimonio.movimentar", "Movimentou um bem",
+       CAT_MUTACAO, "patrimonio.movimentar", "patrimonio"),
+    _a("patrimonio.baixar", "Deu baixa em um bem",
+       CAT_MUTACAO, "patrimonio.baixar", "patrimonio"),
+    _a("patrimonio.inventariar", "Conduziu o inventario",
+       CAT_MUTACAO, "patrimonio.inventariar", "patrimonio"),
+    _a("patrimonio.exportar", "Exportou a relacao de bens",
+       CAT_DOWNLOAD, "patrimonio.exportar", "patrimonio"),
+    _a("patrimonio.termo", "Gerou termo de responsabilidade",
+       CAT_DOWNLOAD, "patrimonio.exportar", "patrimonio"),
+
+    # ------------------------------------------------------------------
     # Administracao
     _a("admin.usuario_criado", "Criou um usuario", CAT_ADMIN,
        "admin.usuarios"),

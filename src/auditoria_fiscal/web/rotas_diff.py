@@ -123,7 +123,7 @@ async def upload(sessao_id: str, lado: str, arquivo: UploadFile,
                  request: Request,
                  usuario: Usuario = Depends(acesso("diff.upload"))) -> dict:
     """Recebe os SPEDs: lado 'a' (contabilidade) ou 'b' (cliente)."""
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "diff")
     if lado not in ("a", "b"):
         raise HTTPException(status_code=422,
                             detail="Lado invalido (use 'a' ou 'b').")
@@ -148,7 +148,7 @@ class CompararEntrada(BaseModel):
 def comparar_arquivos(entrada: CompararEntrada, request: Request,
                       usuario: Usuario = Depends(
                           acesso("diff.comparar"))) -> dict:
-    sessao = obter_sessao(entrada.sessao_id)
+    sessao = obter_sessao(entrada.sessao_id, usuario, "diff")
     caminho_a = _arquivo_da_subpasta(
         sessao, "a", "Envie o arquivo SPED A (.txt) antes de comparar.")
     caminho_b = _arquivo_da_subpasta(
@@ -178,7 +178,7 @@ def exportar(sessao_id: str, request: Request,
              usuario: Usuario = Depends(
                  acesso("diff.exportar"))) -> FileResponse:
     """Excel de 4 abas com TODAS as divergencias (sem o limite da previa)."""
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "diff")
     with sessao.trava:
         resultado = sessao.estado.get("resultado")
     if resultado is None:

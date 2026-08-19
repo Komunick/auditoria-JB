@@ -48,7 +48,7 @@ async def upload(sessao_id: str, arquivo: UploadFile, request: Request,
                  usuario: Usuario = Depends(
                      acesso("extracao.upload"))) -> dict:
     """Recebe SPED (.txt) na raiz da sessao e XMLs/zips em xml/."""
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "extracao")
     nome = (arquivo.filename or "").lower()
     subpasta = "" if nome.endswith(".txt") else "xml"
     caminho = await salvar_upload(sessao, arquivo, subpasta)
@@ -76,7 +76,7 @@ def extrair(entrada: ExtracaoEntrada, request: Request,
     if entrada.operacao not in _OPERACOES:
         raise HTTPException(status_code=422,
                             detail="Operacao invalida (use '', '0' ou '1').")
-    sessao = obter_sessao(entrada.sessao_id)
+    sessao = obter_sessao(entrada.sessao_id, usuario, "extracao")
     pasta_xml = os.path.join(sessao.pasta, "xml")
     # Fluxo combinado: com SPED presente, a pasta de XMLs (se enviada) e lida
     # em conjunto — o SPED define as notas e os XMLs correspondentes completam.
@@ -141,7 +141,7 @@ def exportar(sessao_id: str, request: Request,
              usuario: Usuario = Depends(
                  acesso("extracao.exportar"))) -> FileResponse:
     """Excel com TODAS as linhas extraidas (a previa e so da tela)."""
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "extracao")
     linhas = sessao.estado.get("linhas")
     if not linhas:
         raise HTTPException(status_code=422,

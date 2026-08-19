@@ -168,7 +168,7 @@ async def upload(sessao_id: str, arquivo: UploadFile, request: Request,
     gerar_nova_base reabre o arquivo ORIGINAL do disco, entao o upload
     precisa continuar existindo na pasta da sessao ate o fim do trabalho.
     """
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "produtos")
     caminho = await salvar_upload(sessao, arquivo)
     with sessao.trava:
         sessao.estado["caminho_base"] = caminho
@@ -193,7 +193,7 @@ def fdb_tabelas(sessao_id: str, request: Request,
     ok, motivo = fdb_reader.firebird_disponivel()
     if not ok:
         raise HTTPException(status_code=503, detail=motivo)
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "produtos")
     caminho = sessao.estado.get("caminho_base", "")
     if not caminho or not os.path.isfile(caminho):
         raise HTTPException(status_code=422,
@@ -216,7 +216,7 @@ class AuditarEntrada(BaseModel):
 @router.post("/auditar")
 def auditar(entrada: AuditarEntrada,
             usuario: Usuario = Depends(acesso("produtos.auditar"))) -> dict:
-    sessao = obter_sessao(entrada.sessao_id)
+    sessao = obter_sessao(entrada.sessao_id, usuario, "produtos")
     caminho = sessao.estado.get("caminho_base", "")
     tabela_fdb = (entrada.tabela_fdb or "").strip()
 
@@ -259,7 +259,7 @@ def resultados(sessao_id: str, filtro: str = "todos",
         raise HTTPException(
             status_code=422,
             detail=f"Filtro invalido (use: {', '.join(_FILTROS)}).")
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "produtos")
     todos = _exigir_auditoria(sessao)
     filtrados = _filtrar(todos, filtro)
     return {
@@ -287,7 +287,7 @@ class CorrigirEntrada(BaseModel):
 @router.post("/corrigir")
 def corrigir(entrada: CorrigirEntrada, request: Request,
              usuario: Usuario = Depends(acesso("produtos.corrigir"))) -> dict:
-    sessao = obter_sessao(entrada.sessao_id)
+    sessao = obter_sessao(entrada.sessao_id, usuario, "produtos")
     todos = _exigir_auditoria(sessao)
     base = sessao.estado.get("base")
 
@@ -346,7 +346,7 @@ def corrigir(entrada: CorrigirEntrada, request: Request,
 def relatorio(sessao_id: str, request: Request,
               usuario: Usuario = Depends(acesso(
                   "produtos.relatorio"))) -> FileResponse:
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "produtos")
     todos = _exigir_auditoria(sessao)
     base = sessao.estado.get("base")
     detalhar(request, f"{len(todos)} produto(s) no relatorio")
@@ -363,7 +363,7 @@ def nova_base(sessao_id: str, request: Request,
               usuario: Usuario = Depends(acesso(
                   "produtos.nova_base"))) -> FileResponse:
     """Nova base corrigida no MESMO formato do arquivo enviado."""
-    sessao = obter_sessao(sessao_id)
+    sessao = obter_sessao(sessao_id, usuario, "produtos")
     _exigir_auditoria(sessao)
     base = sessao.estado.get("base")
     alteracoes = sessao.estado.get("alteracoes") or {}

@@ -195,7 +195,7 @@ Abas.registrar("produtos", (container) => {
       status("Importando e auditando produtos...");
       const { job_id } = await api("/api/produtos/auditar", { json: {
         sessao_id, tabela_fdb: tabelaFdb } });
-      const resultado = await esperarJob(job_id);
+      const resultado = await esperarJob(job_id, "produtos");
       for (const aviso of resultado.avisos || []) toast(aviso);
       await atualizarResultados();
       const ind = resultado.indicadores;
