@@ -36,15 +36,24 @@ Abas.registrar("conferencia", (container) => {
           </select>
         </label>
         <label>Busca <input id="conf-busca" placeholder="numero, fornecedor, CNPJ, chave"></label>
+        <label>Periodo por
+          <select id="conf-data-base">
+            <option value="escrituracao">Escrituracao</option>
+            <option value="emissao">Emissao</option>
+          </select>
+        </label>
+        <label>De <input id="conf-data-de" type="date"></label>
+        <label>Ate <input id="conf-data-ate" type="date"></label>
+        <button id="conf-data-limpar" type="button" title="Limpar o periodo">Limpar periodo</button>
         <button id="conf-corrigir">Corrigir campo fiscal...</button>
         <button id="conf-danfe">Abrir DANFE</button>
         <button id="conf-livro">Livro Fiscal (PDF)</button>
-        <button id="conf-inconsistencias">Inconsistencias (PDF)</button>
+        <button id="conf-inconsistencias">Carta de Inconsistencias (PDF)</button>
         <button id="conf-sped">SPED corrigido</button>
       </div>
       <div class="rolagem"><table id="conf-tabela">
         <thead><tr>
-          <th class="col-conf">Conf.</th><th>Numero</th><th>Serie</th><th>Data</th>
+          <th class="col-conf">Conf.</th><th>Numero</th><th>Serie</th><th id="conf-col-data">Escrituracao</th>
           <th>Fornecedor</th><th>CNPJ</th><th>UF</th><th>Valor contabil</th>
           <th>Base ICMS</th><th>Valor ICMS</th><th>CFOP</th><th>CST</th>
           <th>Aliquota</th><th>Observacao</th><th>Data conf.</th>
@@ -196,12 +205,42 @@ Abas.registrar("conferencia", (container) => {
   // ------------------------------------------------------------------
   // Tabela de notas
 
+  // Base do periodo escolhida na tela (escrituracao por padrao, como pedido).
+  const baseData = () => $("conf-data-base").value === "emissao"
+    ? "emissao" : "escrituracao";
+  // Data ISO da nota na base atual ("" quando a nota nao tem essa data).
+  const dataIso = (n) => baseData() === "emissao"
+    ? n.data_emissao_iso : n.data_escrituracao_iso;
+  // Data legivel (dd/mm/aaaa) da coluna, seguindo a base atual.
+  const dataTexto = (n) => baseData() === "emissao"
+    ? n.data_emissao : n.data_escrituracao;
+  // Parametros do periodo para as rotas de documento (mesmo recorte da tela).
+  const queryPeriodo = () => {
+    const de = $("conf-data-de").value;
+    const ate = $("conf-data-ate").value;
+    let q = `&base=${baseData()}`;
+    if (de) q += `&de=${de}`;
+    if (ate) q += `&ate=${ate}`;
+    return q;
+  };
+
   function filtradas() {
     const filtro = $("conf-filtro").value;
     const busca = $("conf-busca").value.trim().toLowerCase();
+    const de = $("conf-data-de").value;
+    const ate = $("conf-data-ate").value;
+    const temPeriodo = Boolean(de || ate);
     return estado.notas.filter((n) => {
       if (filtro === "Pendentes" && n.conferida) return false;
       if (filtro === "Conferidas" && !n.conferida) return false;
+      if (temPeriodo) {
+        const d = dataIso(n);
+        // Sem a data escolhida, a nota fica fora quando ha periodo (igual ao
+        // criterio do backend em core/filtro_periodo.py).
+        if (!d) return false;
+        if (de && d < de) return false;
+        if (ate && d > ate) return false;
+      }
       if (busca) {
         const alvo = `${n.numero} ${n.fornecedor} ${n.cnpj} ${n.chave}`.toLowerCase();
         if (!alvo.includes(busca)) return false;
@@ -223,7 +262,7 @@ Abas.registrar("conferencia", (container) => {
       // innerHTML, entao <img onerror=...> na observacao rodaria script.
       tr.innerHTML = `
         <td class="${classeConf}"><input type="checkbox" ${n.conferida ? "checked" : ""}></td>
-        <td>${esc(n.numero)}</td><td>${esc(n.serie)}</td><td>${esc(n.data)}</td>
+        <td>${esc(n.numero)}</td><td>${esc(n.serie)}</td><td>${esc(dataTexto(n))}</td>
         <td>${esc(n.fornecedor)}</td><td>${esc(n.cnpj)}</td><td>${esc(n.uf)}</td>
         <td>${esc(n.valor_contabil)}</td>
         <td>${esc(n.base_icms)}</td><td>${esc(n.valor_icms)}</td>
@@ -246,10 +285,17 @@ Abas.registrar("conferencia", (container) => {
       }
       corpo.appendChild(tr);
     }
+    $("conf-col-data").textContent =
+      baseData() === "emissao" ? "Emissao" : "Escrituracao";
     const total = estado.notas.length;
     const conferidas = estado.notas.filter((n) => n.conferida).length;
+    const rotuloBase = baseData() === "emissao" ? "emissao" : "escrituracao";
+    const temPeriodo = Boolean($("conf-data-de").value || $("conf-data-ate").value);
+    const sufixo = temPeriodo
+      ? ` — filtro por ${rotuloBase}: ${visiveis.length} no periodo.`
+      : ` — ${visiveis.length} na tela.`;
     $("conf-progresso").textContent = total
-      ? `${conferidas}/${total} conferida(s) — ${visiveis.length} na tela.` : "";
+      ? `${conferidas}/${total} conferida(s)${sufixo}` : "";
     renderCartoes(total, conferidas);
   }
 
@@ -271,6 +317,14 @@ Abas.registrar("conferencia", (container) => {
 
   $("conf-filtro").addEventListener("change", renderNotas);
   $("conf-busca").addEventListener("input", renderNotas);
+  $("conf-data-base").addEventListener("change", renderNotas);
+  $("conf-data-de").addEventListener("change", renderNotas);
+  $("conf-data-ate").addEventListener("change", renderNotas);
+  $("conf-data-limpar").addEventListener("click", () => {
+    $("conf-data-de").value = "";
+    $("conf-data-ate").value = "";
+    renderNotas();
+  });
 
   $("conf-tabela").addEventListener("click", async (e) => {
     const tr = e.target.closest("tr[data-chave]");
@@ -408,7 +462,7 @@ Abas.registrar("conferencia", (container) => {
           const ok = await confirmar("Confirmar correcao",
             `Alterar de ${td.dataset.original} para ${texto}? O valor original ` +
             "fica no historico de auditoria e a correcao vale para a tela, o " +
-            "Livro Fiscal, o relatorio de inconsistencias e o SPED corrigido.");
+            "Livro Fiscal, a Carta de Inconsistencias e o SPED corrigido.");
           if (!ok) { await carregarComposicao(); return; }
         }
         const comp = await api("/api/conferencia/composicao/editar", { json: {
@@ -656,7 +710,8 @@ Abas.registrar("conferencia", (container) => {
       try {
         if (!antes || await antes()) {
           const nome = await apiDownload(
-            `${caminho}?sessao_id=${estado.sessaoId}`, { method: "POST" });
+            `${caminho}?sessao_id=${estado.sessaoId}${queryPeriodo()}`,
+            { method: "POST" });
           toast(`${rotulo} gerado: ${nome}`);
         }
       } catch (erro) { toast(erro.message, "erro"); }
@@ -664,14 +719,14 @@ Abas.registrar("conferencia", (container) => {
     });
   };
   baixar("conf-livro", "/api/conferencia/livro-fiscal", "Livro Fiscal");
-  baixar("conf-inconsistencias", "/api/conferencia/inconsistencias", "Relatorio de Inconsistencias");
+  baixar("conf-inconsistencias", "/api/conferencia/inconsistencias", "Carta de Inconsistencias");
   baixar("conf-sped", "/api/conferencia/sped-corrigido", "SPED corrigido",
          async () => {
     const resumo = await api("/api/conferencia/sped-corrigido/resumo" +
-                             `?sessao_id=${estado.sessaoId}`);
+                             `?sessao_id=${estado.sessaoId}${queryPeriodo()}`);
     if (!resumo.tem_correcoes) {
-      toast("Nenhuma correcao registrada — o arquivo gerado seria identico " +
-            "ao original.", "erro");
+      toast("Nenhuma correcao registrada no periodo selecionado — o arquivo " +
+            "gerado seria identico ao original.", "erro");
       return false;
     }
     return confirmarSped(resumo);

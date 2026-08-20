@@ -89,6 +89,13 @@ def main() -> int:
            f"nota serializada errada: {notas[0]}")
     checar(notas[0]["valor_contabil"].startswith("R$"),
            "valor deveria vir formatado em BRL")
+    # Datas das duas bases no JSON (para o filtro por periodo da tela).
+    checar(notas[0]["data_emissao_iso"] == "2026-03-05"
+           and notas[0]["data_emissao"] == "05/03/2026",
+           f"data de emissao ausente/errada: {notas[0]}")
+    checar("data_escrituracao" in notas[0]
+           and "data_escrituracao_iso" in notas[0],
+           "campos de data de escrituracao deveriam existir no JSON")
 
     # Conferir com observacao
     r = cliente.post("/api/conferencia/conferir", json={
@@ -124,6 +131,22 @@ def main() -> int:
     checar(r.status_code == 200 and r.headers["content-type"] == "application/pdf",
            f"livro fiscal falhou: {r.status_code}")
     checar(r.content.startswith(b"%PDF"), "resposta nao e um PDF")
+
+    # Filtro por periodo nos documentos gerados (decisao: vale para os PDFs).
+    # Emissao 2026-03-05 dentro do intervalo -> PDF; fora -> 422.
+    r = cliente.post(f"/api/conferencia/livro-fiscal?sessao_id={sessao}"
+                     "&base=emissao&de=2026-03-01&ate=2026-03-31")
+    checar(r.status_code == 200 and r.content.startswith(b"%PDF"),
+           f"livro fiscal no periodo (emissao) deveria sair: {r.status_code}")
+    r = cliente.post(f"/api/conferencia/livro-fiscal?sessao_id={sessao}"
+                     "&base=emissao&de=2026-04-01&ate=2026-04-30")
+    checar(r.status_code == 422 and "periodo" in r.json()["detail"].lower(),
+           f"periodo sem notas deveria dar 422: {r.status_code} {r.text[:120]}")
+    # Base escrituracao: esta nota nao tem DT_E_S, entao qualquer periodo a exclui.
+    r = cliente.post(f"/api/conferencia/livro-fiscal?sessao_id={sessao}"
+                     "&base=escrituracao&de=2026-03-01&ate=2026-03-31")
+    checar(r.status_code == 422,
+           "nota sem escrituracao deveria ficar fora do periodo por escrituracao")
 
     # DANFE: chave inexistente da 404; para o XML sintetico minimo vale
     # 200 (PDF) ou 422 vindo do gerador (a geracao real e coberta pelo

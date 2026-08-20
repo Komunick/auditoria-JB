@@ -22,6 +22,10 @@ from ..core.correcoes import (
     CAMPOS_CORRIGIVEIS, TIPO_AUTOMATICA, TIPO_MANUAL, aplicar_correcoes,
     normalizar_valor, validar_correcao,
 )
+from ..core.filtro_periodo import (
+    ROTULO_BASE, chaves_no_periodo, filtrar_por_periodo, normalizar_base,
+    tem_periodo,
+)
 from ..core.filtro_sped import filtrar_entradas
 from ..core.modelos import NotaFiscal
 from ..core.nfe_xml import associar_xmls, ler_pasta_xml
@@ -140,13 +144,24 @@ def _reaplicar(sessao) -> None:
     sessao.estado["corrigidas"] = corrigidas
 
 
+def _data_iso(valor) -> str:
+    """date -> 'aaaa-mm-dd' (para o filtro por periodo comparar sem ambiguidade)."""
+    return valor.isoformat() if valor else ""
+
+
 def _linha_nota(nota: NotaFiscal, corrigida: NotaFiscal, estado) -> dict:
     return {
         "chave": nota.chave_normalizada,
         "conferida": bool(estado and estado.conferida),
         "numero": nota.numero,
         "serie": nota.serie,
+        # `data` continua sendo a emissao (compatibilidade); a tela escolhe
+        # qual mostrar pela base do filtro usando os campos abaixo.
         "data": texto_data(nota.dt_emissao),
+        "data_emissao": texto_data(nota.dt_emissao),
+        "data_escrituracao": texto_data(nota.dt_entrada_saida),
+        "data_emissao_iso": _data_iso(nota.dt_emissao),
+        "data_escrituracao_iso": _data_iso(nota.dt_entrada_saida),
         "fornecedor": nota.participante.nome if nota.participante else "",
         "cnpj": nota.cnpj_emitente,
         "uf": nota.uf_origem or "",
@@ -599,19 +614,59 @@ def _estados_e_correcoes():
         store.fechar()
 
 
+def _notas_do_periodo(sessao, de: str, ate: str, base: str):
+    """Notas da sessao dentro do periodo (ou todas, se nao houver periodo).
+
+    Retorna (notas, rotulo) - o rotulo entra no historico e nos documentos
+    para deixar registrado qual recorte foi gerado.
+    """
+    notas = sessao.estado.get("notas", [])
+    if not tem_periodo(de, ate):
+        return notas, ""
+    base = normalizar_base(base)
+    recorte = filtrar_por_periodo(notas, de, ate, base)
+    rotulo = (f"Periodo por {ROTULO_BASE[base].lower()}: "
+              f"{de or 'inicio'} a {ate or 'fim'} "
+              f"({len(recorte)} de {len(notas)} nota(s))")
+    return recorte, rotulo
+
+
+def _correcoes_do_periodo(sessao, correcoes, de: str, ate: str, base: str):
+    """Correcoes restritas as notas do periodo (para o SPED corrigido).
+
+    O arquivo gerado continua completo (todas as linhas do SPED original);
+    apenas as CORRECOES fora do periodo deixam de ser aplicadas.
+    """
+    chaves = chaves_no_periodo(sessao.estado.get("notas", []), de, ate, base)
+    if chaves is None:
+        return correcoes
+    return {ch: lista for ch, lista in correcoes.items() if ch in chaves}
+
+
 @router.post("/livro-fiscal")
 def livro_fiscal(sessao_id: str, request: Request,
+                 de: str = "", ate: str = "", base: str = "escrituracao",
                  usuario: Usuario = Depends(acesso(
                      "conferencia.livro_fiscal"))) -> FileResponse:
     sessao = obter_sessao(sessao_id, usuario, "conferencia")
     if not sessao.estado.get("notas"):
         raise HTTPException(status_code=422, detail="Carregue as notas antes.")
-    detalhar(request, f"{len(sessao.estado['notas'])} nota(s) no PDF")
+    notas, rotulo_periodo = _notas_do_periodo(sessao, de, ate, base)
+    if not notas:
+        raise HTTPException(
+            status_code=422,
+            detail="Nenhuma nota no periodo selecionado.")
+    detalhar(request, f"{len(notas)} nota(s) no PDF"
+                      + (f" - {rotulo_periodo}" if rotulo_periodo else ""))
     estados, correcoes, overrides = _estados_e_correcoes()
     destino = tempfile.mktemp(prefix="livro_fiscal_", suffix=".pdf")
-    filtro = ("Somente documentos de entrada"
-              if sessao.estado.get("apenas_entradas") else "")
-    gerar_livro_fiscal(sessao.estado["notas"], estados, destino,
+    partes = []
+    if sessao.estado.get("apenas_entradas"):
+        partes.append("Somente documentos de entrada")
+    if rotulo_periodo:
+        partes.append(rotulo_periodo)
+    filtro = " | ".join(partes)
+    gerar_livro_fiscal(notas, estados, destino,
                        contexto=sessao.estado.get("contexto", ""),
                        filtro=filtro, correcoes_por_chave=correcoes,
                        overrides_por_chave=overrides)
@@ -621,27 +676,30 @@ def livro_fiscal(sessao_id: str, request: Request,
 
 @router.post("/inconsistencias")
 def inconsistencias(sessao_id: str, request: Request,
+                    de: str = "", ate: str = "", base: str = "escrituracao",
                     usuario: Usuario = Depends(acesso(
                         "conferencia.inconsistencias"))) -> FileResponse:
     sessao = obter_sessao(sessao_id, usuario, "conferencia")
     if not sessao.estado.get("notas"):
         raise HTTPException(status_code=422, detail="Carregue as notas antes.")
+    notas, _ = _notas_do_periodo(sessao, de, ate, base)
+    if not notas:
+        raise HTTPException(
+            status_code=422,
+            detail="Nenhuma nota no periodo selecionado.")
     estados, correcoes, _ = _estados_e_correcoes()
-    inconsistentes = notas_inconsistentes(sessao.estado["notas"], estados,
-                                          correcoes)
+    inconsistentes = notas_inconsistentes(notas, estados, correcoes)
     if not inconsistentes:
         raise HTTPException(
             status_code=422,
             detail="Nenhuma nota carregada tem observacao ou correcao.")
     detalhar(request, f"{len(inconsistentes)} nota(s) inconsistente(s)")
     destino = tempfile.mktemp(prefix="inconsistencias_", suffix=".pdf")
-    filtro = ("Somente documentos de entrada"
-              if sessao.estado.get("apenas_entradas") else "")
-    gerar_livro_inconsistencias(sessao.estado["notas"], estados, destino,
+    gerar_livro_inconsistencias(notas, estados, destino,
                                 contexto=sessao.estado.get("contexto", ""),
-                                filtro=filtro, correcoes_por_chave=correcoes)
+                                correcoes_por_chave=correcoes)
     return FileResponse(destino, media_type="application/pdf",
-                        filename="relatorio_inconsistencias.pdf")
+                        filename="carta_inconsistencias.pdf")
 
 
 def _exigir_fonte_sped(sessao) -> None:
@@ -653,6 +711,8 @@ def _exigir_fonte_sped(sessao) -> None:
 
 @router.get("/sped-corrigido/resumo")
 def resumo_sped_corrigido(sessao_id: str,
+                          de: str = "", ate: str = "",
+                          base: str = "escrituracao",
                           usuario: Usuario = Depends(
                               exigir_aba("conferencia"))) -> dict:
     """Pre-checagem do SPED corrigido, consultada ANTES do download.
@@ -671,6 +731,7 @@ def resumo_sped_corrigido(sessao_id: str,
     sessao = obter_sessao(sessao_id, usuario, "conferencia")
     _exigir_fonte_sped(sessao)
     _, correcoes, _ = _estados_e_correcoes()
+    correcoes = _correcoes_do_periodo(sessao, correcoes, de, ate, base)
     ativas = [c for lista in correcoes.values() for c in lista if c.ativa]
     if not ativas:
         return {"tem_correcoes": False, "itens_c170_alterados": 0,
@@ -696,11 +757,13 @@ def resumo_sped_corrigido(sessao_id: str,
 
 @router.post("/sped-corrigido")
 def sped_corrigido(sessao_id: str, request: Request,
+                   de: str = "", ate: str = "", base: str = "escrituracao",
                    usuario: Usuario = Depends(acesso(
                        "conferencia.sped_corrigido"))) -> FileResponse:
     sessao = obter_sessao(sessao_id, usuario, "conferencia")
     _exigir_fonte_sped(sessao)
     _, correcoes, _ = _estados_e_correcoes()
+    correcoes = _correcoes_do_periodo(sessao, correcoes, de, ate, base)
     destino = tempfile.mktemp(prefix="sped_corrigido_", suffix=".txt")
     resumo = gerar_sped_corrigido(sessao.estado["caminho_fonte"], destino,
                                   correcoes)

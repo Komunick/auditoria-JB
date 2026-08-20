@@ -95,7 +95,7 @@ ACOES: dict[str, Acao] = dict((
     _a("conferencia.livro_fiscal", "Gerou o Livro Fiscal (PDF)",
        CAT_DOWNLOAD, "conferencia.livro_fiscal", "conferencia"),
     _a("conferencia.inconsistencias",
-       "Gerou o Relatorio de Inconsistencias (PDF)",
+       "Gerou a Carta de Inconsistencias (PDF)",
        CAT_DOWNLOAD, "conferencia.inconsistencias", "conferencia"),
     _a("conferencia.sped_corrigido", "Gerou o SPED corrigido (.txt)",
        CAT_DOWNLOAD, "conferencia.sped_corrigido", "conferencia"),

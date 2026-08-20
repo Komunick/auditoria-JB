@@ -80,8 +80,8 @@ CATALOGO: tuple[Permissao, ...] = (
     Permissao("conferencia.livro_fiscal", "Gerar Livro Fiscal (PDF)",
               GRUPO_CONFERENCIA, "Gerar o Livro Fiscal completo em PDF."),
     Permissao("conferencia.inconsistencias",
-              "Gerar Relatorio de Inconsistencias (PDF)", GRUPO_CONFERENCIA,
-              "Gerar o relatorio das notas com observacao ou correcao."),
+              "Gerar Carta de Inconsistencias (PDF)", GRUPO_CONFERENCIA,
+              "Gerar a carta das notas com observacao ou correcao."),
     Permissao("conferencia.sped_corrigido", "Gerar SPED corrigido (.txt)",
               GRUPO_CONFERENCIA,
               "Gerar o arquivo SPED com as correcoes aplicadas — a saida que "
