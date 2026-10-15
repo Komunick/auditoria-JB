@@ -22,15 +22,15 @@ sobre entrada nao confiavel.
 
 from __future__ import annotations
 
-import os
 import re
 import unicodedata
-import zipfile
 from dataclasses import dataclass, field
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 
 from openpyxl import load_workbook
 from openpyxl.utils import get_column_letter
+
+from . import documentos_br, planilha_segura
 
 VERSAO_PARSER = "conciliacao-sefaz/1"
 
@@ -74,9 +74,9 @@ CENTAVO = Decimal("0.01")
 
 # Limites do pacote (contracts/xlsx-inputs.md). Sao defaults da feature;
 # parametrizar so mantendo os testes de rejeicao.
-MAX_ENTRADAS_ZIP = 5000
-MAX_DESCOMPACTADO = 120 * 1024 * 1024
-MAX_RAZAO_COMPRESSAO = 120
+MAX_ENTRADAS_ZIP = planilha_segura.MAX_ENTRADAS_ZIP
+MAX_DESCOMPACTADO = planilha_segura.MAX_DESCOMPACTADO
+MAX_RAZAO_COMPRESSAO = planilha_segura.MAX_RAZAO_COMPRESSAO
 
 
 class ErroConciliacao(Exception):
@@ -184,30 +184,15 @@ def normalizar_rotulo(texto) -> str:
 
 
 def normalizar_cnpj(valor) -> str:
-    """CNPJ com 14 digitos e DV conferido."""
-    digitos = re.sub(r"\D", "", str(valor or ""))
-    if len(digitos) != 14:
-        raise ErroConciliacao(CNPJ_INVALIDO,
-                              "CNPJ deve ter 14 digitos.")
-    if digitos == digitos[0] * 14:
-        # 00.000.000/0000-00 e afins passam no calculo mas nao existem.
-        raise ErroConciliacao(CNPJ_INVALIDO, "CNPJ com digitos repetidos.")
-    if _dv_cnpj(digitos[:12]) != digitos[12:]:
-        raise ErroConciliacao(CNPJ_INVALIDO,
-                              "Digito verificador do CNPJ nao confere.")
-    return digitos
+    """CNPJ com 14 digitos e DV conferido (regra em `core/documentos_br.py`)."""
+    try:
+        return documentos_br.digitos_cnpj(valor)
+    except documentos_br.DocumentoInvalido as exc:
+        raise ErroConciliacao(CNPJ_INVALIDO, exc.mensagem) from exc
 
 
 def _dv_cnpj(base12: str) -> str:
-    def _dv(numero: str) -> str:
-        pesos = [p if p <= 9 else p - 8
-                 for p in range(len(numero) + 1, 1, -1)]
-        soma = sum(int(d) * p for d, p in zip(numero, pesos))
-        resto = soma % 11
-        return "0" if resto < 2 else str(11 - resto)
-
-    d1 = _dv(base12)
-    return d1 + _dv(base12 + d1)
+    return documentos_br.dv_cnpj(base12)
 
 
 def normalizar_competencia(valor) -> str:
@@ -235,96 +220,24 @@ def normalizar_competencia(valor) -> str:
     return f"{ano}{int(mes):02d}"
 
 
-def _grupos_de_milhar_ok(inteiro: str, separador: str) -> bool:
-    partes = inteiro.split(separador)
-    if len(partes) == 1:
-        return True
-    if not 1 <= len(partes[0]) <= 3:
-        return False
-    return all(len(p) == 3 for p in partes[1:])
+# Codigo neutro do validador compartilhado -> codigo estavel da conciliacao.
+_CODIGO_DECIMAL = {
+    documentos_br.VALOR_INVALIDO: VALOR_INVALIDO,
+    documentos_br.VALOR_VAZIO: CAMPO_OBRIGATORIO_AUSENTE,
+    documentos_br.FORMULA_SEM_VALOR: FORMULA_SEM_VALOR,
+}
 
 
 def para_decimal(valor) -> Decimal:
     """Numero monetario exato. Formato ambiguo e' RECUSADO, nunca chutado.
 
-    `1.234` pode ser mil duzentos e trinta e quatro (milhar brasileiro) ou um
-    virgula dois tres quatro (decimal americano). Escolher errado erra por
-    1000x num numero fiscal, entao o parser exige que o separador decimal
-    seja inequivoco.
+    A regra mora em `core/documentos_br.decimal_monetario` (compartilhada com
+    a Emissao de NFS-e); aqui so se traduz o erro para o da conciliacao.
     """
-    if isinstance(valor, bool):           # bool e' int em Python; aqui nao serve
-        raise ErroConciliacao(VALOR_INVALIDO, "Valor booleano em campo numerico.")
-    if isinstance(valor, (int, float, Decimal)):
-        try:
-            numero = Decimal(str(valor))
-        except InvalidOperation as exc:
-            raise ErroConciliacao(VALOR_INVALIDO,
-                                  f"Numero invalido: {valor!r}") from exc
-        return _quantizar(numero, valor)
-
-    bruto = str(valor or "").strip()
-    if not bruto:
-        raise ErroConciliacao(CAMPO_OBRIGATORIO_AUSENTE, "Valor vazio.")
-    if bruto.startswith("="):
-        # data_only=True devolveu a formula: o cache de valor nao existe.
-        raise ErroConciliacao(FORMULA_SEM_VALOR,
-                              "Formula sem valor calculado armazenado.")
-    if not re.fullmatch(r"[+-]?[\d.,\s]+", bruto):
-        raise ErroConciliacao(
-            VALOR_INVALIDO,
-            f"'{bruto}' nao e' numero (simbolo de moeda ou texto).")
-
-    sinal = -1 if bruto.startswith("-") else 1
-    corpo = bruto.lstrip("+-").replace(" ", "")
-    tem_ponto, tem_virgula = "." in corpo, "," in corpo
-
-    if tem_ponto and tem_virgula:
-        # O ultimo separador a aparecer e' o decimal.
-        decimal_sep = "." if corpo.rfind(".") > corpo.rfind(",") else ","
-        milhar_sep = "," if decimal_sep == "." else "."
-        inteiro, _, fracao = corpo.rpartition(decimal_sep)
-        if not _grupos_de_milhar_ok(inteiro, milhar_sep):
-            raise ErroConciliacao(VALOR_INVALIDO,
-                                  f"Separadores inconsistentes em '{bruto}'.")
-        inteiro = inteiro.replace(milhar_sep, "")
-    elif tem_ponto or tem_virgula:
-        sep = "." if tem_ponto else ","
-        if corpo.count(sep) > 1:
-            # Varios separadores iguais so podem ser milhar.
-            if not _grupos_de_milhar_ok(corpo, sep):
-                raise ErroConciliacao(
-                    VALOR_INVALIDO, f"Grupos de milhar invalidos em '{bruto}'.")
-            inteiro, fracao = corpo.replace(sep, ""), ""
-        else:
-            inteiro, _, fracao = corpo.partition(sep)
-            if len(fracao) == 3:
-                raise ErroConciliacao(
-                    VALOR_INVALIDO,
-                    f"'{bruto}' e' ambiguo: '{sep}' pode ser milhar ou decimal.")
-            if not fracao or not fracao.isdigit():
-                raise ErroConciliacao(VALOR_INVALIDO,
-                                      f"Parte decimal invalida em '{bruto}'.")
-    else:
-        inteiro, fracao = corpo, ""
-
-    if not inteiro.isdigit() or (fracao and not fracao.isdigit()):
-        raise ErroConciliacao(VALOR_INVALIDO, f"Numero invalido: '{bruto}'.")
-    if len(fracao) > 2:
-        raise ErroConciliacao(
-            VALOR_INVALIDO,
-            f"'{bruto}' tem fracao de centavo; valor monetario para em 2 casas.")
-
-    texto = inteiro + ("." + fracao if fracao else "")
-    return (Decimal(texto) * sinal).quantize(CENTAVO)
-
-
-def _quantizar(numero: Decimal, original) -> Decimal:
-    """Numero de celula ja e' exato; sub-centavo e' recusado, nao arredondado."""
-    if numero != numero.quantize(CENTAVO):
-        raise ErroConciliacao(
-            VALOR_INVALIDO,
-            f"{original!r} tem fracao de centavo em campo monetario.")
-    return numero.quantize(CENTAVO)
+    try:
+        return documentos_br.decimal_monetario(valor)
+    except documentos_br.DocumentoInvalido as exc:
+        raise ErroConciliacao(_CODIGO_DECIMAL[exc.codigo], exc.mensagem) from exc
 
 
 def para_decimal_opcional(valor) -> Decimal | None:
@@ -350,76 +263,13 @@ def centavos(valor: Decimal | None) -> int | None:
 def validar_pacote_xlsx(caminho: str, *, max_bytes: int | None = None) -> None:
     """Recusa o arquivo antes de qualquer parser de alto nivel.
 
-    `load_workbook` monta XML de terceiro; um pacote hostil vira consumo de
-    memoria, leitura de caminho fora da pasta ou macro. Extensao e MIME nao
-    provam nada — o conteudo tem de ser conferido.
+    A validacao mora em `core/planilha_segura.validar_pacote_xlsx`
+    (compartilhada com a Emissao de NFS-e); os codigos sao os mesmos.
     """
-    if not caminho.lower().endswith(".xlsx"):
-        raise ErroConciliacao(XLSX_INVALIDO,
-                              "Somente arquivos .xlsx sao aceitos.")
-    if not os.path.isfile(caminho):
-        raise ErroConciliacao(XLSX_INVALIDO, "Arquivo nao encontrado.")
-
-    tamanho = os.path.getsize(caminho)
-    if max_bytes is not None and tamanho > max_bytes:
-        raise ErroConciliacao(
-            XLSX_ACIMA_DO_LIMITE,
-            f"Arquivo com {tamanho} bytes excede o limite de {max_bytes}.")
-    if tamanho == 0:
-        raise ErroConciliacao(XLSX_INVALIDO, "Arquivo vazio.")
-
-    if not zipfile.is_zipfile(caminho):
-        raise ErroConciliacao(XLSX_INVALIDO,
-                              "Nao e' um pacote Open XML valido.")
     try:
-        with zipfile.ZipFile(caminho) as pacote:
-            entradas = pacote.infolist()
-            nomes = [e.filename for e in entradas]
-
-            if len(entradas) > MAX_ENTRADAS_ZIP:
-                raise ErroConciliacao(
-                    XLSX_COMPACTACAO_INSEGURA,
-                    f"Pacote com {len(entradas)} entradas (limite "
-                    f"{MAX_ENTRADAS_ZIP}).")
-
-            for nome in nomes:
-                normalizado = nome.replace("\\", "/")
-                if (normalizado.startswith("/")
-                        or re.match(r"^[A-Za-z]:", normalizado)
-                        or ".." in normalizado.split("/")):
-                    raise ErroConciliacao(
-                        XLSX_COMPACTACAO_INSEGURA,
-                        f"Caminho interno inseguro: {nome!r}.")
-
-            if any(os.path.basename(n).lower() == "vbaproject.bin"
-                   for n in nomes):
-                raise ErroConciliacao(XLSX_MACRO_NAO_PERMITIDA,
-                                      "O arquivo contem macro.")
-            if any(n.replace("\\", "/").lower().startswith("xl/externallinks/")
-                   for n in nomes):
-                raise ErroConciliacao(XLSX_VINCULO_EXTERNO,
-                                      "O arquivo contem vinculo externo.")
-
-            if ("[Content_Types].xml" not in nomes
-                    or "xl/workbook.xml" not in nomes):
-                raise ErroConciliacao(
-                    XLSX_INVALIDO,
-                    "Estrutura minima do pacote Open XML ausente.")
-
-            # Somas lidas do indice do ZIP: nada e' descompactado aqui.
-            total = sum(e.file_size for e in entradas)
-            comprimido = sum(e.compress_size for e in entradas) or 1
-            if total > MAX_DESCOMPACTADO:
-                raise ErroConciliacao(
-                    XLSX_COMPACTACAO_INSEGURA,
-                    f"Conteudo descompactado de {total} bytes excede o limite.")
-            if total / comprimido > MAX_RAZAO_COMPRESSAO:
-                raise ErroConciliacao(
-                    XLSX_COMPACTACAO_INSEGURA,
-                    f"Razao de compressao {total / comprimido:.0f}:1 e' abusiva.")
-    except zipfile.BadZipFile as exc:
-        raise ErroConciliacao(XLSX_INVALIDO,
-                              "Pacote Open XML corrompido.") from exc
+        planilha_segura.validar_pacote_xlsx(caminho, max_bytes=max_bytes)
+    except planilha_segura.PacoteRecusado as exc:
+        raise ErroConciliacao(exc.codigo, exc.mensagem) from exc
 
 
 # ----------------------------------------------------------------------
