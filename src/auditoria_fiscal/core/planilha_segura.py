@@ -118,3 +118,102 @@ def cnpj_formatado(cnpj: str) -> str:
         return sanitizar_texto(cnpj)
     return (f"{digitos[:2]}.{digitos[2:5]}.{digitos[5:8]}/"
             f"{digitos[8:12]}-{digitos[12:]}")
+
+
+# ----------------------------------------------------------------------
+# Validacao do pacote .xlsx, ANTES do openpyxl
+#
+# Extraida de `core/conciliacao_sefaz.py` quando a Emissao de NFS-e passou a
+# receber planilha de cliente (spec 006). Os codigos sao os mesmos da
+# conciliacao, que traduz `PacoteRecusado` para o erro dela.
+
+XLSX_INVALIDO = "XLSX_INVALIDO"
+XLSX_ACIMA_DO_LIMITE = "XLSX_ACIMA_DO_LIMITE"
+XLSX_COMPACTACAO_INSEGURA = "XLSX_COMPACTACAO_INSEGURA"
+XLSX_MACRO_NAO_PERMITIDA = "XLSX_MACRO_NAO_PERMITIDA"
+XLSX_VINCULO_EXTERNO = "XLSX_VINCULO_EXTERNO"
+
+MAX_ENTRADAS_ZIP = 5000
+MAX_DESCOMPACTADO = 120 * 1024 * 1024
+MAX_RAZAO_COMPRESSAO = 120
+
+
+class PacoteRecusado(ValueError):
+    def __init__(self, codigo: str, mensagem: str):
+        super().__init__(f"{codigo}: {mensagem}")
+        self.codigo = codigo
+        self.mensagem = mensagem
+
+
+def validar_pacote_xlsx(caminho: str, *, max_bytes: int | None = None) -> None:
+    """Recusa o arquivo antes de qualquer parser de alto nivel.
+
+    `load_workbook` monta XML de terceiro; um pacote hostil vira consumo de
+    memoria, leitura de caminho fora da pasta ou macro. Extensao e MIME nao
+    provam nada — o conteudo tem de ser conferido.
+    """
+    import zipfile
+
+    if not caminho.lower().endswith(".xlsx"):
+        raise PacoteRecusado(XLSX_INVALIDO, "Somente arquivos .xlsx sao aceitos.")
+    if not os.path.isfile(caminho):
+        raise PacoteRecusado(XLSX_INVALIDO, "Arquivo nao encontrado.")
+
+    tamanho = os.path.getsize(caminho)
+    if max_bytes is not None and tamanho > max_bytes:
+        raise PacoteRecusado(
+            XLSX_ACIMA_DO_LIMITE,
+            f"Arquivo com {tamanho} bytes excede o limite de {max_bytes}.")
+    if tamanho == 0:
+        raise PacoteRecusado(XLSX_INVALIDO, "Arquivo vazio.")
+
+    if not zipfile.is_zipfile(caminho):
+        raise PacoteRecusado(XLSX_INVALIDO, "Nao e' um pacote Open XML valido.")
+    try:
+        with zipfile.ZipFile(caminho) as pacote:
+            entradas = pacote.infolist()
+            nomes = [e.filename for e in entradas]
+
+            if len(entradas) > MAX_ENTRADAS_ZIP:
+                raise PacoteRecusado(
+                    XLSX_COMPACTACAO_INSEGURA,
+                    f"Pacote com {len(entradas)} entradas (limite "
+                    f"{MAX_ENTRADAS_ZIP}).")
+
+            for nome in nomes:
+                normalizado = nome.replace("\\", "/")
+                if (normalizado.startswith("/")
+                        or re.match(r"^[A-Za-z]:", normalizado)
+                        or ".." in normalizado.split("/")):
+                    raise PacoteRecusado(
+                        XLSX_COMPACTACAO_INSEGURA,
+                        f"Caminho interno inseguro: {nome!r}.")
+
+            if any(os.path.basename(n).lower() == "vbaproject.bin"
+                   for n in nomes):
+                raise PacoteRecusado(XLSX_MACRO_NAO_PERMITIDA,
+                                     "O arquivo contem macro.")
+            if any(n.replace("\\", "/").lower().startswith("xl/externallinks/")
+                   for n in nomes):
+                raise PacoteRecusado(XLSX_VINCULO_EXTERNO,
+                                     "O arquivo contem vinculo externo.")
+
+            if ("[Content_Types].xml" not in nomes
+                    or "xl/workbook.xml" not in nomes):
+                raise PacoteRecusado(
+                    XLSX_INVALIDO,
+                    "Estrutura minima do pacote Open XML ausente.")
+
+            # Somas lidas do indice do ZIP: nada e' descompactado aqui.
+            total = sum(e.file_size for e in entradas)
+            comprimido = sum(e.compress_size for e in entradas) or 1
+            if total > MAX_DESCOMPACTADO:
+                raise PacoteRecusado(
+                    XLSX_COMPACTACAO_INSEGURA,
+                    f"Conteudo descompactado de {total} bytes excede o limite.")
+            if total / comprimido > MAX_RAZAO_COMPRESSAO:
+                raise PacoteRecusado(
+                    XLSX_COMPACTACAO_INSEGURA,
+                    f"Razao de compressao {total / comprimido:.0f}:1 e' abusiva.")
+    except zipfile.BadZipFile as exc:
+        raise PacoteRecusado(XLSX_INVALIDO, "Pacote Open XML corrompido.") from exc

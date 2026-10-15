@@ -1,0 +1,5 @@
+# Scripts de deploy rodam em Linux: sempre LF, mesmo commitados do Windows.
+devops/** text eol=lf
+
+# XSD oficiais da NFS-e: guardados byte a byte como foram publicados (CRLF/BOM originais).
+dados/nfse/xsd/** -text

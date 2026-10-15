@@ -21,6 +21,26 @@ Acesse `http://<ip-do-servidor>:8600`. No **primeiro acesso** o site pede a
 criação do usuário administrador. A partir daí tudo é feito pela aba
 **Administração** do próprio site — veja a seção abaixo.
 
+## Emissão de NFS-e (aba 8)
+
+Somente web, **Fase 1: nada é transmitido**. A ferramenta importa a lista do
+cliente (planilha-modelo ou texto colado da conversa), confere cada nota,
+mostra o lote para revisão e, na aprovação, gera a DPS do padrão nacional
+validada no XSD oficial — uma prévia, sem efeito fiscal. Não lê certificado
+nem abre conexão com a Receita.
+
+O administrador libera `aba.nfse` e, separadamente, `nfse.perfis`,
+`nfse.importar`, `nfse.aprovar_emitir` e `nfse.exportar`. Usuário novo vem só
+com a aba. A aba mostra nomes de alunos e CPFs de responsáveis: libere com o
+mesmo cuidado de qualquer dado pessoal.
+
+O schema do `nfse.db` é criado sozinho na primeira abertura. Os XSD oficiais
+ficam em `dados/nfse/xsd/v1.01` (no Git, sem alteração).
+
+**Antes de usar com dados reais**, o endurecimento de segurança (cookie
+`Secure`, checagem de Origin/Host, limite de tentativas de login) tem de estar
+no ar — a constituição exige isso para exposição fora da rede interna.
+
 ## Patrimônio (aba 7)
 
 Somente web. O administrador libera `aba.patrimonio` e, separadamente,
@@ -114,6 +134,12 @@ Tudo em `dados_web\` (fora do git):
   (append-only, protegida por trigger no próprio SQLite)
 - `patrimonio.db` — Patrimônio: bens, pessoas, locais, responsabilidades,
   movimentações (append-only) e inventários
+- `nfse.db` — Emissão de NFS-e: perfis versionados, lotes, linhas recebidas,
+  correções, rodadas de conferência, DPS geradas e a trilha do domínio
+  (append-only, protegida por trigger). **Tem dados pessoais** (nomes de
+  alunos, CPFs de responsáveis)
+- `nfse\origens\<sha256>.xlsx` — as planilhas recebidas, imutáveis (o texto
+  colado fica dentro do `nfse.db`)
 - `conciliacao\origens\<sha256>.xlsx` — os relatórios da SEFAZ **originais**,
   imutáveis, nomeados pelo hash do conteúdo. São a evidência de cada número
   exibido: sem eles, a proveniência aponta para o vazio
@@ -130,8 +156,9 @@ uma falha visível. Duas formas seguras:
 1. Parar o `servidor.ps1`, copiar a pasta, subir de novo (mais simples); ou
 2. Com o site no ar, usar a API de backup do SQLite em cada `.db`:
    `.\.venv\Scripts\python.exe -c "import sqlite3; o=sqlite3.connect(r'dados_web\conciliacao.db'); d=sqlite3.connect(r'backup\conciliacao.db'); o.backup(d); d.close(); o.close()"`
-   e copiar `conciliacao\origens\` normalmente (os arquivos lá nunca mudam
-   depois de criados).
+   (o mesmo para `patrimonio.db` e `nfse.db`) e copiar `conciliacao\origens\`
+   e `nfse\origens\` normalmente (os arquivos lá nunca mudam depois de
+   criados).
 
 Backup online automatizado é uma feature à parte; não presuma que a cópia
 simples do diretório dá um snapshot consistente.
@@ -162,7 +189,13 @@ com "Executar estando o usuário conectado ou não".
 ## Observações
 
 - Rede interna (mesmo pressuposto dos demais sistemas). Exposição externa
-  exige HTTPS/proxy na frente.
+  exige HTTPS/proxy na frente. O servidor já traz as defesas para isso
+  (Origin nas mutações, cookie `Secure` atrás de HTTPS, limite de tentativas
+  de login, `X-Forwarded-For` só do proxy declarado, nosniff/CSP na API); o
+  endereço público e o IP do proxy entram pelas variáveis
+  `AUDITORIA_HOSTS_CONFIAVEIS` e `AUDITORIA_PROXIES_CONFIAVEIS` (no
+  serviço systemd, por `Environment=`) — o que cada uma faz está em
+  `src/auditoria_fiscal/config.py`.
 - O desktop (`dist\AuditoriaFiscal.exe`) continua funcionando durante a
   transição — mas conferências feitas no exe ficam no banco LOCAL da máquina
   (`%LOCALAPPDATA%\AuditoriaFiscal`), não no banco do servidor.

@@ -1,0 +1,18 @@
+XSD oficiais da NFS-e Nacional (Sistema Nacional NFS-e), leiaute v1.01
+=======================================================================
+
+Origem: pacote NFSe-ESQUEMAS_XSD-v1.01-20260209.zip, publicado em
+https://www.gov.br/nfse/pt-br/biblioteca/documentacao-tecnica/documentacao-atual/
+(arquivo nfse-esquemas_xsd-v1-01-20260209.zip).
+
+Baixado em 15/10/2026 pelo navegador (o servidor recusa download fora dele).
+SHA-256 do zip: e7935cbd9470527c6cc32984c1b2263e614183bf0139ce2733eaaed2de9a8072
+Tamanho do zip: 65 640 bytes.
+
+Os arquivos desta pasta sao a pasta Schemas/1.01/ do zip, sem nenhuma
+alteracao (o .gitattributes impede o Git de trocar o fim de linha).
+Nao edite estes arquivos. Leiaute novo = pasta nova (v1.02, ...) + versao
+nova do gerador em core/nfse_dps.py + testes.
+
+Uso: core/nfse_dps.py valida cada DPS contra DPS_v1.01.xsd, sem rede.
+Pesquisa sobre o leiaute: specs/006-emissao-nfse/research.md.

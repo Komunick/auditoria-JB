@@ -29,6 +29,7 @@ from fastapi import HTTPException, Request
 
 from . import permissoes
 from .auth import COOKIE_SESSAO, Usuario, agora_br, conexao, exigir_usuario
+from .seguranca import ip_do_cliente
 
 CAT_SESSAO = "sessao"
 CAT_NAVEGACAO = "navegacao"
@@ -183,6 +184,27 @@ ACOES: dict[str, Acao] = dict((
        CAT_DOWNLOAD, "patrimonio.exportar", "patrimonio"),
 
     # ------------------------------------------------------------------
+    # Emissao de NFS-e. O detalhe leva so IDs e contagens: nomes de alunos e
+    # CPFs de responsaveis ficam no nfse.db, nunca no historico de uso.
+    _a("nfse.perfil", "Cadastrou ou versionou perfil de emissao",
+       CAT_MUTACAO, "nfse.perfis", "nfse"),
+    _a("nfse.modelo", "Baixou a planilha-modelo da NFS-e",
+       CAT_DOWNLOAD, aba="nfse"),
+    _a("nfse.importar", "Importou lote de NFS-e",
+       CAT_MUTACAO, "nfse.importar", "nfse"),
+    _a("nfse.corrigir", "Corrigiu ou excluiu linha de lote de NFS-e",
+       CAT_MUTACAO, "nfse.importar", "nfse"),
+    _a("nfse.reconferir", "Reconferiu lote de NFS-e",
+       CAT_MUTACAO, "nfse.importar", "nfse"),
+    _a("nfse.aprovar", "Aprovou lote e gerou DPS (sem transmitir)",
+       CAT_MUTACAO, "nfse.aprovar_emitir", "nfse"),
+    # O slug depende do estado do lote (em revisao: importar; aprovado:
+    # aprovar_emitir); a rota confere depois de ler o lote.
+    _a("nfse.descartar", "Descartou lote de NFS-e", CAT_MUTACAO, aba="nfse"),
+    _a("nfse.exportar", "Baixou DPS ou resumo de lote de NFS-e",
+       CAT_DOWNLOAD, "nfse.exportar", "nfse"),
+
+    # ------------------------------------------------------------------
     # Administracao
     _a("admin.usuario_criado", "Criou um usuario", CAT_ADMIN,
        "admin.usuarios"),
@@ -226,13 +248,14 @@ def _criar(conn: sqlite3.Connection) -> None:
 
 
 def _ip(request: Request | None) -> str:
+    """IP validado; X-Forwarded-For so de proxy declarado (seguranca.py).
+
+    Antes, o primeiro valor do X-Forwarded-For ia direto para a trilha: o
+    cliente escolhia o proprio IP e, pelo CSV do historico, podia ate mandar
+    uma formula para a planilha do administrador."""
     if request is None:
         return ""
-    # Atras de proxy reverso (HTTPS futuro) o IP real vem no cabecalho.
-    encaminhado = request.headers.get("x-forwarded-for", "")
-    if encaminhado:
-        return encaminhado.split(",")[0].strip()
-    return request.client.host if request.client else ""
+    return ip_do_cliente(request)
 
 
 def registrar(acao: str, usuario: Usuario | None = None, *,
@@ -402,13 +425,14 @@ def varrer_sessoes_expiradas() -> None:
 
 
 def registrar_login(request: Request, usuario: Usuario | None,
-                    tentado: str = "") -> None:
+                    tentado: str = "", http_status: int = 401) -> None:
     """Login/logout ficam fora da dependency: no login ainda nao ha usuario e
-    no logout ele esta sendo destruido."""
+    no logout ele esta sendo destruido. `http_status` 429 = IP bloqueado pelo
+    limite de tentativas."""
     if usuario is None:
         registrar("sessao.login_negado", None,
                   detalhe=f"usuario informado: {tentado}", request=request,
-                  resultado=RESULTADO_NEGADO, http_status=401)
+                  resultado=RESULTADO_NEGADO, http_status=http_status)
     else:
         registrar("sessao.login", usuario, request=request)
 

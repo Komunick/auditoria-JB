@@ -65,6 +65,25 @@ def caminho_db_patrimonio() -> str:
     return os.path.join(pasta_dados_web(), "patrimonio.db")
 
 
+def caminho_db_nfse() -> str:
+    """Banco proprio da Emissao de NFS-e (perfis, lotes, conferencias e DPS).
+
+    Separado pelo mesmo motivo dos outros dominios fiscais: ciclo de vida,
+    trilha e backup proprios. Guarda dados pessoais (nomes de alunos, CPFs de
+    responsaveis) e por isso nunca vai para o Git (spec 006)."""
+    return os.path.join(pasta_dados_web(), "nfse.db")
+
+
+def pasta_origens_nfse() -> str:
+    """Planilhas recebidas, imutaveis, nomeadas pelo SHA-256.
+
+    Mesma regra das origens da conciliacao: fora de `sessoes/`, que pode ser
+    limpa a qualquer momento, porque a proveniencia aponta para o arquivo."""
+    pasta = os.path.join(pasta_dados_web(), "nfse", "origens")
+    os.makedirs(pasta, exist_ok=True)
+    return pasta
+
+
 def caminho_historico_produtos() -> str:
     return os.path.join(pasta_dados_web(), "historico_produtos.csv")
 
