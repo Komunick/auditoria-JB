@@ -21,6 +21,8 @@ import re
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 
+from . import documentos_br
+
 # ----------------------------------------------------------------------
 # Codigos de erro estaveis
 
@@ -202,24 +204,16 @@ def normalizar_cpf(valor) -> str:
     """CPF com 11 digitos e DV conferido. Vazio devolve string vazia.
 
     CPF e' opcional no cadastro de pessoa — nem todo colaborador precisa dele
-    para receber um monitor —, mas se vier, tem de ser valido.
+    para receber um monitor —, mas se vier, tem de ser valido. A regra mora
+    em `core/documentos_br.digitos_cpf`, compartilhada com a NFS-e.
     """
     bruto = str(valor or "").strip()
     if not bruto:
         return ""
-    digitos = re.sub(r"\D", "", bruto)
-    if len(digitos) != 11:
-        raise ErroPatrimonio(CPF_INVALIDO, "CPF deve ter 11 dígitos.")
-    if digitos == digitos[0] * 11:
-        raise ErroPatrimonio(CPF_INVALIDO, "CPF com dígitos repetidos.")
-    for tamanho in (9, 10):
-        soma = sum(int(digitos[i]) * (tamanho + 1 - i) for i in range(tamanho))
-        resto = (soma * 10) % 11
-        esperado = 0 if resto == 10 else resto
-        if esperado != int(digitos[tamanho]):
-            raise ErroPatrimonio(CPF_INVALIDO,
-                                 "Dígito verificador do CPF não confere.")
-    return digitos
+    try:
+        return documentos_br.digitos_cpf(bruto)
+    except documentos_br.DocumentoInvalido as exc:
+        raise ErroPatrimonio(CPF_INVALIDO, exc.mensagem) from exc
 
 
 # ----------------------------------------------------------------------

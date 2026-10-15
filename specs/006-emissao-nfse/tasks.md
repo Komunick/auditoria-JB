@@ -53,19 +53,19 @@ fixtures prontas.
 
 ## Phase 1 — Fundação compartilhada
 
-- [ ] T007 Criar `tests/test_documentos_br.py`: CPF (DV, repetidos, tamanho),
+- [x] T007 Criar `tests/test_documentos_br.py`: CPF (DV, repetidos, tamanho),
   CNPJ (DV, repetidos), decimal brasileiro (milhar, ambíguo recusado, fração
   de centavo, fórmula sem valor, célula numérica). Rodar e ver falhar.
-- [ ] T008 Criar `src/auditoria_fiscal/core/documentos_br.py` com as funções
+- [x] T008 Criar `src/auditoria_fiscal/core/documentos_br.py` com as funções
   extraídas de `core/patrimonio.py` (`normalizar_cpf`) e
   `core/conciliacao_sefaz.py` (`normalizar_cnpj`, `para_decimal`), com erro
   neutro; os módulos de origem delegam, mantendo nomes, mensagens e
   exceções. `test_patrimonio*.py` e `test_conciliacao*.py` continuam
   verdes.
-- [ ] T009 Mover `validar_pacote_xlsx` para `core/planilha_segura.py`, com o
+- [x] T009 Mover `validar_pacote_xlsx` para `core/planilha_segura.py`, com o
   mesmo nome reexportado em `core/conciliacao_sefaz.py`; suíte da
   conciliação continua verde.
-- [ ] T010 Adicionar `caminho_db_nfse()` e `pasta_origens_nfse()` em
+- [x] T010 Adicionar `caminho_db_nfse()` e `pasta_origens_nfse()` em
   `web/infra.py`, abaixo de `caminho_db_patrimonio()`.
 
 **Checkpoint**: patrimônio e conciliação intactos; validadores prontos para
