@@ -29,66 +29,21 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
-FORMATO_MOEDA = 'R$ #,##0.00;[RED]-R$ #,##0.00'
-PREFIXOS_PERIGOSOS = ("=", "+", "-", "@")
+from ..core.planilha_segura import (FORMATO_MOEDA, cnpj_formatado,
+                                    escrever_cabecalho, escrever_moeda,
+                                    escrever_texto, salvar_atomico,
+                                    sanitizar_texto)
 
-# Caracteres de controle que o Excel tambem interpreta no inicio de celula.
-_INICIO_FORMULA = re.compile(r"^[=+\-@\t\r]")
-
-
-def sanitizar_texto(valor) -> str:
-    """Neutraliza injecao de formula preservando o texto original.
-
-    O apostrofo inicial e' a marca do Excel para "isto e' texto": ele nao
-    aparece na celula, nao altera o conteudo lido e impede a avaliacao. Apagar
-    o caractere ou recusar o valor perderia dado da fonte — o objetivo e'
-    exibir exatamente o que veio, sem executar.
-    """
-    if valor is None:
-        return ""
-    texto = str(valor)
-    if _INICIO_FORMULA.match(texto):
-        return "'" + texto
-    return texto
-
-
-def _moeda(aba, linha: int, coluna: int, centavos: int | None) -> None:
-    """Centavos -> celula numerica. `None` deixa a celula VAZIA.
-
-    Vazio e zero sao coisas diferentes: no Quadro 50-5 nao existe DIMP, e um
-    `0,00` afirmaria que a empresa nao teve movimento eletronico.
-    """
-    celula = aba.cell(row=linha, column=coluna)
-    if centavos is None:
-        celula.value = None
-        return
-    celula.value = Decimal(centavos) / 100
-    celula.number_format = FORMATO_MOEDA
-
-
-def _texto(aba, linha: int, coluna: int, valor) -> None:
-    aba.cell(row=linha, column=coluna).value = sanitizar_texto(valor)
-
-
-def _cabecalho(aba, titulos: list[str]) -> None:
-    for coluna, titulo in enumerate(titulos, start=1):
-        celula = aba.cell(row=1, column=coluna)
-        celula.value = titulo
-        celula.font = Font(bold=True)
-        largura = max(12, min(len(titulo) + 4, 46))
-        aba.column_dimensions[get_column_letter(coluna)].width = largura
-    aba.freeze_panes = "A2"
-    if titulos:
-        aba.auto_filter.ref = f"A1:{get_column_letter(len(titulos))}1"
-
-
-def _cnpj_texto(cnpj: str) -> str:
-    """CNPJ como TEXTO: zero a esquerda some se o Excel achar que e' numero."""
-    digitos = "".join(c for c in str(cnpj or "") if c.isdigit())
-    if len(digitos) != 14:
-        return sanitizar_texto(cnpj)
-    return (f"{digitos[:2]}.{digitos[2:5]}.{digitos[5:8]}/"
-            f"{digitos[8:12]}-{digitos[12:]}")
+# Os helpers de escrita segura moram em `core/planilha_segura` porque o
+# Patrimonio precisa das MESMAS garantias. Duplicar um controle de
+# seguranca e' como uma das copias envelhece: alguem corrige um lado,
+# esquece o outro, e a vulnerabilidade volta pela porta que ninguem
+# estava olhando. Os aliases abaixo mantem os nomes ja usados no modulo.
+_moeda = escrever_moeda
+_texto = escrever_texto
+_cabecalho = escrever_cabecalho
+_cnpj_texto = cnpj_formatado
+_salvar_atomico = salvar_atomico
 
 
 ROTULO_ESTADO = {"em_revisao": "Em revisão", "aprovada": "Aprovada",
@@ -331,24 +286,6 @@ def gerar_consolidado(destino: str, *, conciliacoes: list[dict],
 
     _salvar_atomico(livro, destino)
     return destino
-
-
-def _salvar_atomico(livro: Workbook, destino: str) -> None:
-    """Salva num temporario e so entao move para o destino.
-
-    Falha no meio da escrita nao pode deixar um arquivo com cara de planilha
-    valida — que abriria corrompido na mao de quem confiou nele.
-    """
-    parcial = f"{destino}.parcial"
-    try:
-        livro.save(parcial)
-        os.replace(parcial, destino)
-    except Exception:
-        if os.path.exists(parcial):
-            os.remove(parcial)
-        if os.path.exists(destino):
-            os.remove(destino)
-        raise
 
 
 # ----------------------------------------------------------------------

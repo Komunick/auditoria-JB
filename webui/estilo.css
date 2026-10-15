@@ -401,3 +401,7 @@ label.permissao input { margin-top: 3px; }
 
 .conc-acoes { gap: 10px; align-items: center; margin-top: 10px; }
 .conc-acoes span { font-size: 12.5px; }
+
+/* Patrimonio (aba 7) — reusa .cartoes, .rolagem, .linha-form, .conc-* */
+.pat-checkbox { flex-direction: row !important; align-items: center; gap: 6px; }
+.pat-titulo { margin: 18px 0 8px; font-size: 14px; color: var(--destaque); }

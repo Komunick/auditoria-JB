@@ -168,6 +168,21 @@ ACOES: dict[str, Acao] = dict((
        CAT_DOWNLOAD, "conciliacao.preencher_modelo", "conciliacao"),
 
     # ------------------------------------------------------------------
+    # Patrimonio
+    _a("patrimonio.cadastrar", "Cadastrou ou editou um bem",
+       CAT_MUTACAO, "patrimonio.cadastrar", "patrimonio"),
+    _a("patrimonio.movimentar", "Movimentou um bem",
+       CAT_MUTACAO, "patrimonio.movimentar", "patrimonio"),
+    _a("patrimonio.baixar", "Deu baixa em um bem",
+       CAT_MUTACAO, "patrimonio.baixar", "patrimonio"),
+    _a("patrimonio.inventariar", "Conduziu o inventario",
+       CAT_MUTACAO, "patrimonio.inventariar", "patrimonio"),
+    _a("patrimonio.exportar", "Exportou a relacao de bens",
+       CAT_DOWNLOAD, "patrimonio.exportar", "patrimonio"),
+    _a("patrimonio.termo", "Gerou termo de responsabilidade",
+       CAT_DOWNLOAD, "patrimonio.exportar", "patrimonio"),
+
+    # ------------------------------------------------------------------
     # Administracao
     _a("admin.usuario_criado", "Criou um usuario", CAT_ADMIN,
        "admin.usuarios"),

@@ -21,6 +21,16 @@ Acesse `http://<ip-do-servidor>:8600`. No **primeiro acesso** o site pede a
 criação do usuário administrador. A partir daí tudo é feito pela aba
 **Administração** do próprio site — veja a seção abaixo.
 
+## Patrimônio (aba 7)
+
+Somente web. O administrador libera `aba.patrimonio` e, separadamente,
+`patrimonio.cadastrar`, `.movimentar`, `.baixar`, `.inventariar` e
+`.exportar`. A **baixa** tem permissão própria por ser irreversível.
+
+O schema do `patrimonio.db` é criado e migrado sozinho na primeira abertura.
+As etiquetas (`JBF-000001`) são sequenciais e **imutáveis** — o banco recusa
+alteração por trigger, porque elas ficam coladas nos equipamentos.
+
 ## Conciliação Fiscal (aba 6)
 
 A ferramenta é **somente web**. Depois de atualizar, o administrador precisa
@@ -102,6 +112,8 @@ Tudo em `dados_web\` (fora do git):
 - `conciliacao.db` — Conciliação Fiscal: conciliações, versões, movimentos
   DIMP, proveniência, exceções, conflitos, revisões e a **trilha fiscal**
   (append-only, protegida por trigger no próprio SQLite)
+- `patrimonio.db` — Patrimônio: bens, pessoas, locais, responsabilidades,
+  movimentações (append-only) e inventários
 - `conciliacao\origens\<sha256>.xlsx` — os relatórios da SEFAZ **originais**,
   imutáveis, nomeados pelo hash do conteúdo. São a evidência de cada número
   exibido: sem eles, a proveniência aponta para o vazio

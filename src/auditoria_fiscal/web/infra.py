@@ -55,6 +55,16 @@ def pasta_origens_conciliacao() -> str:
     return pasta
 
 
+def caminho_db_patrimonio() -> str:
+    """Banco proprio do Patrimonio (bens, responsabilidade e movimentacoes).
+
+    Separado pelo mesmo motivo do `conciliacao.db`: dominio com ciclo de vida,
+    trilha e backup proprios. Patrimonio e conciliacao fiscal nao tem relacao
+    entre si — juntar num banco so acoplaria coisas que evoluem em ritmos
+    diferentes."""
+    return os.path.join(pasta_dados_web(), "patrimonio.db")
+
+
 def caminho_historico_produtos() -> str:
     return os.path.join(pasta_dados_web(), "historico_produtos.csv")
 

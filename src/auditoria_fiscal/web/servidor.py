@@ -26,6 +26,7 @@ from .rotas_conciliacao import router as rotas_conciliacao
 from .rotas_conferencia import router as rotas_conferencia
 from .rotas_comparador import router as rotas_comparador
 from .rotas_diff import router as rotas_diff
+from .rotas_patrimonio import router as rotas_patrimonio
 from .rotas_extracao import router as rotas_extracao
 from .rotas_produtos import router as rotas_produtos
 
@@ -209,6 +210,7 @@ def criar_app() -> FastAPI:
     app.include_router(rotas_extracao)
     app.include_router(rotas_produtos)
     app.include_router(rotas_conciliacao)
+    app.include_router(rotas_patrimonio)
 
     # O mount estatico e' curinga em "/": tem de ser o ULTIMO. Registrado
     # antes, engoliria /api/conciliacao/** e a ferramenta responderia 404 do
