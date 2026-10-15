@@ -80,6 +80,7 @@ Uma linha por turma, por versão do perfil. Imutável junto da versão.
 |---|---|---|
 | id | INTEGER PK | |
 | perfil_versao_id | INTEGER FK | obrigatório |
+| ordem | INTEGER | ordem de exibição |
 | nome | TEXT | como aparece na discriminação |
 | nome_normalizado | TEXT | ver "Normalização de nomes e turmas"; `UNIQUE(perfil_versao_id, nome_normalizado)` |
 | categoria | TEXT NULL | `infantil` ou `fundamental` |
@@ -107,6 +108,7 @@ fundamental) é escolha do contador (JB-3).
 |---|---|---|
 | id | INTEGER PK | |
 | turma_id | INTEGER FK | obrigatório |
+| apelido | TEXT | como cadastrado |
 | apelido_normalizado | TEXT | ver "Normalização de nomes e turmas" |
 
 Nome e apelidos são únicos dentro da versão do perfil (checado na criação da
@@ -144,6 +146,8 @@ próxima tentativa (o mesmo padrão da conciliação).
 | conferencia_atual_id | INTEGER FK NULL | rodada vigente |
 | estado | TEXT | `em_revisao`, `aprovado`, `descartado` |
 | revision | INTEGER | concorrência otimista, inicia 1 |
+| avisos_importacao | TEXT | JSON: avisos do lote vindos da leitura (coluna desconhecida, texto antes do primeiro bloco) |
+| linhas_ignoradas | INTEGER | linhas vazias da planilha, contadas |
 | criado_em / criado_por_id / _login | | snapshot |
 | aprovado_em / aprovado_por_id / _login | NULL | preenchidos na aprovação |
 | hash_aprovacao | TEXT NULL | SHA-256 do conteúdo aprovado (abaixo) |
@@ -234,6 +238,8 @@ Uma rodada. Imutável.
 | perfil_versao_id | INTEGER FK | versão usada |
 | versao_regras | TEXT | versão de `nfse_conferencia` |
 | motivo | TEXT | `importacao`, `correcao` ou `reconferencia` |
+| hoje | TEXT | data usada na regra de competência futura |
+| competencia_predominante | TEXT NULL | a mais frequente do lote, se única |
 | executada_em / executada_por_id / _login | | snapshot |
 
 ## 10. `conferencia_linha`
@@ -250,6 +256,8 @@ Valores normalizados de cada linha naquela rodada. Imutável.
 | competencia | TEXT NULL | `AAAA-MM` se válida |
 | valor_centavos | INTEGER NULL | se válido |
 | turma_id | INTEGER FK NULL | se resolvida |
+| responsavel / aluno | TEXT NULL | nomes normalizados |
+| endereco | TEXT NULL | JSON do endereço da DPS, só com `endereco_tomador = 'informar'` e completo |
 | chave_duplicata | TEXT NULL | `cpf|aluno_normalizado|competencia`, se os três existem |
 | discriminacao | TEXT NULL | montada, se possível |
 | situacao | TEXT | `ok`, `aviso`, `bloqueio` ou `excluida` |
@@ -488,7 +496,9 @@ mês a creche usa: JB-11.
 Apontamentos do **lote** (não da linha), calculados na hora e devolvidos pela
 API, sem tabela própria: `PERFIL_COM_PENDENCIA`, `PERFIL_DESATUALIZADO`
 (rodada feita com versão antiga), `LOTE_VAZIO` (todas as linhas excluídas) e
-`COLUNA_DESCONHECIDA` (aviso da planilha).
+`AVISO_IMPORTACAO` (o que veio em `lote.avisos_importacao`). A rota de
+aprovação recusa com `AVISOS_NAO_CONFIRMADOS` quando há linha com aviso e o
+pedido não traz `confirmar_avisos`.
 
 ## Da linha para a DPS
 

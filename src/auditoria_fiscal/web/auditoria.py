@@ -183,6 +183,27 @@ ACOES: dict[str, Acao] = dict((
        CAT_DOWNLOAD, "patrimonio.exportar", "patrimonio"),
 
     # ------------------------------------------------------------------
+    # Emissao de NFS-e. O detalhe leva so IDs e contagens: nomes de alunos e
+    # CPFs de responsaveis ficam no nfse.db, nunca no historico de uso.
+    _a("nfse.perfil", "Cadastrou ou versionou perfil de emissao",
+       CAT_MUTACAO, "nfse.perfis", "nfse"),
+    _a("nfse.modelo", "Baixou a planilha-modelo da NFS-e",
+       CAT_DOWNLOAD, aba="nfse"),
+    _a("nfse.importar", "Importou lote de NFS-e",
+       CAT_MUTACAO, "nfse.importar", "nfse"),
+    _a("nfse.corrigir", "Corrigiu ou excluiu linha de lote de NFS-e",
+       CAT_MUTACAO, "nfse.importar", "nfse"),
+    _a("nfse.reconferir", "Reconferiu lote de NFS-e",
+       CAT_MUTACAO, "nfse.importar", "nfse"),
+    _a("nfse.aprovar", "Aprovou lote e gerou DPS (sem transmitir)",
+       CAT_MUTACAO, "nfse.aprovar_emitir", "nfse"),
+    # O slug depende do estado do lote (em revisao: importar; aprovado:
+    # aprovar_emitir); a rota confere depois de ler o lote.
+    _a("nfse.descartar", "Descartou lote de NFS-e", CAT_MUTACAO, aba="nfse"),
+    _a("nfse.exportar", "Baixou DPS ou resumo de lote de NFS-e",
+       CAT_DOWNLOAD, "nfse.exportar", "nfse"),
+
+    # ------------------------------------------------------------------
     # Administracao
     _a("admin.usuario_criado", "Criou um usuario", CAT_ADMIN,
        "admin.usuarios"),

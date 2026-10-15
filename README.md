@@ -15,11 +15,51 @@ SPED Fiscal e XML de NF-e, indexado pela **chave de acesso de 44 dígitos**.
 | 5 | **Auditoria da tributação do cadastro de produtos (BA)** | ✅ funcional (app, aba 5) |
 | 6 | **Conciliação Fiscal — Receita e DIMP (SEFAZ/BA)** | ✅ funcional (**somente web**, aba 6) |
 | 7 | **Patrimônio — bens e responsabilidade** | ✅ funcional (**somente web**, aba 7) |
+| 8 | **Emissão de NFS-e — Fase 1 (DPS sem envio)** | ✅ funcional (**somente web**, aba 8) |
 
 O app desktop tem **cinco abas**: *Comparador SPED × SEFAZ*, *Comparar versões
 de SPED*, *Livro de Conferência*, *Extração de Itens* e *Auditoria de Produtos*.
-A **Conciliação Fiscal** e o **Patrimônio** existem apenas na versão web,
-porque dependem do banco de permissões e da trilha de auditoria do servidor.
+A **Conciliação Fiscal**, o **Patrimônio** e a **Emissão de NFS-e** existem
+apenas na versão web, porque dependem do banco de permissões e da trilha de
+auditoria do servidor.
+
+## Emissão de NFS-e (aba 8, web) — Fase 1
+
+Recebe a lista de cobranças de um cliente prestador do Simples (planilha-modelo
+ou texto colado da conversa do WhatsApp), monta cada nota pelo **perfil de
+emissão** do cliente, confere tudo, mostra o lote para revisão e, na
+aprovação, gera a **DPS** do padrão nacional (leiaute v1.01). **Nada é
+transmitido nesta fase**: a DPS sai para o ambiente de produção restrita,
+validada no XSD oficial, e toda saída leva a marca "DPS NÃO TRANSMITIDA".
+Spec, pesquisa do leiaute e pendências em `specs/006-emissao-nfse/`.
+
+Quatro decisões estruturam a ferramenta:
+
+- **Pendência não vira padrão.** O que depende de resposta da JB ou do Sistema
+  Nacional (endereço do tomador, regime do Simples, tributos aproximados,
+  registro no CNC) fica vazio no perfil, e perfil com pendência não gera DPS.
+  O que a documentação oficial decide (quando a alíquota vai na DPS, faixa da
+  série) é aplicado pelo sistema.
+- **O que a escola mandou nunca é apagado.** Cada valor guarda de onde veio
+  (célula da planilha ou linha do texto); a correção exige motivo e prevalece
+  sem apagar o original; cada correção gera uma rodada nova de conferência.
+- **Aprovação tudo ou nada.** Reserva das notas, numeração e DPS na mesma
+  transação; a mesma nota não é aprovada duas vezes nem por aprovações
+  simultâneas (índice único no banco); número de DPS nunca volta.
+- **Sem rede.** O núcleo (`core/nfse*.py`) não importa nada de rede, e o teste
+  web roda o fluxo inteiro com conexões para fora bloqueadas.
+
+O XSD oficial (`dados/nfse/xsd/v1.01`) não é editado. O padrão da série nele
+usa `^` e `$`, que no XML Schema são caracteres comuns; o validador corrige só
+esse padrão, em memória, e um teste avisa se o governo mudar o arquivo.
+
+### Permissões (5 slugs)
+
+`aba.nfse` é o portão (e já mostra nomes de alunos e CPFs). Cada ação exige
+cumulativamente a aba e o slug próprio: `nfse.perfis` (perfil e versões),
+`nfse.importar` (importar, corrigir, reconferir, descartar lote em revisão),
+`nfse.aprovar_emitir` (aprovar e gerar DPS, descartar lote aprovado) e
+`nfse.exportar` (XML, zip e planilha-resumo). Usuário novo recebe só a aba.
 
 ## Patrimônio (aba 7, web)
 
@@ -347,6 +387,17 @@ auditoria-fiscal/
 .\.venv\Scripts\python.exe tests\test_web_produtos_fdb.py # item 5 via .FDB (pula sem Firebird)
 .\.venv\Scripts\python.exe tests\test_fdb_reader.py       # leitor de .FDB (pula sem Firebird)
 .\.venv\Scripts\python.exe tests\test_web_permissoes.py   # permissoes + historico
+.\.venv\Scripts\python.exe tests\test_web_nfse.py         # aba 8 na web (fluxo, permissoes, sem rede)
+
+# Emissao de NFS-e (aba 8): nucleo, banco e saidas
+.\.venv\Scripts\python.exe tests\test_documentos_br.py    # CPF, CNPJ, decimal e pacote xlsx compartilhados
+.\.venv\Scripts\python.exe tests\test_nfse.py             # perfil, pendencias, regra da aliquota
+.\.venv\Scripts\python.exe tests\test_nfse_entrada.py     # planilha-modelo e texto colado
+.\.venv\Scripts\python.exe tests\test_nfse_conferencia.py # catalogo de apontamentos
+.\.venv\Scripts\python.exe tests\test_nfse_dps.py         # DPS v1.01 contra o XSD oficial
+.\.venv\Scripts\python.exe tests\test_nfse_store.py       # banco, aprovacao tudo ou nada, concorrencia
+.\.venv\Scripts\python.exe tests\test_relatorio_nfse.py   # planilha-modelo, resumo e zip
+.\.venv\Scripts\python.exe tests\benchmark_nfse.py        # SC-010 (fora da suite: mede tempo)
 
 # validacoes com o SPED real (ajuste o caminho nos scripts)
 .\.venv\Scripts\python.exe tests\validacao_real.py    # pipeline item 1

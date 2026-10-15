@@ -196,31 +196,38 @@ Git antes deste PR, esta passa a ser a nona, e só o rótulo muda.
 
 ## Rotas (contrato resumido)
 
-Todas sob `/api/nfse`, todas exigem sessão e `aba.nfse`.
+Todas sob `/api/nfse`, todas exigem sessão e `aba.nfse`. Como nas outras
+ferramentas, mutação e download são `POST` e passam por `acesso(<ação>)`,
+que registra a tentativa na trilha geral, inclusive a negada.
 
 | Método e rota | Slug adicional | Faz |
 |---|---|---|
-| `GET /perfis` | — | lista perfis com pendências |
-| `GET /perfis/{id}` | — | perfil, versões e turmas |
+| `GET /perfis` | — | lista perfis com o número de pendências |
+| `GET /perfis/{id}` | — | perfil, versão atual, turmas, versões e pendências |
+| `GET /catalogo` | — | campos do modelo, faixas e campos corrigíveis |
 | `POST /perfis` | `nfse.perfis` | cria perfil (versão 1) |
 | `POST /perfis/{id}/versoes` | `nfse.perfis` | cria versão nova |
-| `GET /planilha-modelo` | — | baixa a planilha-modelo em branco |
+| `POST /planilha-modelo` | — | baixa a planilha-modelo em branco |
 | `POST /lotes/planilha` | `nfse.importar` | multipart com `perfil_id` e o `.xlsx` |
 | `POST /lotes/texto` | `nfse.importar` | JSON com `perfil_id` e `texto` |
 | `GET /lotes` | — | lista com filtros por allowlist e paginação |
-| `GET /lotes/{id}` | — | linhas, valores efetivos, apontamentos, origem e totais |
+| `GET /lotes/{id}` | — | linhas, valores efetivos, apontamentos, origem, totais e DPS |
+| `GET /lotes/{id}/eventos` | — | trilha de domínio do lote |
+| `GET /lotes/{id}/linhas/{linha_id}/correcoes` | — | histórico de correções da linha |
 | `POST /lotes/{id}/linhas/{linha_id}/correcoes` | `nfse.importar` | corrige campo ou exclui/reinclui linha; exige `revision` e `motivo` |
 | `POST /lotes/{id}/reconferir` | `nfse.importar` | nova rodada com a versão atual do perfil |
-| `POST /lotes/{id}/aprovar` | `nfse.aprovar_emitir` | aprova e gera as DPS; exige `revision` |
+| `POST /lotes/{id}/aprovar` | `nfse.aprovar_emitir` | aprova e gera as DPS; exige `revision` e, se houver aviso, `confirmar_avisos` |
 | `POST /lotes/{id}/descartar` | `nfse.importar` (em revisão) ou `nfse.aprovar_emitir` (aprovado) | descarta com motivo |
-| `GET /lotes/{id}/dps.zip` | `nfse.exportar` | zip com as DPS |
-| `GET /lotes/{id}/resumo.xlsx` | `nfse.exportar` | planilha-resumo |
-| `GET /dps/{id}.xml` | `nfse.exportar` | XML de uma DPS |
+| `POST /lotes/{id}/dps-zip` | `nfse.exportar` | zip com as DPS e um LEIA-ME |
+| `POST /lotes/{id}/resumo` | `nfse.exportar` | planilha-resumo |
+| `POST /dps/{id}/xml` | `nfse.exportar` | XML de uma DPS |
 
-Códigos: 401 sem sessão, 403 sem permissão, 404 recurso de outro perfil ou
-inexistente, 409 revisão desatualizada ou corrida perdida, 422 regra de
-negócio (bloqueio, pendência de perfil, lote vazio), 413 arquivo ou texto
-grande demais.
+Códigos: 401 sem sessão, 403 sem permissão, 404 inexistente, 409 revisão
+desatualizada, estado que não permite a ação, corrida perdida na reserva da
+nota ou lote sem DPS, 422 regra de negócio (bloqueio, pendência de perfil,
+lote vazio, avisos não confirmados, campo inválido), 413 arquivo ou texto
+grande demais. O corpo do erro traz `detail`, `code` e, quando cabe, `campo`
+ou `current_revision`.
 
 ## Pesquisas na documentação oficial (parte da Fase 1)
 

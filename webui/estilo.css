@@ -944,3 +944,34 @@ label.permissao input { margin-top: 3px; }
   .usuario-chip { padding: 4px; border-color: transparent; background: transparent; }
   .cabecalho h1 { font-size: 16px; }
 }
+
+/* ------------------------------------------------------------------
+   Aba 8 — Emissao de NFS-e */
+.nfse-texto {
+  width: 100%; min-height: 120px; padding: 10px 12px; resize: vertical;
+  border: 1px solid var(--campo-borda); border-radius: 8px;
+  background: var(--papel); font-family: inherit; line-height: 1.45;
+}
+.nfse-faixa {
+  margin: 10px 0; padding: 9px 12px; border-radius: 8px; font-weight: 600;
+  background: var(--dourado-suave); border: 1px solid var(--dourado-linha);
+  color: var(--dourado-texto);
+}
+.nfse-faixa.aviso {
+  background: var(--alerta-suave); border-color: var(--alerta-linha);
+  color: var(--alerta);
+}
+.nfse-faixa.erro {
+  background: var(--erro-suave); border-color: var(--erro-linha); color: var(--erro);
+}
+.nfse-discriminacao {
+  margin: 6px 0 12px; padding: 10px 12px; border-left: 3px solid var(--menta);
+  background: var(--papel-2); font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px; white-space: pre-wrap; word-break: break-word;
+}
+.nfse-linha-detalhe:empty { display: none; }
+.nfse-linha-detalhe {
+  margin-top: 14px; padding: 4px 14px 14px; border: 1px solid var(--borda);
+  border-radius: 10px; background: var(--papel-2);
+}
+.nfse-grade label { min-width: 200px; }

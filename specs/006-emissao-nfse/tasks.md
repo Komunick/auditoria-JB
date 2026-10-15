@@ -161,9 +161,11 @@ a NFS-e.
 
 ## Phase 4 — API e portal
 
-- [ ] T026 Adicionar ao `tests/test_web_permissoes.py` o catálogo com os
-  cinco slugs, o padrão de usuário novo (só `aba.nfse`) e a negação da aba.
-- [ ] T027 Criar `tests/test_web_nfse.py`: 401 e 403 em cada rota da tabela
+- [x] T026 Conferir o catálogo com os cinco slugs, o padrão de usuário novo
+  (só `aba.nfse`) e a negação da aba. Feito em `tests/test_web_nfse.py`, como
+  o Patrimônio fez em `test_web_patrimonio.py`; `test_web_permissoes.py`
+  segue verde sem mudança.
+- [x] T027 Criar `tests/test_web_nfse.py`: 401 e 403 em cada rota da tabela
   do `plan.md`; fluxo completo (perfil → planilha → texto → corrigir →
   reconferir → aprovar → baixar); 409 com revisão velha e na aprovação
   concorrente; 422 com pendência e com bloqueio; 413 com arquivo e texto
@@ -171,17 +173,17 @@ a NFS-e.
   ignorado); varredura da trilha geral sem nenhum CPF ou nome das
   fixtures; o fluxo completo roda com `socket.socket.connect` trocado por
   função que falha.
-- [ ] T028 Adicionar `GRUPO_NFSE` e os cinco slugs em `web/permissoes.py`
+- [x] T028 Adicionar `GRUPO_NFSE` e os cinco slugs em `web/permissoes.py`
   (rótulo `8. Emissao de NFS-e`); incluir só `aba.nfse` em
   `PADRAO_NOVO_USUARIO`.
-- [ ] T029 Adicionar as ações auditáveis em `web/auditoria.py`, separando
+- [x] T029 Adicionar as ações auditáveis em `web/auditoria.py`, separando
   perfil, importação, correção, aprovação, descarte e download, com detalhe
   só de IDs e contagens.
-- [ ] T030 Criar `web/rotas_nfse.py` com as rotas do `plan.md`.
-- [ ] T031 Registrar o router antes do mount estático em `web/servidor.py`.
-- [ ] T032 Adicionar botão, section e script da oitava ferramenta em
+- [x] T030 Criar `web/rotas_nfse.py` com as rotas do `plan.md`.
+- [x] T031 Registrar o router antes do mount estático em `web/servidor.py`.
+- [x] T032 Adicionar botão, section e script da oitava ferramenta em
   `webui/index.html`, sem renumerar as sete anteriores.
-- [ ] T033 Criar `webui/nfse.js` com as subtelas Perfis, Importar e Lotes
+- [x] T033 Criar `webui/nfse.js` com as subtelas Perfis, Importar e Lotes
   (revisão com apontamentos, correção com motivo, confirmação dos avisos,
   aprovação e descarte), reusando os helpers de `webui/app.js`.
 
@@ -191,14 +193,14 @@ a NFS-e.
 
 ## Phase 5 — Saídas
 
-- [ ] T034 Criar `tests/test_relatorio_nfse.py`: planilha-modelo (abas,
+- [x] T034 Criar `tests/test_relatorio_nfse.py`: planilha-modelo (abas,
   rótulos, CPF como texto, nenhum dado); resumo (colunas, moeda numérica,
   texto com `=`, `+`, `-` e `@` neutralizado, marca "DPS NÃO TRANSMITIDA");
   zip (um XML por DPS, nomes com a marca, SHA-256 de cada XML igual ao
   gravado); falha no meio não deixa arquivo parcial.
-- [ ] T035 Criar `ferramentas/relatorio_nfse.py` com planilha-modelo,
+- [x] T035 Criar `ferramentas/relatorio_nfse.py` com planilha-modelo,
   resumo e zip, sem dependência de FastAPI, usando `core/planilha_segura.py`.
-- [ ] T036 Implementar as rotas de download auditadas e a área de downloads
+- [x] T036 Implementar as rotas de download auditadas e a área de downloads
   em `webui/nfse.js`.
 
 **Checkpoint**: saídas prontas e auditadas.
@@ -207,21 +209,29 @@ a NFS-e.
 
 ## Phase 6 — Documentação e aceite
 
-- [ ] T037 Atualizar `README.md` (oitava ferramenta, o que ela não faz:
+- [x] T037 Atualizar `README.md` (oitava ferramenta, o que ela não faz:
   transmitir; permissões; `nfse.db`; origens) e `README-servidor.md`
   (backup de `nfse.db` e `dados_web/nfse/`).
-- [ ] T038 Benchmark de SC-010: lote fictício de 500 linhas importado e
-  conferido; otimizar índices se necessário.
+- [x] T038 Benchmark de SC-010: lote fictício de 500 linhas importado e
+  conferido; otimizar índices se necessário. `tests/benchmark_nfse.py`: 0,24 s
+  no notebook de desenvolvimento em 15/10/2026 (meta 5 s, a medir também no
+  servidor).
 - [ ] T039 Aceite de SC-009: lote fictício de 30 notas importado, revisado e
-  aprovado por uma pessoa, cronometrado; registrar o tempo no PR.
-- [ ] T040 Smoke no navegador: usuário com e sem cada permissão, temas, tela
+  aprovado por uma pessoa, cronometrado; registrar o tempo no PR. **Pendente:
+  precisa de uma atendente da JB.**
+- [x] T040 Smoke no navegador: usuário com e sem cada permissão, temas, tela
   estreita, importação pelos dois caminhos, correção, aprovação, descarte e
-  downloads.
-- [ ] T041 Rodar a suíte inteira e revisar o diff (sem Flask, iframe, porta
+  downloads. Feito em 15/10/2026 num servidor local com dados fictícios:
+  lista, revisão, correção, aprovação com confirmação de avisos, nova versão
+  do perfil, importação de texto e tela de 375 px (sem rolagem horizontal).
+  Permissões por usuário, upload de planilha, descarte e downloads ficaram
+  cobertos pelo `test_web_nfse.py`, não pelo navegador.
+- [x] T041 Rodar a suíte inteira e revisar o diff (sem Flask, iframe, porta
   nova, credencial, banco, dado real ou chamada de rede).
 - [ ] T042 Portão de produção: antes de usar com dados reais, confirmar que
   o endurecimento de segurança (Fase 0 do briefing) está no ar. Esta tarefa
-  verifica; não implementa o endurecimento.
+  verifica; não implementa o endurecimento. **Não atendido em 15/10/2026**:
+  a produção segue sem o endurecimento (conferido em 25/09).
 
 ## Dependencies
 
