@@ -21,7 +21,7 @@ from auditoria_fiscal.ferramentas.livro_fiscal import (  # noqa: E402
     gerar_livro_fiscal, montar_blocos,
 )
 from auditoria_fiscal.ferramentas.livro_inconsistencias import (  # noqa: E402
-    montar_blocos_inconsistencias,
+    TITULO, montar_blocos_inconsistencias,
 )
 
 D = Decimal
@@ -108,16 +108,16 @@ def main() -> int:
     except ValueError:
         pass
 
-    # ---- Cenario 6: relatorio de inconsistencias com correcoes ----
+    # ---- Cenario 6: Carta de Inconsistencias com correcoes ----
     blocos_inc = montar_blocos_inconsistencias([nota], estados, correcoes)
     checar(len(blocos_inc) == 1, "inconsistencias: 1 bloco")
     bi = blocos_inc[0]
-    checar(any("1102 -> 1403" in t for t in bi["correcoes"]),
-           f"trilha da correcao ausente: {bi['correcoes']}")
-    checar(any("usuario: ana" in t for t in bi["correcoes"]),
-           "usuario responsavel ausente")
-    checar(any("tipo: manual" in t for t in bi["correcoes"]),
-           "tipo de correcao ausente")
+    checar(TITULO == "CARTA DE INCONSISTÊNCIAS", f"titulo incorreto: {TITULO}")
+    checar(bi["titulo"] == "NF 101",
+           f"cabecalho da nota deve conter somente o numero: {bi['titulo']}")
+    checar("chave_texto" not in bi, "chave de acesso nao deve sair na carta")
+    checar(bi["correcoes"] == ["CFOP: 1102 -> 1403"],
+           f"correcao deve omitir metadados internos: {bi['correcoes']}")
     checar(bi["inconsistencia"] == "CFOP a revisar", "descricao ausente")
     # Detalhe por aliquota: grupos com BC/aliquota/ICMS separados
     checar(any("Aliquota 20,50%" in g[0] for g in bi["grupos"]),
@@ -135,7 +135,7 @@ def main() -> int:
         for f in falhas:
             print("  -", f)
         return 1
-    print("OK - Livro Fiscal e relatorio de inconsistencias passaram.")
+    print("OK - Livro Fiscal e Carta de Inconsistencias passaram.")
     return 0
 
 

@@ -1,7 +1,7 @@
 """Composicao fiscal da nota: agrupamento por CFOP -> CST -> aliquota de ICMS.
 
 Hierarquia de agrupamento (usada pela tela de conferencia, pelo Livro Fiscal
-e pelo relatorio de inconsistencias — sempre a MESMA funcao, para nao haver
+e pela Carta de Inconsistencias — sempre a MESMA funcao, para nao haver
 divergencia entre as saidas):
 
     1. Nota fiscal

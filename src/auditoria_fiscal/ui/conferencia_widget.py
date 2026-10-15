@@ -690,7 +690,7 @@ class ConferenciaWidget(QWidget):
         """Edicao inline de CFOP/CST/Aliquota vira correcao registrada.
 
         Mesma precedencia central do botao "Corrigir campo fiscal": vale
-        para a tela, o Livro Fiscal (PDF), o relatorio de inconsistencias
+        para a tela, o Livro Fiscal (PDF), a Carta de Inconsistencias
         e o SPED corrigido.
         """
         if self._comp_carregando:
@@ -933,7 +933,7 @@ class ConferenciaWidget(QWidget):
             f"Alterar {d['rotulo']} de {d['original']} para {d['novo']} "
             f"em {alvo}?\n\nO valor original sera preservado no historico "
             "de auditoria e a correcao valera para a tela, o Livro Fiscal, "
-            "o relatorio de inconsistencias e o SPED corrigido.",
+            "a Carta de Inconsistencias e o SPED corrigido.",
             QMessageBox.Yes | QMessageBox.No)
         if resp != QMessageBox.Yes:
             return
@@ -1010,40 +1010,39 @@ class ConferenciaWidget(QWidget):
     def _gerar_livro(self) -> None:
         if not self._notas:
             QMessageBox.information(
-                self, "Relatorio de Inconsistencias",
-                "Carregue as notas antes de gerar o relatorio.")
+                self, "Carta de Inconsistencias",
+                "Carregue as notas antes de gerar a carta.")
             return
         estados = self._store.carregar()
         correcoes = self._store.todas_correcoes()
         inconsistentes = notas_inconsistentes(self._notas, estados, correcoes)
         if not inconsistentes:
             QMessageBox.information(
-                self, "Relatorio de Inconsistencias",
+                self, "Carta de Inconsistencias",
                 "Nenhuma nota carregada tem observacao ou correcao.\n\n"
                 "Registre as inconsistencias na coluna Observacao (ou aplique "
                 "correcoes) e gere novamente.")
             return
         caminho, _ = QFileDialog.getSaveFileName(
-            self, "Salvar Relatorio de Inconsistencias",
-            "relatorio_inconsistencias.pdf", "PDF (*.pdf)")
+            self, "Salvar Carta de Inconsistencias",
+            "carta_inconsistencias.pdf", "PDF (*.pdf)")
         if not caminho:
             return
-        self._status.setText("Gerando Relatorio de Inconsistencias...")
-        filtro = f"{ROTULO_FILTRO_ENTRADAS}." if self._filtro_entradas else ""
+        self._status.setText("Gerando Carta de Inconsistencias...")
         try:
             gerar_livro_inconsistencias(self._notas, estados, caminho,
-                                        contexto=self._contexto, filtro=filtro,
+                                        contexto=self._contexto,
                                         correcoes_por_chave=correcoes)
             abrir_arquivo(caminho)
         except Exception as exc:  # noqa: BLE001
             QMessageBox.critical(
                 self, "Erro",
-                f"Nao foi possivel gerar o Relatorio de Inconsistencias:"
+                f"Nao foi possivel gerar a Carta de Inconsistencias:"
                 f"\n\n{exc}")
-            self._status.setText("Erro ao gerar o Relatorio de Inconsistencias.")
+            self._status.setText("Erro ao gerar a Carta de Inconsistencias.")
             return
         self._status.setText(
-            f"Relatorio de Inconsistencias gerado com "
+            f"Carta de Inconsistencias gerada com "
             f"{len(inconsistentes)} nota(s).")
 
     def _gerar_sped(self) -> None:

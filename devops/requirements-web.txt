@@ -1,0 +1,32 @@
+# Dependências SÓ do site (versão web), para VM Linux com pouco disco.
+#
+# É o requirements.txt da raiz menos três pacotes que o servidor.py nunca
+# importa:
+#   PySide6 — interface desktop (src/auditoria_fiscal/ui); centenas de MB
+#             instalados e inútil numa VM sem tela;
+#   fdb     — driver Firebird; o motor embedded (vendor/firebird25) é binário
+#             Windows, então em Linux a importação de cadastro por .FDB já
+#             aparece indisponível na tela, com aviso, antes de tocar no fdb;
+#   httpx   — só o TestClient dos testes.
+#
+# ATENÇÃO: o requirements.txt da raiz continua sendo a fonte da verdade.
+# Este arquivo é uma cópia enxuta e NÃO se atualiza sozinho — sempre que
+# mexer no requirements.txt, confira se a mudança precisa vir para cá.
+# Para usar: REQUISITOS_REL="devops/requirements-web.txt" no devops/config.env.
+
+# Servidor da API + uploads multipart
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9
+
+# Leitura de XML da NF-e
+lxml>=5.0
+
+# Planilhas .xlsx
+openpyxl>=3.1
+
+# Manipulação tabular e exportação
+pandas>=2.2
+
+# DANFE (PDF) do Livro de Conferência
+brazilfiscalreport>=1.0
