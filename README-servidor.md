@@ -189,7 +189,13 @@ com "Executar estando o usuário conectado ou não".
 ## Observações
 
 - Rede interna (mesmo pressuposto dos demais sistemas). Exposição externa
-  exige HTTPS/proxy na frente.
+  exige HTTPS/proxy na frente. O servidor já traz as defesas para isso
+  (Origin nas mutações, cookie `Secure` atrás de HTTPS, limite de tentativas
+  de login, `X-Forwarded-For` só do proxy declarado, nosniff/CSP na API); o
+  endereço público e o IP do proxy entram pelas variáveis
+  `AUDITORIA_HOSTS_CONFIAVEIS` e `AUDITORIA_PROXIES_CONFIAVEIS` (no
+  serviço systemd, por `Environment=`) — o que cada uma faz está em
+  `src/auditoria_fiscal/config.py`.
 - O desktop (`dist\AuditoriaFiscal.exe`) continua funcionando durante a
   transição — mas conferências feitas no exe ficam no banco LOCAL da máquina
   (`%LOCALAPPDATA%\AuditoriaFiscal`), não no banco do servidor.
