@@ -70,11 +70,16 @@ campo ou turma cria a versão seguinte. Cada rodada de conferência e cada DPS
 apontam a versão usada; sem isso, não daria para dizer de qual configuração
 saiu uma nota.
 
-Os campos que dependem de JB-2, JB-8, R3 e R4 aceitam `NULL`, e `NULL`
+Os campos que dependem de JB-2, JB-8 e R5 aceitam `NULL`, e `NULL`
 significa "pendente". A função pura `pendencias_do_perfil()` lista o que
 falta, com a origem de cada item (JB-n ou Rn), e o gerador recusa perfil com
 pendência. Não existe valor padrão no código para esses campos, e um teste
 garante isso.
+
+O que a documentação oficial decide não vira campo: `regra_aliquota()` aplica
+a tabela de `pAliq` do Anexo I (`research.md`) e a validação do perfil aplica
+E0175 (regime especial 0 com ISS pelo Simples), E0595 (alíquota até 5%) e a
+faixa de série E0010.
 
 ### Proveniência por campo
 
@@ -134,11 +139,11 @@ qualquer DPS a partir do que está gravado.
 
 ### Validação no XSD sem editar os arquivos do governo
 
-O XSD fica versionado como foi publicado. O `XMLSchema` do lxml é carregado
-com resolvedor só de arquivos locais e `no_network`. Se R1 mostrar que o XSD
-exige `Signature` na DPS, a Fase 1 valida o `infDPS` por um esquema-invólucro
-local que importa o oficial e declara um elemento do tipo de `infDPS`; o
-oficial não é alterado.
+O XSD fica versionado como foi publicado (`.gitattributes` marca a pasta como
+binária, para o Git não trocar o fim de linha). O `XMLSchema` do lxml é
+carregado com resolvedor só de arquivos locais e `no_network`. A `Signature`
+é 0-1 no `TCDPS` (R1), então a DPS sem assinatura valida direto no
+`DPS_v1.01.xsd`.
 
 ### Sem rede, provado por teste
 
@@ -219,18 +224,19 @@ grande demais.
 
 ## Pesquisas na documentação oficial (parte da Fase 1)
 
-Não dependem da JB. O resultado vai para `specs/006-emissao-nfse/research.md`
-(criado pela tarefa T001) antes do código que depende dele.
+Feitas em 15/10/2026 (tarefas T001 a T004); detalhes e fontes em
+`research.md`.
 
-| # | O que fixar | Fonte |
+| # | Pergunta | Resposta |
 |---|---|---|
-| R1 | Tags, tamanhos, obrigatoriedade e formato dos grupos usados (`infDPS`, prestador, tomador, serviço, valores); composição do identificador da DPS; namespace; se `Signature` é obrigatória no XSD; formato de `dhEmi`, `dCompet` e decimais; tamanho máximo da discriminação | XSD v1.01 e Anexo I v1.01 |
-| R2 | Correspondência dos códigos do vídeo (item 08.01 da LC 116, CTISS 0801-0/01, NBS 1.2201.11.00) com o código de tributação nacional, o código municipal e o NBS da DPS; se Salvador exige código municipal | Anexo B (NBS e lista nacional) v1.01 e Anexo I |
-| R3 | Se o grupo do IBS/CBS (indicador de operação 030101, classificação 200028, regime de apuração do IBS/CBS no Simples) é obrigatório, opcional ou recusado na DPS de ME/EPP antes de 01/2027 | Anexo I, Anexo C e manual da API |
-| R4 | Faixas e tamanho da série e do número da DPS; regra do `dCompet` (dia dentro do mês, limites passado e futuro); fuso de `dhEmi`. Proposta até lá: `dCompet` = primeiro dia do mês da competência | Anexo I e manual de contribuintes da API v1.2 |
+| R1 | Leiaute da DPS | v1.01; `Signature` opcional; `Id` de 45 posições; prestador sem `xNome` nem `end`; `totTrib` obrigatório; discriminação até 2000 caracteres |
+| R2 | Códigos do serviço | `cTribNac` 080101 para berçário, infantil e fundamental; NBS 122011100 para creche; `cTribMun` não enviado |
+| R3 | Grupo IBS/CBS | Opcional e não exigido para ME/EPP; a Fase 1 não envia |
+| R4 | Série, número, competência | Série 1 a 49999; competência não pode passar da data de emissão |
+| R5 | Situação no Sistema Nacional (nova) | Registro no CNC (IM na DPS) e convênio ativo: campos pendentes do perfil |
 
-Se R3 ou R4 deixarem uma escolha ao contribuinte, a escolha vai para o
-contador junto com JB-8. Nada disso vira padrão no código.
+Escolhas que a documentação deixa ao contribuinte vão para o contador junto
+com JB-8. Nada disso vira padrão no código.
 
 ## Project Structure
 

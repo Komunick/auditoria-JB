@@ -15,7 +15,7 @@ DPS é recusada.
 
 Nenhum código de produção nesta fase.
 
-- [ ] T001 **R1**: baixar de gov.br/nfse → Documentação atual o pacote
+- [x] T001 **R1**: baixar de gov.br/nfse → Documentação atual o pacote
   `NFSe-ESQUEMAS_XSD-v1.01-20260209` e o
   `ANEXO_I-SEFIN_ADN-DPS_NFSe-SNNFSe-v1.01-20260209`; criar
   `specs/006-emissao-nfse/research.md` com URL, data e SHA-256 de cada
@@ -25,18 +25,18 @@ Nenhum código de produção nesta fase.
   obrigatória, os formatos de `dhEmi`, `dCompet` e decimais e o limite da
   discriminação. Atualizar a tabela "Da linha para a DPS" de
   `data-model.md` se algum nome diferir.
-- [ ] T002 **R2**: no Anexo B v1.01 e no Anexo I, achar o código de tributação
+- [x] T002 **R2**: no Anexo B v1.01 e no Anexo I, achar o código de tributação
   nacional e o NBS que correspondem aos códigos do vídeo (item 08.01, CTISS
   0801-0/01, NBS 1.2201.11.00) e dizer se Salvador exige código municipal.
   Registrar a tabela de correspondência em `research.md`.
-- [ ] T003 **R3**: dizer se o grupo do IBS/CBS é obrigatório, opcional ou
+- [x] T003 **R3**: dizer se o grupo do IBS/CBS é obrigatório, opcional ou
   recusado na DPS de ME/EPP antes de 01/2027, e quais campos ele pede. Se
   for opcional, anotar a escolha como item de JB-8 em `research.md`.
-- [ ] T004 **R4**: registrar faixas e tamanhos da série e do número da DPS, a
+- [x] T004 **R4**: registrar faixas e tamanhos da série e do número da DPS, a
   regra do `dCompet` (dia dentro do mês, limites passado e futuro) e o fuso
   de `dhEmi`. Se a proposta "primeiro dia do mês" não servir, corrigir
   `data-model.md` antes da Phase 2.
-- [ ] T005 Versionar os XSD em `dados/nfse/xsd/v1.01/` como foram
+- [x] T005 Versionar os XSD em `dados/nfse/xsd/v1.01/` como foram
   publicados, com `LEIA-ME.txt` (URL, data do download, SHA-256 do zip).
 - [ ] T006 Criar `tests/fixtures/nfse/` só com dados fictícios: perfil
   completo com `endereco_tomador = 'informar'`, perfil completo com
@@ -77,11 +77,14 @@ a NFS-e.
 
 - [ ] T011 Criar `tests/test_nfse.py`: normalização (acento, caixa,
   invisíveis, espaço não separável); `pendencias_do_perfil` lista cada
-  campo vazio com a origem certa (JB-2, JB-8, R3, R4) e não lista nada no
-  perfil completo; não existe valor padrão para esses campos; modelo da
-  discriminação aceita só os campos da lista, respeita a caixa e recusa
-  campo desconhecido; turma resolvida por nome e por apelido, sem busca
-  aproximada; turma pendente conforme `ibscbs` e R2; limites arquiteturais
+  campo vazio com a origem certa (JB-2, JB-8, R5) e não lista nada no
+  perfil completo; não existe valor padrão para esses campos;
+  `regra_aliquota` segue cada linha da tabela de `research.md`; validação do
+  perfil recusa série fora de 1 a 49999, alíquota acima de 5% e regime
+  especial diferente de 0 com ISS pelo Simples; modelo da discriminação
+  aceita só os campos da lista, respeita a caixa e recusa campo
+  desconhecido; turma resolvida por nome e por apelido, sem busca
+  aproximada; turma pendente sem `c_trib_nac` ou `c_nbs`; limites arquiteturais
   (nenhum `core/nfse*.py` importa FastAPI, `httpx`, `socket`, `urllib`,
   `requests` ou `ssl`).
 - [ ] T012 Criar `src/auditoria_fiscal/core/nfse.py` com tipos puros,
@@ -113,10 +116,12 @@ a NFS-e.
   bytes (gerar duas vezes); escape de `&`, `<`, apóstrofo e acento; valores
   com centavos; ambiente sempre produção restrita; sem `Signature`;
   recusa para perfil com pendência, linha com bloqueio e turma pendente; o
-  XML inválido é detectado (teste com um campo obrigatório removido).
+  XML inválido é detectado (teste com um campo obrigatório removido); o
+  arquivo oficial ainda tem o padrão `^0{0,4}\d{1,5}$` da série e só esse
+  padrão é trocado em memória (achado de `research.md`).
 - [ ] T018 Criar `src/auditoria_fiscal/core/nfse_dps.py` com o gerador e a
-  validação no XSD (resolvedor só local, `no_network`; esquema-invólucro
-  se T001 mostrar que `Signature` é obrigatória).
+  validação no XSD (resolvedor só local, `no_network`, contorno do padrão
+  da série em memória).
 
 **Checkpoint**: regra de negócio testável sem servidor e sem rede.
 
