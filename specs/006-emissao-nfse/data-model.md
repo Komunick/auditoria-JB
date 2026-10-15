@@ -39,31 +39,38 @@ Imutável. Alterar o perfil insere a versão seguinte.
 | perfil_id | INTEGER FK | obrigatório |
 | versao | INTEGER | 1, 2, 3…; `UNIQUE(perfil_id, versao)` |
 | razao_social | TEXT | obrigatório |
-| inscricao_municipal | TEXT | como informada; uso na DPS conforme R1 |
+| inscricao_municipal | TEXT NULL | como informada |
+| informar_im | INTEGER NULL | 1 se a escola tem registro complementar no CNC do município emissor (a IM vai na DPS), 0 se não tem; **pendente: R5** |
 | municipio_ibge | TEXT | 7 dígitos; município emissor (Salvador = 2927408) |
-| municipio_prestacao_ibge | TEXT | 7 dígitos; local da prestação |
+| municipio_prestacao_ibge | TEXT | 7 dígitos; local da prestação e da incidência |
 | emissor | TEXT | `CHECK = 'nacional'` na Fase 1 |
 | op_simp_nac | INTEGER | `CHECK = 3` (ME/EPP) na Fase 1 |
+| reg_ap_trib_sn | INTEGER NULL | 1, 2 ou 3 (obrigatório para ME/EPP, E0166); **pendente: JB-8** |
+| reg_esp_trib | INTEGER NULL | código do leiaute; tem de ser 0 se `reg_ap_trib_sn = 1` (E0175); **pendente: JB-8** |
 | iss_retido | INTEGER | 0/1, obrigatório no cadastro |
-| aliquota_centesimos | INTEGER NULL | o número; creche: 500 **[confirmado no portal]** |
-| aliquota_na_dps | INTEGER NULL | 1 informa, 0 não informa; **pendente: JB-8** |
-| reg_ap_trib_sn | INTEGER NULL | código do leiaute; **pendente: JB-8** |
-| reg_esp_trib | INTEGER NULL | código do leiaute; **pendente: JB-8** |
-| tributos_aprox | TEXT NULL | forma do grupo de tributos aproximados (R1); **pendente: JB-8** |
-| ibscbs | TEXT NULL | `informar` ou `omitir`; **pendente: R3, e JB-8 se for opcional** |
+| convenio_incidencia_ativo | INTEGER NULL | convênio do município de incidência ativo no Sistema Nacional; **pendente: R5**, exigido só quando muda a regra da alíquota |
+| aliquota_centesimos | INTEGER NULL | até 500 (E0595); creche: 500 **[confirmado no portal]**; exigida só quando a regra manda informar `pAliq` |
+| tributos_aprox | TEXT NULL | `pTotTribSN` ou `pTotTrib` (R1); **pendente: JB-8** |
+| p_tot_trib_sn | INTEGER NULL | centésimos de ponto; exigido com `pTotTribSN` |
+| p_tot_trib_fed / _est / _mun | INTEGER NULL | centésimos de ponto; exigidos com `pTotTrib` |
 | endereco_tomador | TEXT NULL | `informar` ou `omitir`; **pendente: JB-2** |
-| serie_dps | TEXT NULL | **pendente: R4** |
+| serie_dps | TEXT | obrigatória no cadastro, de 1 a 49999 (faixa de aplicativo próprio, E0010) |
 | ambiente | INTEGER | `CHECK = 2` (produção restrita) na Fase 1 |
 | modelo_discriminacao | TEXT | obrigatório; só campos de "Modelo da discriminação" |
 | motivo | TEXT | por que a versão foi criada |
 | criado_em | TEXT | obrigatório |
 | criado_por_id / _login | INTEGER/TEXT | snapshot |
 
-`pendencias_do_perfil(versao, turmas)` devolve, para cada campo marcado como
-pendente que esteja `NULL`, o item e a origem (JB-n ou Rn). Também é
-pendência `aliquota_centesimos` vazia com `aliquota_na_dps = 1`. Perfil com
-pendência não gera DPS. Turma pendente não torna o perfil pendente: bloqueia
-só as linhas dela (`TURMA_PENDENTE`).
+`pendencias_do_perfil(versao, turmas)` devolve o que falta, com a origem
+(JB-n ou Rn): cada campo marcado como pendente que esteja `NULL`; os
+percentuais do modo de tributos escolhido; e, conforme a tabela de alíquota de
+`research.md`, o convênio (quando a regra depende dele) e a alíquota (quando a
+regra manda informá-la). Perfil com pendência não gera DPS. Turma pendente não
+torna o perfil pendente: bloqueia só as linhas dela (`TURMA_PENDENTE`).
+
+`regra_aliquota(versao)` aplica a tabela de `research.md` e devolve
+`informar`, `nao_informar` ou `depende_do_convenio`. O perfil não tem campo
+"informar alíquota": quem decide é a regra oficial.
 
 ## 3. `perfil_turma`
 
@@ -76,22 +83,23 @@ Uma linha por turma, por versão do perfil. Imutável junto da versão.
 | nome | TEXT | como aparece na discriminação |
 | nome_normalizado | TEXT | ver "Normalização de nomes e turmas"; `UNIQUE(perfil_versao_id, nome_normalizado)` |
 | categoria | TEXT NULL | `infantil` ou `fundamental` |
-| c_trib_nac | TEXT NULL | código de tributação nacional (R2) |
-| c_trib_mun | TEXT NULL | código municipal, se Salvador exigir (R2) |
-| c_nbs | TEXT NULL | NBS (creche: 1.2201.11.00 **[confirmado]**) |
+| c_trib_nac | TEXT NULL | 6 dígitos; berçário, infantil e fundamental: 080101 (R2) |
+| c_nbs | TEXT NULL | 9 dígitos; creche: 122011100 (1.2201.11.00) **[confirmado]** |
 | c_ind_op | TEXT NULL | indicador de operação IBS/CBS (creche: 030101 **[confirmado]**) |
 | c_class_trib | TEXT NULL | classificação tributária IBS/CBS (creche: 200028 **[confirmado]**) |
 | ref_cnae | TEXT NULL | referência do Nota Salvador (8511200 / 8513900) |
 | ref_item_lista | TEXT NULL | referência do Nota Salvador (00801) |
 | ref_ctiss | TEXT NULL | referência do Nota Salvador (0801-0/01) |
 
-A turma é **pendente** quando falta um código que a DPS exige: `c_trib_nac`
-e `c_nbs` sempre; `c_trib_mun` se R2 disser que Salvador exige; `c_ind_op` e
-`c_class_trib` se `ibscbs = 'informar'`. Os campos `ref_*` nunca vão para a
-DPS; servem para quem confere contra o Nota Salvador.
+A turma é **pendente** quando falta `c_trib_nac` ou `c_nbs`. O NBS é
+opcional no leiaute, mas a nota do vídeo levou NBS, e exigi-lo mantém a nota
+igual **[proposta]**. `c_ind_op` e `c_class_trib` ficam guardados e não vão
+para a DPS na Fase 1 (R3). O código municipal não é enviado (R2). Os campos
+`ref_*` nunca vão para a DPS; servem para quem confere contra o Nota Salvador.
 
-Na creche: berçário e infantil têm os códigos do vídeo; fundamental tem só o
-CNAE (JB-3).
+Na creche: berçário e infantil têm os códigos do vídeo. O fundamental usa o
+mesmo `c_trib_nac` (080101); o NBS dele (o Anexo B tem 1.2201.20.00, ensino
+fundamental) é escolha do contador (JB-3).
 
 ## 4. `perfil_turma_apelido`
 
@@ -171,7 +179,7 @@ Valores **brutos**, como chegaram. Imutável.
 | responsavel_celular | TEXT NULL | |
 | responsavel_email | TEXT NULL | |
 | endereco_texto | TEXT NULL | texto livre (vindo do texto colado) |
-| cep / logradouro / numero / complemento / bairro / municipio / uf | TEXT NULL | partes (vindas da planilha) |
+| cep / logradouro / numero / complemento / bairro / municipio / uf / municipio_ibge | TEXT NULL | partes (vindas da planilha) |
 | aluno_nome | TEXT NULL | |
 | turma | TEXT NULL | bruta, sem resolver |
 | competencia | TEXT NULL | bruta |
@@ -361,8 +369,12 @@ Aba `Notas`, linha 1 com os rótulos abaixo, dados a partir da linha 2. Aba
 | Número | numero | não (JB-2) |
 | Complemento | complemento | não |
 | Bairro | bairro | não (JB-2) |
-| Município | municipio | não (JB-2) |
-| UF | uf | não (JB-2) |
+| Município | municipio | não |
+| UF | uf | não |
+| Código IBGE do município | municipio_ibge | não (JB-2); Salvador = 2927408 |
+
+O código IBGE está na planilha porque a DPS identifica o município pelo
+código, não pelo nome (R1), e a Fase 1 não tem a tabela de municípios.
 
 Coluna obrigatória ausente recusa o arquivo. Coluna desconhecida é ignorada e
 listada como aviso do lote. Formato da planilha da própria escola: JB-4.
@@ -456,12 +468,13 @@ mês a creche usa: JB-11.
 | `COMPETENCIA_AUSENTE` | bloqueio | não veio |
 | `COMPETENCIA_INVALIDA` | bloqueio | fora dos formatos aceitos |
 | `COMPETENCIA_DIVERGENTE` | aviso | diferente da competência mais frequente do lote |
+| `COMPETENCIA_FUTURA` | bloqueio | primeiro dia da competência depois de hoje: a DPS seria recusada (E0015) |
 | `TURMA_AUSENTE` | bloqueio | não veio nem dá para separar do aluno |
 | `TURMA_DESCONHECIDA` | bloqueio | não é nome nem apelido de turma do perfil |
 | `TURMA_PENDENTE` | bloqueio | turma sem código obrigatório (JB-3) |
 | `RESPONSAVEL_AUSENTE` | bloqueio | nome do responsável não veio |
 | `ALUNO_AUSENTE` | bloqueio | nome do aluno não veio |
-| `ENDERECO_INCOMPLETO` | aviso, ou bloqueio se `endereco_tomador = 'informar'` | falta CEP, logradouro, número, bairro, município ou UF |
+| `ENDERECO_INCOMPLETO` | aviso, ou bloqueio se `endereco_tomador = 'informar'` | falta CEP, logradouro, número, bairro ou código IBGE do município |
 | `ENDERECO_NAO_ESTRUTURADO` | bloqueio se `endereco_tomador = 'informar'` | endereço só em texto livre |
 | `DUPLICATA_NO_LOTE` | bloqueio | chave repetida no lote (aponta a primeira linha) |
 | `DUPLICATA_APROVADA` | bloqueio | chave já reservada por lote aprovado (aponta o lote) |
@@ -477,36 +490,40 @@ API, sem tabela própria: `PERFIL_COM_PENDENCIA`, `PERFIL_DESATUALIZADO`
 
 ## Da linha para a DPS
 
-Nomes das tags a conferir no Anexo I v1.01 (R1). A coluna "Origem" diz de
-onde vem o valor.
+Leiaute v1.01 conferido no XSD e no Anexo I (`research.md`). A ordem da
+tabela é a ordem dos elementos no XML.
 
-| Grupo / campo da DPS | Origem | Regra |
+| Campo da DPS | Origem | Regra |
 |---|---|---|
-| identificador do `infDPS` | perfil + numeração | composição do Anexo I (R1) |
-| `tpAmb` | constante da Fase 1 | produção restrita |
-| `dhEmi` | instante da aprovação | fuso de Salvador (R4) |
-| `verAplic` | `versao_gerador` | |
-| `serie`, `nDPS` | `numeracao_dps` | R4 |
-| `dCompet` | competência | proposta: primeiro dia do mês (R4) |
-| `tpEmit` | constante | prestador |
+| `DPS/@versao` | constante | `1.01` |
+| `infDPS/@Id` | perfil + numeração | `DPS` + `cLocEmi` + `2` (CNPJ) + CNPJ + série (5) + número (15) |
+| `tpAmb` | constante da Fase 1 | `2` (produção restrita) |
+| `dhEmi` | instante da aprovação | `AAAA-MM-DDThh:mm:ss-03:00` |
+| `verAplic` | `versao_gerador` | `auditoriaJB-nfse-1` (até 20 caracteres) |
+| `serie`, `nDPS` | `numeracao_dps` | série sem zeros à esquerda; número a partir de 1 |
+| `dCompet` | competência | primeiro dia do mês **[proposta]**; não pode passar da data de `dhEmi` |
+| `tpEmit` | constante | `1` (prestador) |
 | `cLocEmi` | `municipio_ibge` | |
-| prestador: CNPJ, IM | perfil | IM conforme R1 |
-| `regTrib/opSimpNac` | `op_simp_nac` | ME/EPP |
-| `regTrib/regApTribSN`, `regEspTrib` | perfil | JB-8 |
-| tomador: CPF, nome | linha | |
-| tomador: endereço | linha | só com `endereco_tomador = 'informar'` (JB-2) |
-| `locPrest/cLocPrestacao` | `municipio_prestacao_ibge` | |
-| `cServ/cTribNac`, `cTribMun`, `cNBS` | turma | R2 |
-| `cServ/xDescServ` | discriminação montada | limite R1 |
-| `vServPrest/vServ` | `valor_centavos` | ponto decimal, duas casas |
-| `tribMun/tribISSQN` | constante da Fase 1 | operação tributável **[confirmado: "Tributado em Salvador"]** |
-| `tribMun/tpRetISSQN` | `iss_retido` | creche: não retido **[confirmado]** |
-| `tribMun/pAliq` | `aliquota_centesimos` | só com `aliquota_na_dps = 1` (JB-8) |
-| tributos aproximados | `tributos_aprox` | JB-8 |
-| grupo IBS/CBS | turma (`c_ind_op`, `c_class_trib`) | só com `ibscbs = 'informar'` (R3) |
+| `prest/CNPJ` | perfil | |
+| `prest/IM` | `inscricao_municipal` | só com `informar_im = 1` (R5) |
+| `prest/regTrib/opSimpNac` | `op_simp_nac` | `3` |
+| `prest/regTrib/regApTribSN` | `reg_ap_trib_sn` | JB-8 |
+| `prest/regTrib/regEspTrib` | `reg_esp_trib` | JB-8 |
+| `toma/CPF`, `toma/xNome` | linha | |
+| `toma/end` | linha (`municipio_ibge`, CEP, logradouro, número, complemento, bairro) | só com `endereco_tomador = 'informar'` (JB-2) |
+| `serv/locPrest/cLocPrestacao` | `municipio_prestacao_ibge` | |
+| `serv/cServ/cTribNac` | turma | |
+| `serv/cServ/xDescServ` | discriminação montada | 1 a 2000 caracteres |
+| `serv/cServ/cNBS` | turma | |
+| `valores/vServPrest/vServ` | `valor_centavos` | ponto decimal, duas casas |
+| `valores/trib/tribMun/tribISSQN` | constante da Fase 1 | `1` (operação tributável) **[confirmado: "Tributado em Salvador"]** |
+| `valores/trib/tribMun/tpRetISSQN` | `iss_retido` | `1` não retido (creche **[confirmado]**), `2` retido pelo tomador |
+| `valores/trib/tribMun/pAliq` | `aliquota_centesimos` | só quando `regra_aliquota` = `informar` |
+| `valores/trib/totTrib` | `tributos_aprox` | `pTotTribSN` ou `pTotTrib` com os percentuais do perfil (JB-8) |
 
-Telefone e e-mail do tomador não vão para a DPS na Fase 1; ficam na linha
-para a devolução da nota (Fase 3, JB-5).
+Não vão para a DPS na Fase 1: `prest/xNome` e `prest/end` (proibidos quando o
+emitente é o prestador), `cTribMun` (R2), o grupo `IBSCBS` (R3), telefone e
+e-mail do tomador (ficam na linha para a devolução da nota, Fase 3, JB-5).
 
 ## Índices mínimos
 

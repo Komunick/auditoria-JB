@@ -147,16 +147,20 @@ vazia e conferir que a geração da DPS é recusada com a lista do que falta.
 2. Regime: Simples Nacional ME/EPP **[confirmado]**. Emissor: Nacional, o
    único aceito na Fase 1 **[proposta]**.
 3. ISS retido pelo tomador é escolhido no cadastro (na creche, "Não"
-   **[confirmado]**).
+   **[confirmado]**). A série da DPS também, entre 1 e 49999, a faixa de
+   aplicativo próprio **[confirmado: Anexo I, `research.md`]**.
 4. Estes campos **não têm valor padrão**. Enquanto vazios, o perfil aparece
    como "com pendências", e a geração da DPS é recusada com a lista:
-   - alíquota, se ela vai na DPS, regime de apuração no Simples, regime
-     especial e tributos aproximados **[JB-8]**. No portal foi 5,00%
-     **[confirmado]**; o perfil guarda o número, mas o uso na DPS espera JB-8;
+   - regime de apuração no Simples, regime especial e forma dos tributos
+     aproximados **[JB-8]**;
    - endereço do tomador: usar o que a escola mandou ou não informar
      **[JB-2]**;
-   - grupo do IBS/CBS na DPS **[R3; se for opcional, JB-8]**;
-   - série da DPS **[R4]**.
+   - se a escola tem registro complementar no Sistema Nacional (decide se a
+     inscrição municipal vai na DPS) e, quando a regra da alíquota depender
+     disso, se o convênio de Salvador está ativo **[R5]**.
+   Se a alíquota vai ou não na DPS sai das regras oficiais do Anexo I, não de
+   uma escolha do perfil (`research.md`). No portal foi 5,00% **[confirmado]**;
+   com ISS do Simples e sem retenção, a regra oficial manda não informar.
 5. O modelo da discriminação usa campos de uma lista fechada. O da creche é o
    do vídeo **[confirmado]**:
    `REFERENTE AOS SERVIÇOS PRESTADOS DE {TURMA} AO MENOR: {ALUNO} NO PERÍODO DE {MES}/{ANO}.`
@@ -166,16 +170,15 @@ vazia e conferir que a geração da DPS é recusada com a lista do que falta.
    a forma final do modelo da creche sai de JB-11. Campo fora da lista é
    recusado ao salvar.
 6. A tabela turma → códigos guarda, por turma: nome, apelidos, categoria
-   (infantil ou fundamental), código de tributação nacional, código
-   municipal, NBS, indicador de operação e classificação tributária do
-   IBS/CBS e, como referência do Nota Salvador, CNAE, item da lista e CTISS.
-   - Berçário e infantil: os códigos usados no Nota Salvador estão no vídeo
-     **[confirmado]**; a correspondência com os campos da DPS nacional sai
-     de **[R2]**.
-   - Fundamental: CNAE 8513900 **[confirmado na lista do prestador]**; os
-     demais códigos **[JB-3]**.
+   (infantil ou fundamental), código de tributação nacional, NBS, indicador
+   de operação e classificação tributária do IBS/CBS e, como referência do
+   Nota Salvador, CNAE, item da lista e CTISS.
+   - Berçário e infantil: código de tributação nacional 080101 e NBS
+     1.2201.11.00 **[confirmado: vídeo e Anexo B, `research.md` R2]**.
+   - Fundamental: o mesmo 080101 **[confirmado: Anexo B]**; o NBS é escolha
+     do contador **[JB-3]**.
    - A lista completa de turmas da escola **[JB-3]**.
-   - Turma sem um código obrigatório fica "pendente".
+   - Turma sem código de tributação nacional ou sem NBS fica "pendente".
 7. Alterar o perfil cria uma versão nova. A anterior nunca é sobrescrita, e
    cada lote e cada DPS apontam a versão que usaram.
 8. Só quem tem `nfse.perfis` cria ou altera perfil.
@@ -268,8 +271,11 @@ aprova.
    princípio I]**.
 3. **Competência**: mês e ano válidos, nos formatos de `data-model.md`.
    Ausente ou inválida: bloqueio. Competência diferente da maioria do lote:
-   aviso **[proposta]**. Limites do Emissor Nacional para competência
-   passada ou futura **[R4]**.
+   aviso **[proposta]**. Competência cujo primeiro dia ainda não chegou:
+   bloqueio, porque o Emissor Nacional recusa competência posterior à data
+   de emissão **[confirmado: Anexo I, E0015]**. Os limites de competência
+   antiga (convênio do município, inscrição do CNPJ) só o Sistema Nacional
+   confere, na Fase 2.
 4. **Turma**: tem de existir no perfil, pelo nome ou por um apelido, depois
    da normalização. Desconhecida: bloqueio. Conhecida mas sem os códigos:
    bloqueio "turma pendente" **[JB-3]**.
@@ -349,13 +355,16 @@ bloqueada.
    Fase 3, com autorização explícita.
 4. Série e número são controlados pelo sistema, por perfil, ambiente e série.
    Número nunca se repete nem volta, mesmo quando o lote é descartado.
-   Faixas e tamanhos **[R4]**.
-5. O identificador da DPS segue a composição do Anexo I **[R1]**.
-6. A DPS leva prestador (CNPJ, inscrição municipal, regime), tomador (CPF,
-   nome e, conforme JB-2, endereço), serviço (local da prestação, códigos da
-   turma, discriminação) e valores (valor do serviço, ISS retido e, conforme
-   JB-8, alíquota e tributos). O grupo do IBS/CBS segue R3.
-7. O XML sai sem assinatura, em UTF-8.
+5. O identificador da DPS segue a composição do Anexo I: `DPS` + município
+   emissor + tipo de inscrição + CNPJ + série (5) + número (15)
+   **[confirmado: `research.md` R1]**.
+6. A DPS leva prestador (CNPJ, inscrição municipal conforme R5, regime),
+   tomador (CPF, nome e, conforme JB-2, endereço), serviço (local da
+   prestação, código de tributação nacional, NBS, discriminação) e valores
+   (valor do serviço, ISS retido, alíquota quando a regra oficial manda e
+   tributos aproximados conforme JB-8). O grupo do IBS/CBS não vai na Fase 1
+   **[confirmado: opcional no leiaute e vazio na nota do vídeo; R3]**.
+7. O XML sai sem assinatura, em UTF-8; a assinatura é opcional no XSD.
 8. A DPS é gravada sem possibilidade de alteração, com SHA-256, versão do
    leiaute, versão do perfil e versão do gerador.
 9. Nenhuma requisição de rede é feita e nenhum certificado é lido.
@@ -428,9 +437,10 @@ planilha-resumo; reabrir os três; usuário sem permissão recebe 403.
 - **FR-008**: MUST existir um perfil por CNPJ de prestador, com dígito
   verificador conferido.
 - **FR-009**: Versões de perfil MUST ser imutáveis; alterar cria versão nova.
-- **FR-010**: Decisões que dependem de JB-2, JB-8, R3 e R4 MUST NOT ter valor
+- **FR-010**: Decisões que dependem de JB-2, JB-8 e R5 MUST NOT ter valor
   padrão; perfil com decisão vazia MUST bloquear a geração da DPS, listando o
-  que falta.
+  que falta. Regras oficiais do Anexo I (alíquota, regime especial, série)
+  MUST ser aplicadas pelo sistema, não escolhidas no perfil.
 - **FR-011**: A tabela turma → códigos MUST marcar como pendente a turma sem
   código obrigatório.
 - **FR-012**: O modelo da discriminação MUST aceitar só campos da lista
@@ -540,12 +550,12 @@ fases seguintes.
 |---|---|---|---|
 | JB-1 | Certificado A1 ou A3; a escola autoriza guardar o A1? | Nenhum | A Fase 1 não lê nem guarda certificado |
 | JB-2 | Endereço do tomador: o da escola ou o do cadastro da prefeitura? | Campo do perfil; regra de endereço da conferência; grupo de endereço da DPS | Campo sem padrão bloqueia a DPS; testes cobrem "informar" e "omitir" |
-| JB-3 | Lista de turmas, quais são infantil e quais fundamental, códigos do fundamental | Tabela de turmas do perfil real | Turma sem código fica pendente e bloqueia as linhas dela |
+| JB-3 | Lista de turmas, quais são infantil e quais fundamental, NBS do fundamental (o código nacional já se sabe: 080101) | Tabela de turmas do perfil real | Turma sem código fica pendente e bloqueia as linhas dela |
 | JB-4 | Notas por mês, dia do envio, formato das planilhas da escola | Importador do formato da escola; metas SC-009 e SC-010; formato real do texto | Planilha-modelo da JB; parser do texto testado com fixtures sintéticas e ajustado com mensagens reais anonimizadas |
 | JB-5 | Quem aprova o lote e por onde a nota volta | Quem recebe `nfse.aprovar_emitir`; separação de funções | Nenhuma separação imposta; a trilha guarda importador e aprovador |
 | JB-6 | O plano do Zappy tem API ou webhook? | Nenhum | Entrada automática fora do escopo |
 | JB-7 | Cancelamento no Emissor Nacional com tomador pessoa física | Nenhum | Fora do escopo |
-| JB-8 | Como informar alíquota e regime de ME/EPP na DPS | Alíquota na DPS, regime de apuração, regime especial, tributos aproximados e, se R3 deixar opcional, IBS/CBS | Campos sem padrão bloqueiam a DPS; testes cobrem cada opção do leiaute |
+| JB-8 | Como informar alíquota e regime de ME/EPP na DPS | Regime de apuração no Simples (`regApTribSN`), regime especial e forma dos tributos aproximados (`pTotTribSN` ou `pTotTrib`, com os percentuais). A alíquota sai da regra oficial (`research.md`); se o contador quiser o grupo IBS/CBS antes de 2027, é tarefa nova | Campos sem padrão bloqueiam a DPS; testes cobrem cada opção do leiaute |
 | JB-9 | Quais outros clientes do Simples entram no primeiro lote | Nenhum na estrutura | Perfil por cliente; nada fixo na creche |
 | JB-10 | Acompanhar no Jira (AJB-1, legado) ou no Linear | Nome da branch e do PR | A branch segue o padrão Spec Kit do repositório; o ID entra no PR quando for decidido |
 
@@ -556,6 +566,13 @@ fases seguintes.
 | JB-11 | Na discriminação da creche, o mês vai em número (`11/2026`) ou por extenso (`NOVEMBRO/2026`)? Os nomes vão em maiúsculas? | O briefing traz o modelo `{MÊS}/{ANO}`, não uma nota preenchida |
 | JB-12 | Pode haver duas notas do mesmo aluno na mesma competência (matrícula e mensalidade, por exemplo)? | A regra de duplicata do briefing bloqueia esse caso |
 | JB-13 | Por quanto tempo guardar as listas recebidas, que têm nomes de crianças e CPFs dos responsáveis? | A Fase 1 guarda a origem como fonte fiscal, sem prazo de descarte |
+
+### Pendência da documentação: R5
+
+Não depende da JB, mas do Sistema Nacional: se a escola tem registro
+complementar no CNC de Salvador (a IM vai ou não na DPS) e se o convênio de
+Salvador está ativo (só pesa na alíquota com retenção ou ISS fora do Simples).
+Pode ser conferido no portal ou, na Fase 2, pela API. Ver `research.md`.
 
 ## Assumptions
 
