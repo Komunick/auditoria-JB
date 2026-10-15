@@ -184,7 +184,8 @@ Valores **brutos**, como chegaram. Imutável.
 | turma | TEXT NULL | bruta, sem resolver |
 | competencia | TEXT NULL | bruta |
 | valor | TEXT NULL | bruto |
-| nao_reconhecido | TEXT NULL | linhas do bloco que não casaram com rótulo |
+| nao_reconhecido | TEXT NULL | JSON: linhas do bloco que não casaram com rótulo |
+| rotulos_repetidos | TEXT NULL | JSON: rótulos que apareceram duas vezes no bloco (fica o primeiro valor) |
 | proveniencia | TEXT | JSON por campo (abaixo) |
 
 `NULL` = o campo não veio. Texto vazio também vira `NULL` na leitura.
@@ -474,8 +475,9 @@ mês a creche usa: JB-11.
 | `TURMA_PENDENTE` | bloqueio | turma sem código obrigatório (JB-3) |
 | `RESPONSAVEL_AUSENTE` | bloqueio | nome do responsável não veio |
 | `ALUNO_AUSENTE` | bloqueio | nome do aluno não veio |
+| `NOME_LONGO` | bloqueio | nome do responsável passa de 300 caracteres (`xNome`) |
 | `ENDERECO_INCOMPLETO` | aviso, ou bloqueio se `endereco_tomador = 'informar'` | falta CEP, logradouro, número, bairro ou código IBGE do município |
-| `ENDERECO_NAO_ESTRUTURADO` | bloqueio se `endereco_tomador = 'informar'` | endereço só em texto livre |
+| `ENDERECO_NAO_ESTRUTURADO` | aviso, ou bloqueio se `endereco_tomador = 'informar'` | endereço só em texto livre |
 | `DUPLICATA_NO_LOTE` | bloqueio | chave repetida no lote (aponta a primeira linha) |
 | `DUPLICATA_APROVADA` | bloqueio | chave já reservada por lote aprovado (aponta o lote) |
 | `DISCRIMINACAO_LONGA` | bloqueio | passou do limite do campo (R1) |

@@ -38,7 +38,7 @@ Nenhum código de produção nesta fase.
   `data-model.md` antes da Phase 2.
 - [x] T005 Versionar os XSD em `dados/nfse/xsd/v1.01/` como foram
   publicados, com `LEIA-ME.txt` (URL, data do download, SHA-256 do zip).
-- [ ] T006 Criar `tests/fixtures/nfse/` só com dados fictícios: perfil
+- [x] T006 Criar `tests/fixtures/nfse/` só com dados fictícios: perfil
   completo com `endereco_tomador = 'informar'`, perfil completo com
   `'omitir'`, perfil com cada pendência; planilha-modelo preenchida válida;
   planilha com um erro de cada regra; planilhas hostis (reaproveitar os
@@ -75,7 +75,7 @@ a NFS-e.
 
 ## Phase 2 — Núcleo puro
 
-- [ ] T011 Criar `tests/test_nfse.py`: normalização (acento, caixa,
+- [x] T011 Criar `tests/test_nfse.py`: normalização (acento, caixa,
   invisíveis, espaço não separável); `pendencias_do_perfil` lista cada
   campo vazio com a origem certa (JB-2, JB-8, R5) e não lista nada no
   perfil completo; não existe valor padrão para esses campos;
@@ -87,10 +87,10 @@ a NFS-e.
   aproximada; turma pendente sem `c_trib_nac` ou `c_nbs`; limites arquiteturais
   (nenhum `core/nfse*.py` importa FastAPI, `httpx`, `socket`, `urllib`,
   `requests` ou `ssl`).
-- [ ] T012 Criar `src/auditoria_fiscal/core/nfse.py` com tipos puros,
+- [x] T012 Criar `src/auditoria_fiscal/core/nfse.py` com tipos puros,
   catálogo de apontamentos, normalização, leitura de competência,
   pendências do perfil e montagem da discriminação.
-- [ ] T013 Criar `tests/test_nfse_entrada.py`. Planilha: colunas por rótulo
+- [x] T013 Criar `tests/test_nfse_entrada.py`. Planilha: colunas por rótulo
   em qualquer ordem; coluna obrigatória ausente recusa o arquivo; coluna
   desconhecida vira aviso; linha vazia ignorada e contada; linha parcial
   mantida; fórmula sem valor = ausente; CPF numérico sem zero inicial;
@@ -99,18 +99,18 @@ a NFS-e.
   junto do aluno só quando é turma do perfil; prefixo de mensagem;
   rótulo repetido; linha sem rótulo em `nao_reconhecido`; CEP extraído;
   limite de 256 KB; proveniência com bloco e linha.
-- [ ] T014 Criar `src/auditoria_fiscal/core/nfse_entrada.py`, chamando
+- [x] T014 Criar `src/auditoria_fiscal/core/nfse_entrada.py`, chamando
   `validar_pacote_xlsx` antes do openpyxl.
-- [ ] T015 Criar `tests/test_nfse_conferencia.py` com um caso que dispara e
+- [x] T015 Criar `tests/test_nfse_conferencia.py` com um caso que dispara e
   um que não dispara para cada código do catálogo; irmãos com o mesmo CPF
   permitidos; duplicata no lote aponta a primeira linha; duplicata contra o
   conjunto de chaves aprovadas recebido como entrada; endereço como aviso ou
   bloqueio conforme o perfil; valor ausente nunca vira zero; linha excluída
   não gera bloqueio nem entra na duplicata.
-- [ ] T016 Criar `src/auditoria_fiscal/core/nfse_conferencia.py` (função
+- [x] T016 Criar `src/auditoria_fiscal/core/nfse_conferencia.py` (função
   pura: versão do perfil + linhas efetivas + chaves aprovadas → valores
   normalizados + apontamentos).
-- [ ] T017 Criar `tests/test_nfse_dps.py`: XML de referência para linhas
+- [x] T017 Criar `tests/test_nfse_dps.py`: XML de referência para linhas
   fictícias com os dois perfis (com e sem endereço); validação no XSD
   oficial versionado, sem rede; identificador da DPS; mesma entrada, mesmos
   bytes (gerar duas vezes); escape de `&`, `<`, apóstrofo e acento; valores
@@ -119,7 +119,7 @@ a NFS-e.
   XML inválido é detectado (teste com um campo obrigatório removido); o
   arquivo oficial ainda tem o padrão `^0{0,4}\d{1,5}$` da série e só esse
   padrão é trocado em memória (achado de `research.md`).
-- [ ] T018 Criar `src/auditoria_fiscal/core/nfse_dps.py` com o gerador e a
+- [x] T018 Criar `src/auditoria_fiscal/core/nfse_dps.py` com o gerador e a
   validação no XSD (resolvedor só local, `no_network`, contorno do padrão
   da série em memória).
 
