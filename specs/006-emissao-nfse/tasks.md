@@ -129,7 +129,7 @@ a NFS-e.
 
 ## Phase 3 — Persistência
 
-- [ ] T019 Criar `tests/test_nfse_store.py`: schema idempotente (criar duas
+- [x] T019 Criar `tests/test_nfse_store.py`: schema idempotente (criar duas
   vezes); versões de perfil imutáveis; origem com o mesmo SHA-256
   reaproveitada; lote duplicado recusado e permitido depois de descarte;
   linha, correção, rodada, apontamento, DPS e evento recusam `UPDATE` e
@@ -141,18 +141,18 @@ a NFS-e.
   volta após descarte; descarte de lote aprovado libera as chaves; revisão
   desatualizada recusada; aprovação recusada com perfil desatualizado, com
   pendência, com bloqueio e com lote vazio.
-- [ ] T020 Criar `src/auditoria_fiscal/ferramentas/nfse_store.py` com o
+- [x] T020 Criar `src/auditoria_fiscal/ferramentas/nfse_store.py` com o
   schema de `data-model.md`, migrações idempotentes, FK, WAL,
   `busy_timeout`, triggers de imutabilidade e os índices únicos parciais.
-- [ ] T021 Implementar perfis: criar, criar versão (com turmas e apelidos),
+- [x] T021 Implementar perfis: criar, criar versão (com turmas e apelidos),
   consultar versões e pendências.
-- [ ] T022 Implementar importação: origem (arquivo gravado por hash antes do
+- [x] T022 Implementar importação: origem (arquivo gravado por hash antes do
   `COMMIT`), lote, linhas e primeira rodada numa transação.
-- [ ] T023 Implementar correção, exclusão, reinclusão e reconferência, cada
+- [x] T023 Implementar correção, exclusão, reinclusão e reconferência, cada
   uma com evento e rodada nova na mesma transação.
-- [ ] T024 Implementar aprovação (`BEGIN IMMEDIATE`, chaves, numeração, DPS,
+- [x] T024 Implementar aprovação (`BEGIN IMMEDIATE`, chaves, numeração, DPS,
   hash de aprovação, eventos) e descarte.
-- [ ] T025 Implementar consultas com filtros por allowlist e paginação, e o
+- [x] T025 Implementar consultas com filtros por allowlist e paginação, e o
   detalhe do lote com valores efetivos, apontamentos e totais.
 
 **Checkpoint**: domínio completo, concorrência e imutabilidade cobertas.
