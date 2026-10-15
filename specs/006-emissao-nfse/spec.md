@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-15
 
-**Status**: Rascunho para revisão. Pendências da JB marcadas como JB-1 a JB-13.
+**Status**: Fase 1 implementada na branch `006-emissao-nfse` (15/10/2026), sem push. Abertas: pendências JB-1 a JB-13 e R5, aceite cronometrado (T039) e portão de produção (T042).
 
 **Input**: A JB Fraga Contabilidade emite à mão, no portal Nota Salvador, uma
 NFS-e por aluno de uma creche cliente (ME/EPP do Simples Nacional), com os
