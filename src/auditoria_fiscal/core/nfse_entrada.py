@@ -44,6 +44,14 @@ CAMPOS = ("competencia", "responsavel_nome", "responsavel_cpf",
           "logradouro", "numero", "complemento", "bairro", "municipio", "uf",
           "municipio_ibge", "aluno_nome", "turma", "valor")
 
+# Cabecalho da planilha-modelo que a JB entrega a escola, nesta ordem
+# (data-model.md, "Planilha-modelo"). O leitor acha as colunas pelo rotulo.
+ROTULOS_MODELO = ("Competência (MM/AAAA)", "Nome do responsável",
+                  "CPF do responsável", "Celular", "E-mail", "Nome do aluno",
+                  "Turma", "Valor (R$)", "CEP", "Logradouro", "Número",
+                  "Complemento", "Bairro", "Município", "UF",
+                  "Código IBGE do município")
+
 OBRIGATORIAS = {
     "competencia": "Competência (MM/AAAA)",
     "responsavel_nome": "Nome do responsável",

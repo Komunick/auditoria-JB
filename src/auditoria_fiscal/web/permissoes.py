@@ -29,6 +29,7 @@ GRUPO_COMPARADORES = "Comparadores e Extracao"
 GRUPO_PRODUTOS = "Auditoria de Produtos"
 GRUPO_CONCILIACAO = "Conciliacao Fiscal"
 GRUPO_PATRIMONIO = "Patrimonio"
+GRUPO_NFSE = "Emissao de NFS-e"
 GRUPO_ADMIN = "Administracao"
 
 
@@ -58,6 +59,9 @@ CATALOGO: tuple[Permissao, ...] = (
               "Abrir a aba e consultar as conciliacoes de receita e DIMP."),
     Permissao("aba.patrimonio", "7. Patrimonio", GRUPO_ABAS,
               "Abrir a aba e consultar os bens, responsaveis e movimentacoes."),
+    Permissao("aba.nfse", "8. Emissao de NFS-e", GRUPO_ABAS,
+              "Abrir a aba e consultar perfis e lotes de NFS-e (com nomes e "
+              "CPFs das listas recebidas)."),
 
     # ------------------------------------------------------------------
     # Livro de Conferencia: acoes que gravam ou geram documento
@@ -162,6 +166,23 @@ CATALOGO: tuple[Permissao, ...] = (
               "responsabilidade em PDF."),
 
     # ------------------------------------------------------------------
+    # Emissao de NFS-e (spec 006). Consultar e' rotina; mexer no perfil,
+    # importar e aprovar sao passos separados de proposito: quem aprova o lote
+    # gera a DPS, e na Fase 2 o mesmo slug transmite. Nada aqui transmite na
+    # Fase 1.
+    Permissao("nfse.perfis", "Cadastrar perfis de emissao", GRUPO_NFSE,
+              "Criar o perfil do cliente e as versoes dele (codigos, turmas, "
+              "regime e modelo da discriminacao)."),
+    Permissao("nfse.importar", "Importar e revisar lotes", GRUPO_NFSE,
+              "Importar planilha ou texto, corrigir linhas com motivo, "
+              "reconferir e descartar lote em revisao."),
+    Permissao("nfse.aprovar_emitir", "Aprovar lote e gerar DPS", GRUPO_NFSE,
+              "Aprovar o lote, gerar as DPS (sem transmitir na Fase 1) e "
+              "descartar lote aprovado."),
+    Permissao("nfse.exportar", "Baixar DPS e resumo", GRUPO_NFSE,
+              "Baixar o XML das DPS, o zip do lote e a planilha-resumo."),
+
+    # ------------------------------------------------------------------
     # Administracao
     Permissao("admin.usuarios", "Administrar usuarios e permissoes",
               GRUPO_ADMIN,
@@ -188,6 +209,7 @@ PADRAO_NOVO_USUARIO: tuple[str, ...] = (
     "aba.produtos", "aba.conciliacao", "conferencia.conferir",
     "conferencia.danfe", "comparador.exportar", "diff.exportar",
     "extracao.exportar", "conciliacao.importar", "aba.patrimonio",
+    "aba.nfse",
 )
 
 
