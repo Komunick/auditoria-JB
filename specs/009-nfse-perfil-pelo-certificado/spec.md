@@ -62,3 +62,99 @@ confirmado na primeira consulta real fica registrado como aberto.
 
 - Primeira consulta real com o A1 da escola (JB-1): confirma formato e valores.
 - Chaves de `regimesEspeciais` e códigos de `tiposRetencao` (não documentados).
+
+---
+
+# Parte 2: preencher o perfil por uma nota já emitida
+
+**Pedido (16/10/2026)**: "Faça o perfil de emissão se preencher pelo XML de uma nota
+já emitida pela escola na Nota Salvador."
+
+O certificado não diz IM, regime, ISS retido nem códigos. Uma nota que a escola já
+emitiu diz quase tudo isso. A pessoa envia o XML (ou um `.zip` de XMLs) e o
+formulário se preenche, como na Parte 1: nada é gravado até salvar.
+
+## Leiautes aceitos
+
+- **Nota Salvador**: leiaute **ABRASF versão 1** (o provedor de Salvador segue a v1;
+  fonte: Projeto ACBr, provedor `ISSSalvador`, que também divide a alíquota por 100,
+  então `Aliquota` vem em fração: `0.05` = 5%). O leitor procura cada `InfNfse` em
+  qualquer raiz (`CompNfse`, `ListaNfse`, `ConsultarNfseResposta`...), com ou sem
+  namespace.
+- **NFS-e nacional** (`NFSe/infNFSe/DPS/infDPS`), a que a escola emite a partir de
+  01/11/2026 e a que o ADN devolve. Assim o recurso continua servindo depois da
+  mudança.
+
+## O que a nota dá
+
+| Campo do perfil | Nota Salvador (ABRASF v1) | NFS-e nacional |
+|---|---|---|
+| CNPJ, razão social | `PrestadorServico` | `emit` |
+| Inscrição municipal | `IdentificacaoPrestador/InscricaoMunicipal` | `emit/IM` |
+| IM vai na DPS (R5) | **não**: ter IM em Salvador não prova registro no CNC | **sim**: `prest/IM` presente na DPS de uma nota autorizada prova que há registro (RN #198 e #200) |
+| Município emissor / da prestação | `OrgaoGerador` (ou endereço do prestador) / `Servico/CodigoMunicipio` | `cLocEmi` / `cLocPrestacao` |
+| ISS retido | `IssRetido` (1 sim, 2 não) | `tpRetISSQN` (1 não, 2 tomador; 3 intermediário vira aviso) |
+| Alíquota | `Aliquota` (fração ou percentual, ver abaixo) | `pAliq` da DPS ou `pAliqAplic` da nota |
+| Regime especial | `RegimeEspecialTributacao`, convertido para o nacional; ausente com optante = 0 | `regEspTrib` |
+| Regime de apuração no Simples, tributos aproximados | **não** (não existem no leiaute) | `regApTribSN`, `pTotTribSN` ou `pTotTrib` |
+| Códigos da turma | `ItemListaServico`, `CodigoCnae`, `CodigoTributacaoMunicipio` como referência; `cTribNac` pela lista nacional; NBS, indicador de operação e classificação tributária se o XML tiver | `cTribNac`, `cNBS`, `cIndOp`, `cClassTrib` |
+| Modelo da discriminação | `Discriminacao`, com os nomes trocados pelos campos | `xDescServ`, idem |
+
+Sem fonte em nenhum dos dois, e por isso manuais: endereço do tomador (JB-2), série
+da DPS, convênio (Parte 1) e o nome das turmas.
+
+## Regras
+
+- **Alíquota**: valor abaixo de 1 é fração (`0.05` → 5,00%); de 1 a 5 é percentual;
+  acima de 5% (E0595) vira aviso e não preenche.
+- **`cTribNac` pelo item da lista**: `dados/nfse/lista_servico_nacional.json`, gerado
+  do Anexo B v1.01 (SHA-256 conferido com research.md da spec 006). Subitem com um
+  desdobro só → preenche. Com mais de um, só o subitem 08.01 tem regra: CNAE 85.1 e
+  85.2 (educação infantil, fundamental, médio) → `080101`; 85.3 (superior) →
+  `080102`, pelas descrições do próprio Anexo B. Os outros viram aviso com as opções.
+- **Várias notas**: valem as do CNPJ mais frequente (ou o do perfil aberto, se houver;
+  arquivo só com notas de outro CNPJ é recusado). Um campo só é preenchido se todas as
+  notas concordam; divergência vira aviso. Cada combinação diferente de códigos vira
+  uma turma sugerida.
+- **Modelo**: troca o nome do tomador por `{RESPONSAVEL}`, a competência por
+  `{MES}/{ANO}` ou `{MES_EXTENSO}/{ANO}`, os nomes das turmas do formulário por
+  `{TURMA}` e o nome depois de "menor", "aluno(a)", "criança", "estudante" ou
+  "dependente" por `{ALUNO}`, mantendo maiúsculas. Só preenche se achar o aluno e o
+  resultado não tiver mais nenhum nome do tomador nem número com cara de CPF; senão,
+  aviso.
+- **Optante**: o perfil só aceita ME/EPP do Simples. Nota de não optante ou de MEI vira
+  aviso e o regime não é sugerido.
+- **Nota da produção restrita** (`tpAmb` = 2): aviso de que os dados são de teste.
+
+## Segurança e dados pessoais
+
+- Nada é gravado: nem perfil, nem arquivo. A nota vive só no pedido.
+- A resposta e a trilha não levam CPF, nome do tomador, nome do aluno nem o texto
+  original da discriminação. Só o modelo já sem nomes, os códigos e os campos do
+  prestador. A trilha registra só contagens.
+- XML com `DOCTYPE` é recusado; parser sem rede e sem entidades. Limites: 5 MB por
+  arquivo; no `.zip`, até 1000 XMLs e 20 MB descompactados, contados na leitura (o
+  tamanho declarado no zip não é confiado).
+- Mesma permissão de quem cadastra perfis (`nfse.perfis`), ação
+  `nfse.perfil_nota_anterior` na trilha.
+
+## Aceite (Parte 2)
+
+1. XML da Nota Salvador com uma nota → CNPJ, razão social, IM, municípios, ISS
+   retido, alíquota, regime especial, códigos da turma (com `080101` pelo CNAE) e o
+   modelo da discriminação, cada um com a fonte.
+2. NFS-e nacional → também IM na DPS, regime de apuração e tributos aproximados.
+3. Várias notas que concordam preenchem; as que divergem viram aviso.
+4. `DOCTYPE`, XML quebrado, arquivo sem NFS-e, arquivo grande, zip-bomba → recusa
+   com mensagem, nada lido.
+5. Nada gravado; nenhum CPF ou nome do tomador ou do aluno na resposta, no banco ou
+   na trilha.
+6. A tela preenche o formulário, marca em verde, põe os códigos na turma e lista o
+   que segue manual.
+
+## Em aberto (Parte 2)
+
+- Ainda não vi um XML real exportado da Nota Salvador. O leitor segue o ABRASF v1 e o
+  ACBr. Os nomes das tags de NBS, indicador de operação e classificação tributária,
+  que o portal mostra desde a reforma, são procurados por nomes prováveis. O
+  primeiro XML real da escola confirma.
