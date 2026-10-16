@@ -40,6 +40,19 @@ MIME_XLSX = ("application/vnd.openxmlformats-officedocument"
 MAX_UPLOAD_BYTES = ne.MAX_PLANILHA_BYTES
 AVISOS_NAO_CONFIRMADOS = "AVISOS_NAO_CONFIRMADOS"
 LOTE_SEM_DPS = "LOTE_SEM_DPS"
+PERFIL_OBRIGATORIO = "PERFIL_OBRIGATORIO"
+
+
+def _perfil_escolhido(valor) -> int:
+    """O perfil chega da tela; vazio (lista sem perfil, nada selecionado) vira
+    mensagem clara. Com `int` direto na assinatura, o FastAPI devolvia a lista
+    de validacao dele e a tela so mostrava "Erro 422"."""
+    texto = str(valor if valor is not None else "").strip()
+    if not texto.isdigit() or int(texto) <= 0:
+        raise erro(422, "Escolha o perfil de emissão antes de importar. Se a lista "
+                        "estiver vazia, cadastre o perfil em \"Perfis de emissão\".",
+                   PERFIL_OBRIGATORIO)
+    return int(texto)
 
 _STATUS = {
     ns.PERFIL_NAO_ENCONTRADO: 404, ns.LOTE_NAO_ENCONTRADO: 404,
@@ -106,7 +119,7 @@ class PerfilCorpo(BaseModel):
 
 
 class TextoCorpo(BaseModel):
-    perfil_id: int
+    perfil_id: int | None = None
     texto: str
 
 
@@ -193,9 +206,10 @@ def planilha_modelo(request: Request,
 # Importacao
 
 @router.post("/lotes/planilha")
-async def importar_planilha(request: Request, perfil_id: int = Form(...),
+async def importar_planilha(request: Request, perfil_id: str = Form(""),
                             arquivo: UploadFile = File(...),
                             usuario: Usuario = Depends(acesso("nfse.importar"))) -> dict:
+    perfil_id = _perfil_escolhido(perfil_id)
     pasta = tempfile.mkdtemp(prefix="nfse_upload_")
     destino = os.path.join(pasta, "lote.xlsx")
     try:
@@ -225,10 +239,11 @@ async def importar_planilha(request: Request, perfil_id: int = Form(...),
 @router.post("/lotes/texto")
 def importar_texto(corpo: TextoCorpo, request: Request,
                    usuario: Usuario = Depends(acesso("nfse.importar"))) -> dict:
+    perfil_id = _perfil_escolhido(corpo.perfil_id)
     hoje = _agora().date()
-    r = _executar(lambda s: s.importar_texto(corpo.perfil_id, corpo.texto, hoje=hoje,
+    r = _executar(lambda s: s.importar_texto(perfil_id, corpo.texto, hoje=hoje,
                                              **_quem(usuario)))
-    detalhar(request, f"perfil={corpo.perfil_id} lote={r['lote_id']} texto"
+    detalhar(request, f"perfil={perfil_id} lote={r['lote_id']} texto"
                       f"{' reaproveitado' if r['reaproveitado'] else ''}")
     return r
 
