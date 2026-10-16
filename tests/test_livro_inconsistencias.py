@@ -1,4 +1,4 @@
-"""Teste do Livro de Inconsistencias (PDF com as notas com observacao)."""
+"""Teste da Carta de Inconsistencias (PDF com as notas com observacao)."""
 
 from __future__ import annotations
 
@@ -59,9 +59,7 @@ def main() -> int:
     os.close(fd)
     try:
         gerar_livro_inconsistencias(notas, estados, caminho,
-                                    contexto="EMPRESA DEMO LTDA",
-                                    filtro="Filtro aplicado: somente documentos "
-                                           "de entrada no SPED.")
+                                    contexto="EMPRESA DEMO LTDA")
         checar(os.path.isfile(caminho), "PDF nao foi criado")
         with open(caminho, "rb") as fh:
             inicio = fh.read(5)
@@ -83,7 +81,7 @@ def main() -> int:
         for f in falhas:
             print("  -", f)
         return 1
-    print("OK - Livro de Inconsistencias passou (filtra por observacao e gera PDF).")
+    print("OK - Carta de Inconsistencias passou (filtra e gera o PDF).")
     return 0
 
 

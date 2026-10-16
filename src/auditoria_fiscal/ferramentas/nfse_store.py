@@ -34,7 +34,7 @@ from ..core import nfse_conferencia as nc
 from ..core import nfse_dps as nd
 from ..core import nfse_entrada as ne
 
-VERSAO_SCHEMA = 1
+VERSAO_SCHEMA = 2   # 2 = transmissao (spec 008), aditivo sobre o 1
 
 PERFIL_NAO_ENCONTRADO = "PERFIL_NAO_ENCONTRADO"
 PERFIL_DUPLICADO = "PERFIL_DUPLICADO"
@@ -53,6 +53,20 @@ LOTE_COM_BLOQUEIO = "LOTE_COM_BLOQUEIO"
 EM_REVISAO = "em_revisao"
 APROVADO = "aprovado"
 DESCARTADO = "descartado"
+
+# Situacao de cada DPS na transmissao (spec 008). Sem linha = gerada.
+GERADA = "gerada"
+ENVIANDO = "enviando"
+AUTORIZADA = "autorizada"
+REJEITADA = "rejeitada"
+INCERTA = "incerta"
+SITUACOES_QUE_PRENDEM = (AUTORIZADA, ENVIANDO, INCERTA)
+# `enviando` mais velha que isto e' de um processo que caiu no meio: pode ter
+# chegado a Sefin, entao conta como incerta (consultar antes de reenviar).
+ENVIO_TRAVADO = dt.timedelta(minutes=10)
+LOTE_COM_NFSE = "LOTE_COM_NFSE"
+EM_ENVIO = "EM_ENVIO"
+SITUACAO_NAO_ENVIA = "SITUACAO_NAO_ENVIA"
 
 CAMPOS_CORRIGIVEIS = ne.CAMPOS + ("excluida",)
 MAX_MOTIVO = 500
@@ -313,6 +327,61 @@ CREATE TABLE IF NOT EXISTS evento (
   usuario_login TEXT NOT NULL,
   criado_em TEXT NOT NULL
 );
+
+-- Schema 2 (spec 008, Fase 2): transmissao a producao restrita. Aditivo.
+CREATE TABLE IF NOT EXISTS dps_situacao (
+  dps_id INTEGER PRIMARY KEY REFERENCES dps(id),
+  situacao TEXT NOT NULL CHECK (situacao IN
+    ('gerada', 'enviando', 'autorizada', 'rejeitada', 'incerta')),
+  chave_acesso TEXT,
+  desde TEXT NOT NULL,
+  tentativas INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS transmissao (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  dps_id INTEGER NOT NULL REFERENCES dps(id),
+  operacao TEXT NOT NULL CHECK (operacao IN ('envio', 'consulta')),
+  resultado TEXT NOT NULL,
+  http_status INTEGER,
+  chave_acesso TEXT,
+  erros TEXT NOT NULL DEFAULT '[]',
+  alertas TEXT NOT NULL DEFAULT '[]',
+  mensagem TEXT NOT NULL DEFAULT '',
+  xml_assinado BLOB,
+  xml_assinado_sha256 TEXT,
+  algoritmo TEXT,
+  certificado_cnpj TEXT,
+  certificado_titular TEXT,
+  certificado_validade TEXT,
+  certificado_impressao TEXT,
+  destino TEXT NOT NULL,
+  versao_aplicativo TEXT,
+  dh_processamento TEXT,
+  iniciada_em TEXT NOT NULL,
+  concluida_em TEXT NOT NULL,
+  usuario_id INTEGER NOT NULL DEFAULT 0,
+  usuario_login TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS nfse (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  dps_id INTEGER NOT NULL UNIQUE REFERENCES dps(id),
+  chave_acesso TEXT NOT NULL UNIQUE,
+  ambiente INTEGER NOT NULL CHECK (ambiente = 2),
+  xml BLOB NOT NULL,
+  sha256 TEXT NOT NULL,
+  origem TEXT NOT NULL CHECK (origem IN ('envio', 'consulta')),
+  recebida_em TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS danfse (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  nfse_id INTEGER NOT NULL UNIQUE REFERENCES nfse(id),
+  pdf BLOB NOT NULL,
+  sha256 TEXT NOT NULL,
+  recebido_em TEXT NOT NULL
+);
 """
 
 _INDICES = """
@@ -333,6 +402,10 @@ CREATE INDEX IF NOT EXISTS idx_chave_lote ON chave_aprovada(lote_id);
 CREATE INDEX IF NOT EXISTS idx_dps_lote ON dps(lote_id);
 CREATE INDEX IF NOT EXISTS idx_evento_lote ON evento(lote_id, id);
 CREATE INDEX IF NOT EXISTS idx_evento_perfil ON evento(perfil_id, id);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_situacao_chave
+  ON dps_situacao(chave_acesso) WHERE chave_acesso IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_transmissao_dps ON transmissao(dps_id, id);
 """
 
 
@@ -356,7 +429,18 @@ _TRIGGERS = "".join(_imutavel(t, n) for t, n in (
     ("conferencia", "Rodada de conferencia"),
     ("conferencia_linha", "Linha conferida"), ("apontamento", "Apontamento"),
     ("dps", "DPS"), ("evento", "Evento"),
+    ("transmissao", "Tentativa de transmissao"), ("nfse", "NFS-e recebida"),
+    ("danfse", "DANFSe recebido"),
 )) + """
+CREATE TRIGGER IF NOT EXISTS trg_situacao_sem_delete
+BEFORE DELETE ON dps_situacao BEGIN
+  SELECT RAISE(ABORT, 'Situacao de DPS nao e excluida.');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_situacao_autorizada_terminal
+BEFORE UPDATE ON dps_situacao WHEN OLD.situacao = 'autorizada' BEGIN
+  SELECT RAISE(ABORT, 'DPS autorizada e terminal.');
+END;
+
 CREATE TRIGGER IF NOT EXISTS trg_perfil_cnpj_imutavel
 BEFORE UPDATE ON perfil BEGIN
   SELECT RAISE(ABORT, 'O CNPJ do perfil e imutavel.');
@@ -405,7 +489,8 @@ END;
 
 _CONTAVEIS = {"perfil", "perfil_versao", "perfil_turma", "origem", "lote", "linha",
               "correcao", "conferencia", "conferencia_linha", "apontamento",
-              "chave_aprovada", "numeracao_dps", "dps", "evento"}
+              "chave_aprovada", "numeracao_dps", "dps", "evento", "dps_situacao",
+              "transmissao", "nfse", "danfse"}
 
 _COLUNAS_VERSAO = (
     "razao_social", "inscricao_municipal", "informar_im", "municipio_ibge",
@@ -996,6 +1081,16 @@ class NfseStore:
             lote = self._lote_para_mudar(conn, lote_id, revision)
             if lote["estado"] == DESCARTADO:
                 raise nf.ErroNfse(ESTADO_INVALIDO, "O lote já foi descartado.")
+            presas = conn.execute(
+                "SELECT COUNT(*) AS n FROM dps d JOIN dps_situacao s ON s.dps_id=d.id"
+                f" WHERE d.lote_id=? AND s.situacao IN ({','.join('?' * len(SITUACOES_QUE_PRENDEM))})",
+                (lote_id, *SITUACOES_QUE_PRENDEM)).fetchone()["n"]
+            if presas:
+                # Spec 008, US4: nota emitida (ou talvez emitida) nao some com
+                # o descarte. Cancelamento e' da Fase 4.
+                raise nf.ErroNfse(LOTE_COM_NFSE,
+                                  f"{presas} DPS deste lote já viraram NFS-e ou estão "
+                                  "com resultado incerto; o lote não pode ser descartado.")
             estado_anterior = lote["estado"]
             if estado_anterior == APROVADO:
                 conn.execute("UPDATE chave_aprovada SET liberada_em=? WHERE lote_id=?"
@@ -1158,12 +1253,20 @@ class NfseStore:
         for aviso in json.loads(lote["avisos_importacao"]):
             apontamentos_lote.append({"codigo": "AVISO_IMPORTACAO", "nivel": "aviso",
                                       "mensagem": aviso})
-        dps = [{"id": d["id"], "linha_id": d["linha_id"], "serie": d["serie"],
-                "numero": d["numero"], "id_dps": d["id_dps"], "sha256": d["sha256"],
-                "dh_emi": d["dh_emi"]}
-               for d in conn.execute("SELECT id, linha_id, serie, numero, id_dps, sha256,"
-                                     " dh_emi FROM dps WHERE lote_id=? ORDER BY numero",
-                                     (lote_id,))]
+        transmissao = {t["id"]: t for t in self.dps_para_transmitir(lote_id)}
+        dps = []
+        for d in conn.execute("SELECT id, linha_id, serie, numero, id_dps, sha256,"
+                              " dh_emi FROM dps WHERE lote_id=? ORDER BY numero",
+                              (lote_id,)):
+            t = transmissao.get(d["id"], {})
+            dps.append({"id": d["id"], "linha_id": d["linha_id"], "serie": d["serie"],
+                        "numero": d["numero"], "id_dps": d["id_dps"],
+                        "sha256": d["sha256"], "dh_emi": d["dh_emi"],
+                        "situacao": t.get("situacao", GERADA),
+                        "chave_acesso": t.get("chave_acesso"),
+                        "erros": t.get("erros", []), "mensagem": t.get("mensagem", ""),
+                        "tem_nfse": t.get("tem_nfse", False),
+                        "tem_danfse": t.get("tem_danfse", False)})
         dados_lote = {k: lote[k] for k in (
             "id", "perfil_id", "estado", "revision", "criado_em", "criado_por_login",
             "aprovado_em", "aprovado_por_login", "hash_aprovacao", "descartado_em",
@@ -1216,4 +1319,171 @@ class NfseStore:
         if o is None or not o["arquivo_relativo"]:
             return None
         return os.path.join(self.pasta_origens, os.path.basename(o["arquivo_relativo"]))
+
+    # ------------------------------------------------------------------
+    # Transmissao a producao restrita (spec 008). Sem rede: quem chama a
+    # Sefin e' ferramentas/nfse_transmissao.py; aqui so ha o que precisa de
+    # transacao.
+
+    @staticmethod
+    def _situacao_efetiva(linha) -> str:
+        if linha is None:
+            return GERADA
+        if linha["situacao"] == ENVIANDO:
+            desde = dt.datetime.fromisoformat(linha["desde"])
+            if dt.datetime.now(dt.timezone.utc) - desde > ENVIO_TRAVADO:
+                return INCERTA
+        return linha["situacao"]
+
+    def lote_para_transmitir(self, lote_id: int) -> dict:
+        """Perfil e CNPJ de um lote aprovado; recusa os outros estados."""
+        lote = self._conn.execute(
+            "SELECT l.estado, l.perfil_id, p.cnpj FROM lote l JOIN perfil p"
+            " ON p.id=l.perfil_id WHERE l.id=?", (lote_id,)).fetchone()
+        if lote is None:
+            raise nf.ErroNfse(LOTE_NAO_ENCONTRADO, "Lote não encontrado.")
+        if lote["estado"] != APROVADO:
+            raise nf.ErroNfse(ESTADO_INVALIDO, "Só lote aprovado é transmitido.")
+        return {"perfil_id": int(lote["perfil_id"]), "cnpj": lote["cnpj"]}
+
+    def dps_para_transmitir(self, lote_id: int) -> list[dict]:
+        """DPS do lote em ordem de numero, com a situacao EFETIVA (enviando
+        velha = incerta) e, se rejeitada, os erros da ultima tentativa."""
+        itens = []
+        for d in self._conn.execute(
+                "SELECT d.id, d.numero, d.id_dps, s.situacao, s.desde, s.chave_acesso,"
+                " s.tentativas, n.id AS nfse_id,"
+                " (SELECT COUNT(*) FROM danfse x WHERE x.nfse_id=n.id) AS danfses"
+                " FROM dps d LEFT JOIN dps_situacao s ON s.dps_id=d.id"
+                " LEFT JOIN nfse n ON n.dps_id=d.id"
+                " WHERE d.lote_id=? ORDER BY d.numero", (lote_id,)):
+            situacao = self._situacao_efetiva(d if d["situacao"] else None)
+            ultima = self._conn.execute(
+                "SELECT erros, mensagem FROM transmissao WHERE dps_id=?"
+                " ORDER BY id DESC LIMIT 1", (d["id"],)).fetchone()
+            itens.append({
+                "id": d["id"], "numero": d["numero"], "id_dps": d["id_dps"],
+                "situacao": situacao, "chave_acesso": d["chave_acesso"],
+                "tentativas": d["tentativas"] or 0,
+                "erros": json.loads(ultima["erros"]) if ultima and situacao == REJEITADA
+                else [],
+                "mensagem": ultima["mensagem"] if ultima else "",
+                "tem_nfse": d["nfse_id"] is not None, "tem_danfse": bool(d["danfses"])})
+        return itens
+
+    def reservar_envio(self, dps_id: int, *, permitidas: set[str]) -> str:
+        """Marca a DPS como `enviando` (transacao curta) e devolve a situacao
+        de antes. Duas transmissoes simultaneas nao pegam a mesma DPS."""
+        with self._transacao() as conn:
+            linha = conn.execute("SELECT * FROM dps_situacao WHERE dps_id=?",
+                                 (dps_id,)).fetchone()
+            efetiva = self._situacao_efetiva(linha)
+            if efetiva == ENVIANDO:
+                raise nf.ErroNfse(EM_ENVIO, "Esta DPS está sendo enviada por outra "
+                                            "transmissão.")
+            if efetiva not in permitidas:
+                raise nf.ErroNfse(SITUACAO_NAO_ENVIA,
+                                  f"DPS {efetiva} não é enviada nesta transmissão.")
+            conn.execute(
+                "INSERT INTO dps_situacao(dps_id, situacao, desde, tentativas)"
+                " VALUES(?,?,?,0) ON CONFLICT(dps_id) DO UPDATE SET"
+                " situacao=excluded.situacao, desde=excluded.desde",
+                (dps_id, ENVIANDO, agora_iso()))
+        return efetiva
+
+    def registrar_tentativa(self, dps_id: int, *, operacao: str, resultado: str,
+                            nova_situacao: str, destino: str, iniciada_em: str,
+                            usuario_id: int, usuario_login: str,
+                            http_status: int | None = None, chave_acesso: str | None = None,
+                            erros: list | None = None, alertas: list | None = None,
+                            mensagem: str = "", xml_assinado: bytes | None = None,
+                            algoritmo: str | None = None, certificado: dict | None = None,
+                            versao_aplicativo: str | None = None,
+                            dh_processamento: str | None = None,
+                            nfse_xml: bytes | None = None) -> int | None:
+        """Tentativa (imutavel) + situacao da DPS + NFS-e, numa transacao so.
+        Devolve o id da NFS-e guardada, se houver."""
+        certificado = certificado or {}
+        agora = agora_iso()
+        erros = list(erros or [])
+        with self._transacao() as conn:
+            dps = conn.execute("SELECT lote_id, perfil_id FROM dps WHERE id=?",
+                               (dps_id,)).fetchone()
+            if dps is None:
+                raise nf.ErroNfse(DPS_NAO_ENCONTRADA, "DPS não encontrada.")
+            conn.execute(
+                "INSERT INTO transmissao(dps_id, operacao, resultado, http_status,"
+                " chave_acesso, erros, alertas, mensagem, xml_assinado,"
+                " xml_assinado_sha256, algoritmo, certificado_cnpj, certificado_titular,"
+                " certificado_validade, certificado_impressao, destino, versao_aplicativo,"
+                " dh_processamento, iniciada_em, concluida_em, usuario_id, usuario_login)"
+                " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (dps_id, operacao, resultado, http_status, chave_acesso, _json(erros),
+                 _json(list(alertas or [])), (mensagem or "")[:1000], xml_assinado,
+                 hashlib.sha256(xml_assinado).hexdigest() if xml_assinado else None,
+                 algoritmo, certificado.get("cnpj"), certificado.get("titular"),
+                 certificado.get("valido_ate"), certificado.get("impressao"), destino,
+                 None if versao_aplicativo is None else str(versao_aplicativo)[:100],
+                 None if dh_processamento is None else str(dh_processamento)[:40],
+                 iniciada_em, agora, usuario_id, usuario_login))
+            conn.execute(
+                "INSERT INTO dps_situacao(dps_id, situacao, chave_acesso, desde, tentativas)"
+                " VALUES(?,?,?,?,?) ON CONFLICT(dps_id) DO UPDATE SET"
+                " situacao=excluded.situacao,"
+                " chave_acesso=COALESCE(excluded.chave_acesso, dps_situacao.chave_acesso),"
+                " desde=excluded.desde,"
+                " tentativas=dps_situacao.tentativas + excluded.tentativas",
+                (dps_id, nova_situacao, chave_acesso, agora,
+                 1 if operacao == "envio" else 0))
+            nfse_id = None
+            if nfse_xml:
+                nfse_id = int(conn.execute(
+                    "INSERT INTO nfse(dps_id, chave_acesso, ambiente, xml, sha256, origem,"
+                    " recebida_em) VALUES(?,?,?,?,?,?,?)",
+                    (dps_id, chave_acesso, nd.AMBIENTE_PRODUCAO_RESTRITA, nfse_xml,
+                     hashlib.sha256(nfse_xml).hexdigest(), operacao if operacao == "envio"
+                     else "consulta", agora)).lastrowid)
+            tipo = {AUTORIZADA: "dps_autorizada", REJEITADA: "dps_rejeitada",
+                    INCERTA: "dps_incerta"}.get(nova_situacao, "dps_nao_enviada")
+            self._evento(conn, tipo, usuario_id=usuario_id, usuario_login=usuario_login,
+                         perfil_id=dps["perfil_id"], lote_id=dps["lote_id"], dps_id=dps_id,
+                         detalhe={"operacao": operacao, "resultado": resultado,
+                                  "http": http_status, "chave": chave_acesso,
+                                  "codigos": [e.get("codigo") for e in erros]})
+        return nfse_id
+
+    def registrar_danfse(self, nfse_id: int, pdf: bytes) -> None:
+        with self._transacao() as conn:
+            conn.execute("INSERT INTO danfse(nfse_id, pdf, sha256, recebido_em)"
+                         " VALUES(?,?,?,?)",
+                         (nfse_id, pdf, hashlib.sha256(pdf).hexdigest(), agora_iso()))
+
+    def registrar_evento(self, tipo: str, lote_id: int, detalhe: dict, *,
+                         usuario_id: int, usuario_login: str) -> None:
+        lote = self._conn.execute("SELECT perfil_id FROM lote WHERE id=?",
+                                  (lote_id,)).fetchone()
+        with self._transacao() as conn:
+            self._evento(conn, tipo, usuario_id=usuario_id, usuario_login=usuario_login,
+                         perfil_id=lote["perfil_id"] if lote else None, lote_id=lote_id,
+                         detalhe=detalhe)
+
+    def tentativas(self, dps_id: int) -> list[dict]:
+        itens = []
+        for t in self._conn.execute("SELECT * FROM transmissao WHERE dps_id=? ORDER BY id",
+                                    (dps_id,)):
+            item = dict(t)
+            item["erros"] = json.loads(t["erros"])
+            item["alertas"] = json.loads(t["alertas"])
+            itens.append(item)
+        return itens
+
+    def nfse_da_dps(self, dps_id: int) -> dict | None:
+        n = self._conn.execute("SELECT * FROM nfse WHERE dps_id=?", (dps_id,)).fetchone()
+        return dict(n) if n else None
+
+    def danfse_da_dps(self, dps_id: int) -> bytes | None:
+        d = self._conn.execute(
+            "SELECT x.pdf FROM danfse x JOIN nfse n ON n.id=x.nfse_id WHERE n.dps_id=?",
+            (dps_id,)).fetchone()
+        return bytes(d["pdf"]) if d else None
 

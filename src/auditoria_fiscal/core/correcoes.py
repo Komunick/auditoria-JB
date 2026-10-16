@@ -1,7 +1,7 @@
 """Correcoes de campos fiscais com auditoria e precedencia centralizada.
 
 REGRA DE PRECEDENCIA (unica para todo o sistema — tela de conferencia,
-Livro Fiscal, relatorio de inconsistencias e SPED corrigido):
+Livro Fiscal, Carta de Inconsistencias e SPED corrigido):
 
     1. Usa o valor corrigido quando existe correcao valida e aplicada;
     2. Usa o valor original quando nao ha correcao.
