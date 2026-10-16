@@ -23,16 +23,40 @@ criação do usuário administrador. A partir daí tudo é feito pela aba
 
 ## Emissão de NFS-e (aba 8)
 
-Somente web, **Fase 1: nada é transmitido**. A ferramenta importa a lista do
-cliente (planilha-modelo ou texto colado da conversa), confere cada nota,
-mostra o lote para revisão e, na aprovação, gera a DPS do padrão nacional
-validada no XSD oficial — uma prévia, sem efeito fiscal. Não lê certificado
-nem abre conexão com a Receita.
+Somente web. A ferramenta importa a lista do cliente (planilha-modelo ou
+texto colado da conversa), confere cada nota, mostra o lote para revisão e,
+na aprovação, gera a DPS do padrão nacional validada no XSD oficial.
+
+**Fase 2 (spec 008): transmissão à produção restrita, sem valor fiscal.** Num
+lote aprovado, quem tem `nfse.transmitir` envia as DPS à produção restrita da
+Sefin Nacional com o certificado A1 (.pfx + senha) da escola. O certificado vai
+no próprio pedido, é usado só durante a transmissão e **não fica guardado**
+(nem no banco, nem em disco). Cada tentativa fica registrada com o XML
+assinado e a resposta oficial; resultado incerto (tempo esgotado, erro do
+servidor) é consultado na Sefin antes de qualquer reenvio. Produção de verdade
+continua desligada (Fase 3).
+
+**Perfil pelo certificado (spec 009).** No formulário de perfil, o certificado
+A1 da escola preenche sozinho o CNPJ e a razão social (lidos do próprio
+certificado) e, consultando a parametrização do ADN do Sistema Nacional em
+produção (só leitura, nada é emitido), se o convênio do município está ativo e a
+alíquota dos códigos das turmas. Os campos preenchidos ficam marcados até a
+pessoa salvar; nada é gravado na consulta e o certificado não fica guardado. O
+resto do perfil (IM/CNC, regime do Simples, tributos aproximados, endereço do
+tomador, série, modelo, turmas) não tem consulta por CNPJ e continua manual.
+
+| Variável | Para quê |
+|---|---|
+| `AUDITORIA_NFSE_ASSINATURA` | `sha256` (padrão) ou `sha1`, se a Sefin recusar a assinatura com E0714 |
+| `AUDITORIA_NFSE_TIMEOUT` | segundos de espera por resposta da Sefin (padrão 60) |
+| `AUDITORIA_NFSE_CA_EXTRA` | arquivo PEM com AC extra, se o certificado do servidor da Sefin não estiver no sistema |
+| `AUDITORIA_NFSE_SEFIN_URL` / `AUDITORIA_NFSE_ADN_URL` | só para testes; fora de `*.producaorestrita.nfse.gov.br` o servidor recusa |
+| `AUDITORIA_NFSE_PARAMETROS_URL` | parametrização do ADN para o perfil pelo certificado; padrão `https://adn.nfse.gov.br/parametrizacao` (produção, só leitura); aceita só o ADN |
 
 O administrador libera `aba.nfse` e, separadamente, `nfse.perfis`,
-`nfse.importar`, `nfse.aprovar_emitir` e `nfse.exportar`. Usuário novo vem só
-com a aba. A aba mostra nomes de alunos e CPFs de responsáveis: libere com o
-mesmo cuidado de qualquer dado pessoal.
+`nfse.importar`, `nfse.aprovar_emitir`, `nfse.exportar` e `nfse.transmitir`.
+Usuário novo vem só com a aba. A aba mostra nomes de alunos e CPFs de
+responsáveis: libere com o mesmo cuidado de qualquer dado pessoal.
 
 O schema do `nfse.db` é criado sozinho na primeira abertura. Os XSD oficiais
 ficam em `dados/nfse/xsd/v1.01` (no Git, sem alteração).
@@ -135,9 +159,10 @@ Tudo em `dados_web\` (fora do git):
 - `patrimonio.db` — Patrimônio: bens, pessoas, locais, responsabilidades,
   movimentações (append-only) e inventários
 - `nfse.db` — Emissão de NFS-e: perfis versionados, lotes, linhas recebidas,
-  correções, rodadas de conferência, DPS geradas e a trilha do domínio
-  (append-only, protegida por trigger). **Tem dados pessoais** (nomes de
-  alunos, CPFs de responsáveis)
+  correções, rodadas de conferência, DPS geradas, tentativas de transmissão
+  (com o XML assinado), NFS-e e DANFSe da produção restrita e a trilha do
+  domínio (append-only, protegida por trigger). **Tem dados pessoais** (nomes
+  de alunos, CPFs de responsáveis). Não guarda certificado nem senha
 - `nfse\origens\<sha256>.xlsx` — as planilhas recebidas, imutáveis (o texto
   colado fica dentro do `nfse.db`)
 - `conciliacao\origens\<sha256>.xlsx` — os relatórios da SEFAZ **originais**,

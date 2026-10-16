@@ -5,8 +5,10 @@
    servidor entra por `textContent`: nomes de alunos, de responsáveis e o
    texto colado da conversa são digitados por gente de fora da JB.
 
-   Nada aqui transmite. A DPS gerada na aprovação é uma prévia validada no
-   XSD oficial, marcada como NÃO TRANSMITIDA em toda saída. */
+   A DPS gerada na aprovação é uma prévia validada no XSD oficial. A Fase 2
+   (spec 008) transmite essas DPS à PRODUÇÃO RESTRITA, sem valor fiscal: o
+   .pfx e a senha vão no próprio pedido e o campo da senha é limpo assim que
+   o pedido sai. Produção de verdade é a Fase 3. */
 
 "use strict";
 
@@ -17,8 +19,9 @@ Abas.registrar("nfse", (container) => {
       <p class="dica">Recebe a lista da escola (planilha-modelo ou texto colado
          da conversa), monta cada nota pelo <b>perfil de emissão</b> do cliente,
          confere tudo e, na aprovação, gera a <b>DPS</b> do padrão nacional.
-         <b>Nesta fase nada é transmitido</b>: a DPS é uma prévia validada,
-         sem efeito fiscal.</p>
+         O lote aprovado pode ser transmitido à <b>produção restrita</b> da Sefin
+         Nacional com o certificado da escola: as notas de lá <b>não têm valor
+         fiscal</b>. Emissão de verdade ainda não está ligada.</p>
       <p id="nfse-status" class="status"></p>
     </div>
 
@@ -109,11 +112,19 @@ Abas.registrar("nfse", (container) => {
     importar: Sessao.pode("nfse.importar"),
     aprovar: Sessao.pode("nfse.aprovar_emitir"),
     exportar: Sessao.pode("nfse.exportar"),
+    transmitir: Sessao.pode("nfse.transmitir"),
   };
   const estado = { perfis: [], catalogo: null, loteAberto: null };
 
-  const ESTADOS = { em_revisao: "Em revisão", aprovado: "Aprovado (DPS não transmitida)",
+  const ESTADOS = { em_revisao: "Em revisão", aprovado: "Aprovado",
                     descartado: "Descartado" };
+  const SITUACAO_DPS = {
+    gerada: ["Gerada (não transmitida)", ""],
+    enviando: ["Enviando…", "conc-alerta"],
+    autorizada: ["Autorizada (produção restrita)", "conc-ok"],
+    rejeitada: ["Rejeitada", "conc-erro"],
+    incerta: ["Incerta — será consultada antes de reenviar", "conc-alerta"],
+  };
   const SITUACAO = { ok: ["OK", "conc-ok"], aviso: ["Aviso", "conc-alerta"],
                      bloqueio: ["Bloqueio", "conc-erro"], excluida: ["Excluída", ""] };
   const ROTULOS_CAMPO = {
@@ -267,8 +278,14 @@ Abas.registrar("nfse", (container) => {
     alvo.appendChild(el("hr", null, "conc-divisor"));
     alvo.appendChild(el("h3", `Lote #${l.id} — ${ESTADOS[l.estado] || l.estado}`, "pat-titulo"));
     if (l.estado === "aprovado") {
-      alvo.appendChild(el("p", "DPS NÃO TRANSMITIDA — prévia validada no XSD oficial, "
-        + "produção restrita, sem efeito fiscal.", "nfse-faixa"));
+      const conta = (s) => d.dps.filter((x) => x.situacao === s).length;
+      const transmitidas = d.dps.length - conta("gerada");
+      alvo.appendChild(el("p", transmitidas
+        ? `PRODUÇÃO RESTRITA — sem valor fiscal: ${conta("autorizada")} autorizada(s), `
+          + `${conta("rejeitada")} rejeitada(s), ${conta("incerta") + conta("enviando")} `
+          + `em aberto, ${conta("gerada")} não transmitida(s).`
+        : "DPS NÃO TRANSMITIDA — prévia validada no XSD oficial, "
+          + "produção restrita, sem efeito fiscal.", "nfse-faixa"));
     }
     const origem = l.origem.tipo === "planilha"
       ? `Planilha ${l.origem.nome_arquivo || ""}` : "Texto colado";
@@ -334,7 +351,74 @@ Abas.registrar("nfse", (container) => {
     alvo.appendChild(el("div", null, "nfse-linha-detalhe")).id = "nfse-linha";
 
     if (d.dps.length) alvo.appendChild(listaDps(d));
+    if (l.estado === "aprovado" && pode.transmitir
+        && d.dps.some((x) => x.situacao !== "autorizada")) {
+      alvo.appendChild(painelTransmissao(d));
+    }
     alvo.appendChild(botaoEventos(l.id));
+  }
+
+  /* Transmissão à produção restrita (spec 008). O certificado vai no pedido
+     e não fica guardado em lugar nenhum: a cada transmissão, de novo. */
+  function painelTransmissao(d) {
+    const caixa = el("div", null, "nfse-transmissao");
+    caixa.appendChild(el("h3", "Transmitir à produção restrita", "pat-titulo"));
+    caixa.appendChild(el("p", "Envia as DPS deste lote à produção restrita da Sefin "
+      + "Nacional com o certificado A1 (.pfx) da escola. As notas geradas lá NÃO têm "
+      + "valor fiscal: servem para provar que o Sistema Nacional aceita o que montamos. "
+      + "O certificado é usado só durante o envio e não fica guardado.", "dica"));
+    const form = el("div", null, "linha-form");
+    const arquivo = el("input"); arquivo.type = "file"; arquivo.accept = ".pfx,.p12";
+    const senha = el("input"); senha.type = "password"; senha.autocomplete = "off";
+    senha.placeholder = "Senha do certificado";
+    const la = el("label", "Certificado A1 (.pfx)"); la.appendChild(arquivo);
+    const ls = el("label", "Senha"); ls.appendChild(senha);
+    form.append(la, ls);
+    let rejeitadas = null;
+    if (d.dps.some((x) => x.situacao === "rejeitada")) {
+      rejeitadas = el("input"); rejeitadas.type = "checkbox";
+      const lr = el("label", "Reenviar as rejeitadas (só depois de corrigir a causa)",
+                    "pat-checkbox");
+      lr.prepend(rejeitadas);
+      form.appendChild(lr);
+    }
+    const ciente = el("input"); ciente.type = "checkbox";
+    const lc = el("label", "Entendo que é produção restrita, sem valor fiscal",
+                  "pat-checkbox");
+    lc.prepend(ciente);
+    const b = el("button", "Transmitir", "botao-primario"); b.type = "button";
+    form.append(lc, b);
+    caixa.appendChild(form);
+
+    b.addEventListener("click", async () => {
+      if (!arquivo.files.length) { toast("Escolha o arquivo .pfx do certificado.", "erro"); return; }
+      if (!ciente.checked) { toast("Confirme que é produção restrita.", "erro"); return; }
+      const corpo = new FormData();
+      corpo.append("certificado", arquivo.files[0]);
+      corpo.append("senha", senha.value);
+      corpo.append("confirmar_producao_restrita", "true");
+      corpo.append("incluir_rejeitadas", rejeitadas && rejeitadas.checked ? "true" : "false");
+      senha.value = "";
+      arquivo.value = "";
+      b.disabled = true;
+      try {
+        const r = await api(`/api/nfse/lotes/${d.lote.id}/transmitir`,
+                            { method: "POST", body: corpo });
+        status("Transmitindo à produção restrita…");
+        const res = await esperarJob(r.job_id, "nfse");
+        const texto = `${res.autorizadas} autorizada(s), ${res.ja_existiam} já existia(m), `
+          + `${res.rejeitadas} rejeitada(s), ${res.incertas} incerta(s), `
+          + `${res.puladas} pulada(s).`;
+        toast(res.interrompida ? `Transmissão interrompida: ${res.interrompida}. ${texto}`
+                               : `Transmissão concluída: ${texto}`,
+              res.interrompida ? "erro" : "ok");
+        status("");
+      } catch (erro) { erroNaTela(erro); }
+      b.disabled = false;
+      await abrirLote(d.lote.id);
+      await carregarLotes();
+    });
+    return caixa;
   }
 
   function acoesDoLote(d) {
@@ -513,22 +597,39 @@ Abas.registrar("nfse", (container) => {
 
   function listaDps(d) {
     const caixa = el("div");
-    caixa.appendChild(el("h3", "DPS geradas (não transmitidas)", "pat-titulo"));
+    caixa.appendChild(el("h3", "DPS do lote", "pat-titulo"));
     const tabela = el("table");
     const cab = el("tr");
-    ["Nº", "Série", "Id da DPS", "SHA-256", ""].forEach((c) => cab.appendChild(el("th", c)));
+    ["Nº", "Série", "Id da DPS", "Situação", "Chave de acesso / motivo", ""]
+      .forEach((c) => cab.appendChild(el("th", c)));
     const thead = el("thead"); thead.appendChild(cab);
     const tbody = el("tbody");
     for (const x of d.dps) {
       const tr = el("tr");
       const acao = el("td");
       if (pode.exportar) {
-        const b = el("button", "XML"); b.type = "button";
+        const b = el("button", "DPS"); b.type = "button";
+        b.title = "XML da DPS (sem assinatura)";
         b.addEventListener("click", () => baixar(`/api/nfse/dps/${x.id}/xml`));
         acao.appendChild(b);
+        if (x.tem_nfse) {
+          const n = el("button", "NFS-e"); n.type = "button";
+          n.title = "XML da NFS-e de produção restrita (sem valor fiscal)";
+          n.addEventListener("click", () => baixar(`/api/nfse/dps/${x.id}/nfse-xml`));
+          acao.appendChild(n);
+        }
+        if (x.tem_danfse) {
+          const p = el("button", "DANFSe"); p.type = "button";
+          p.addEventListener("click", () => baixar(`/api/nfse/dps/${x.id}/danfse`));
+          acao.appendChild(p);
+        }
       }
+      const [rotulo, classe] = SITUACAO_DPS[x.situacao] || [x.situacao, ""];
+      const detalhe = x.chave_acesso
+        || (x.erros || []).map((e) => `${e.codigo} ${e.descricao}`.trim()).join(" · ")
+        || (x.situacao !== "gerada" ? x.mensagem : "") || "—";
       tr.append(celula(String(x.numero)), celula(x.serie), celula(x.id_dps),
-                celula(x.sha256.slice(0, 16) + "…"), acao);
+                celula(rotulo, classe), celula(detalhe), acao);
       tbody.appendChild(tr);
     }
     tabela.append(thead, tbody);
@@ -734,6 +835,202 @@ Abas.registrar("nfse", (container) => {
   const percentual = (c) => (c === null || c === undefined ? ""
     : (c / 100).toFixed(2).replace(".", ","));
 
+  /* Comum aos dois painéis de preenchimento automático (spec 009): o campo
+     preenchido fica verde com a fonte no title, até a pessoa mexer nele. */
+  const ROTULOS_AUTO = {
+    cnpj: "CNPJ", razao_social: "Razão social", inscricao_municipal: "Inscrição municipal",
+    informar_im: "IM vai na DPS", municipio_ibge: "Município emissor",
+    municipio_prestacao_ibge: "Local da prestação", iss_retido: "ISS retido",
+    reg_ap_trib_sn: "Regime de apuração no Simples", reg_esp_trib: "Regime especial",
+    convenio_incidencia_ativo: "Convênio do município ativo", aliquota: "Alíquota (%)",
+    tributos_aprox: "Tributos aproximados", p_tot_trib_sn: "pTotTribSN (%)",
+    p_tot_trib_fed: "Federal (%)", p_tot_trib_est: "Estadual (%)",
+    p_tot_trib_mun: "Municipal (%)", modelo_discriminacao: "Modelo da discriminação",
+  };
+  const mostrarAuto = (v) => (typeof v === "boolean" ? (v ? "sim" : "não") : String(v));
+
+  function marcarAuto(campo, fonte) {
+    campo.classList.add("nfse-auto");
+    campo.title = `Preenchido automaticamente — ${fonte}. Confira antes de salvar.`;
+    campo.addEventListener("change", () => campo.classList.remove("nfse-auto"),
+                           { once: true });
+  }
+
+  function listaResultado(alvo, titulo, itens, classe) {
+    if (!itens.length) return;
+    alvo.appendChild(el("p", titulo, classe || "dica"));
+    const ul = el("ul");
+    itens.forEach((t) => ul.appendChild(el("li", t)));
+    alvo.appendChild(ul);
+  }
+
+  /* Spec 009: preencher pelo certificado. Lê o .pfx (CNPJ e razão social) e
+     consulta a parametrização do ADN (convênio e alíquota). Só PREENCHE o
+     formulário: nada é gravado até a pessoa salvar, e o certificado não fica
+     guardado. */
+  function painelCertificado(caixa, perfil, c, turmas, motivo) {
+    caixa.appendChild(el("h3", "Preencher pelo certificado (opcional)", "pat-titulo"));
+    caixa.appendChild(el("p", "Com o certificado A1 da escola, o sistema lê o CNPJ e a "
+      + "razão social e consulta no Sistema Nacional se o convênio do município está "
+      + "ativo e a alíquota dos códigos das turmas. Confira tudo antes de salvar. O "
+      + "certificado é usado só nesta consulta e não fica guardado.", "dica"));
+    const form = el("div", null, "linha-form");
+    const arquivo = el("input"); arquivo.type = "file"; arquivo.accept = ".pfx,.p12";
+    const senha = el("input"); senha.type = "password"; senha.autocomplete = "off";
+    senha.placeholder = "Senha do certificado";
+    const la = el("label", "Certificado A1 (.pfx)"); la.appendChild(arquivo);
+    const ls = el("label", "Senha"); ls.appendChild(senha);
+    const b = el("button", "Ler certificado e consultar"); b.type = "button";
+    form.append(la, ls, b);
+    caixa.appendChild(form);
+    const resultado = el("div");
+    caixa.appendChild(resultado);
+
+    b.addEventListener("click", async () => {
+      if (!arquivo.files.length) { toast("Escolha o arquivo .pfx do certificado.", "erro"); return; }
+      const codigos = [...turmas.children].map((l) => l._campos.c_trib_nac.value.trim())
+        .filter(Boolean);
+      const corpo = new FormData();
+      corpo.append("certificado", arquivo.files[0]);
+      corpo.append("senha", senha.value);
+      corpo.append("municipio_ibge", c.municipio_prestacao_ibge.value.trim()
+        || c.municipio_ibge.value.trim() || c.municipio_prestacao_ibge.placeholder);
+      corpo.append("c_trib_nac", codigos.join(","));
+      senha.value = "";
+      arquivo.value = "";
+      b.disabled = true;
+      resultado.textContent = "";
+      status("Lendo o certificado e consultando o Sistema Nacional…");
+      try {
+        const r = await api("/api/nfse/perfis/sugestao", { method: "POST", body: corpo });
+        const aplicados = [];
+        for (const [nome, s] of Object.entries(r.campos)) {
+          if (nome === "cnpj" && perfil) {
+            if (s.valor.replace(/\D/g, "") !== perfil.cnpj) {
+              toast(`O certificado é do CNPJ ${s.valor}, não deste perfil.`, "erro");
+            }
+            continue;
+          }
+          const campo = c[nome];
+          if (!campo) continue;
+          campo.value = typeof s.valor === "boolean" ? (s.valor ? "1" : "0") : s.valor;
+          marcarAuto(campo, s.fonte);
+          aplicados.push(`${ROTULOS_AUTO[nome] || nome}: ${mostrarAuto(s.valor)} (${s.fonte})`);
+        }
+        if (!c.municipio_prestacao_ibge.value.trim()) {
+          c.municipio_prestacao_ibge.value = r.municipio;
+        }
+        if (!c.municipio_ibge.value.trim()) c.municipio_ibge.value = r.municipio;
+        if (aplicados.length && !motivo.value.trim()) {
+          motivo.value = "Preenchido pelo certificado e pela parametrização do ADN";
+        }
+        const cert = r.certificado;
+        resultado.appendChild(el("p", `Certificado de ${cert.titular}, válido até `
+          + `${cert.valido_ate.slice(0, 10).split("-").reverse().join("/")}. `
+          + `Consulta em ${r.ambiente}, competência `
+          + `${r.competencia.slice(5, 7)}/${r.competencia.slice(0, 4)}.`, "dica"));
+        listaResultado(resultado, "Preenchido automaticamente (marcado em verde):", aplicados);
+        listaResultado(resultado, "Avisos:", r.avisos, "nfse-faixa aviso");
+        listaResultado(resultado, "Continua manual (nenhuma consulta responde):", r.manuais);
+        status("");
+        toast(aplicados.length ? `${aplicados.length} campo(s) preenchido(s). Confira e salve.`
+          : "Nada a preencher automaticamente.", aplicados.length ? "ok" : "erro");
+      } catch (erro) { erroNaTela(erro); }
+      b.disabled = false;
+    });
+  }
+
+  const CODIGOS_TURMA = { c_trib_nac: "cód. nacional", c_nbs: "NBS",
+    c_ind_op: "ind. operação", c_class_trib: "class. trib.", ref_cnae: "CNAE",
+    ref_item_lista: "item", ref_ctiss: "CTISS" };
+
+  /* Põe os códigos de uma turma sugerida na linha certa: a de mesmo nome; sem
+     nome, a primeira linha vazia; se não houver, uma linha nova. */
+  function aplicarTurma(turmas, novaTurma, t) {
+    const linhas = [...turmas.children];
+    const vazia = (l) => !l._campos.nome.value.trim()
+      && Object.keys(CODIGOS_TURMA).every((k) => !l._campos[k].value.trim());
+    let linha = t.nome ? linhas.find((l) => l._campos.nome.value.trim()
+      .localeCompare(t.nome, "pt-BR", { sensitivity: "base" }) === 0) : null;
+    if (!linha) linha = linhas.find(vazia);
+    if (!linha) { novaTurma(); linha = turmas.lastElementChild; }
+    const postos = [];
+    for (const [k, rotulo] of Object.entries(CODIGOS_TURMA)) {
+      if (!t[k]) continue;
+      linha._campos[k].value = t[k];
+      marcarAuto(linha._campos[k], t.fonte);
+      postos.push(`${rotulo} ${t[k]}`);
+    }
+    if (t.nome && !linha._campos.nome.value.trim()) linha._campos.nome.value = t.nome;
+    return postos.length ? [`Turma ${linha._campos.nome.value.trim() || "(sem nome)"}: `
+      + `${postos.join(", ")} (${t.notas} nota(s))`] : [];
+  }
+
+  /* Spec 009, Parte 2: preencher por uma nota já emitida. Lê o XML (ou .zip)
+     da Nota Salvador ou da NFS-e nacional. Só PREENCHE o formulário: nada é
+     gravado até a pessoa salvar, e a nota não fica guardada. */
+  function painelNotaAnterior(caixa, perfil, c, turmas, novaTurma, modelo, motivo) {
+    caixa.appendChild(el("h3", "Preencher por uma nota já emitida (opcional)", "pat-titulo"));
+    caixa.appendChild(el("p", "Envie o XML de uma NFS-e que a escola já emitiu: da Nota "
+      + "Salvador, da NFS-e nacional ou um .zip com várias. O sistema lê a inscrição "
+      + "municipal, o ISS retido, a alíquota, o regime e os códigos da turma, e monta o "
+      + "modelo da discriminação sem os nomes. Cadastre os nomes das turmas antes, para "
+      + "os códigos irem para a turma certa. A nota não fica guardada.", "dica"));
+    const form = el("div", null, "linha-form");
+    const arquivo = el("input"); arquivo.type = "file"; arquivo.accept = ".xml,.zip";
+    const la = el("label", "XML da nota (.xml ou .zip)"); la.appendChild(arquivo);
+    const b = el("button", "Ler a nota"); b.type = "button";
+    form.append(la, b);
+    caixa.appendChild(form);
+    const resultado = el("div");
+    caixa.appendChild(resultado);
+
+    b.addEventListener("click", async () => {
+      if (!arquivo.files.length) { toast("Escolha o XML da nota.", "erro"); return; }
+      const nomes = [...turmas.children].map((l) => l._campos.nome.value.trim())
+        .filter(Boolean);
+      const corpo = new FormData();
+      corpo.append("arquivo", arquivo.files[0]);
+      corpo.append("cnpj", perfil ? perfil.cnpj : "");
+      corpo.append("turmas", nomes.join("\n"));
+      arquivo.value = "";
+      b.disabled = true;
+      resultado.textContent = "";
+      status("Lendo a nota…");
+      try {
+        const r = await api("/api/nfse/perfis/sugestao-nota", { method: "POST", body: corpo });
+        const aplicados = [];
+        for (const [nome, s] of Object.entries(r.campos)) {
+          if (nome === "cnpj" && perfil) continue;   // o servidor já conferiu
+          const campo = nome === "modelo_discriminacao" ? modelo : c[nome];
+          if (!campo) continue;
+          campo.value = typeof s.valor === "boolean" ? (s.valor ? "1" : "0") : String(s.valor);
+          marcarAuto(campo, s.fonte);
+          const visto = campo.tagName === "SELECT" && campo.selectedOptions.length
+            ? campo.selectedOptions[0].text : mostrarAuto(s.valor);
+          aplicados.push(`${ROTULOS_AUTO[nome] || nome}: ${visto}`);
+        }
+        r.turmas.forEach((t) => aplicados.push(...aplicarTurma(turmas, novaTurma, t)));
+        if (aplicados.length && !motivo.value.trim()) {
+          motivo.value = "Preenchido pela nota já emitida";
+        }
+        const n = r.notas;
+        const fonte = Object.values(r.campos)[0];
+        resultado.appendChild(el("p", `Lido: ${fonte ? fonte.fonte : n.leiautes.join(", ")}`
+          + (n.lidas > n.usadas ? ` (de ${n.lidas} no arquivo)` : "")
+          + (n.competencias.length ? `, competência ${n.competencias.map(competencia)
+            .join(", ")}` : "") + ".", "dica"));
+        listaResultado(resultado, "Preenchido automaticamente (marcado em verde):", aplicados);
+        listaResultado(resultado, "Avisos:", r.avisos, "nfse-faixa aviso");
+        listaResultado(resultado, "Continua manual (a nota não diz):", r.manuais);
+        status("");
+        toast(aplicados.length ? `${aplicados.length} item(ns) preenchido(s). Confira e salve.`
+          : "Nada a preencher pela nota.", aplicados.length ? "ok" : "erro");
+      } catch (erro) { erroNaTela(erro); }
+      b.disabled = false;
+    });
+  }
+
   function formularioPerfil(perfil) {
     const a = perfil ? perfil.atual : {};
     const alvo = $("nfse-perfil");
@@ -745,6 +1042,11 @@ Abas.registrar("nfse", (container) => {
     alvo.appendChild(el("p", "Campos marcados como pendentes ficam sem valor: o perfil "
       + "pode ser usado para importar e revisar, mas a DPS só é gerada quando tudo "
       + "estiver decidido. Nada aqui ganha valor padrão.", "dica"));
+    // Preenchida depois que os campos e as turmas existem (fim da função).
+    const caixaCertificado = el("div", null, "nfse-certificado");
+    alvo.appendChild(caixaCertificado);
+    const caixaNota = el("div", null, "nfse-certificado");
+    alvo.appendChild(caixaNota);
 
     const c = {};
     const grade = el("div", null, "linha-form nfse-grade");
@@ -830,6 +1132,8 @@ Abas.registrar("nfse", (container) => {
     salvar.type = "button";
     const rodape = el("div", null, "linha-form"); rodape.append(lmot, salvar);
     alvo.appendChild(rodape);
+    painelCertificado(caixaCertificado, perfil, c, turmas, motivo);
+    painelNotaAnterior(caixaNota, perfil, c, turmas, linhaTurma, modelo, motivo);
 
     salvar.addEventListener("click", async () => {
       const vazio = (v) => (v === "" ? null : v);
