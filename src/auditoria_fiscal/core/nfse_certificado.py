@@ -55,6 +55,10 @@ class CertificadoA1:
         return (f"CertificadoA1(cnpj={self.cnpj!r}, titular={self.titular!r}, "
                 f"impressao={self.impressao[:16]}..., chave=<oculta>)")
 
+    @property
+    def razao_social(self) -> str:
+        return razao_social_do_titular(self.titular)
+
     def resumo(self) -> dict:
         """O que pode ir para banco, trilha e tela: nada secreto."""
         return {"cnpj": self.cnpj, "titular": self.titular, "emissor": self.emissor,
@@ -100,6 +104,16 @@ def cnpj_do_certificado(certificado: x509.Certificate) -> str | None:
             if len(digitos) >= 14:
                 return digitos[:14]
     return None
+
+
+def razao_social_do_titular(titular: str) -> str:
+    """No e-CNPJ da ICP-Brasil o CN e' `NOME EMPRESARIAL:CNPJ`; tira o sufixo
+    do CNPJ (so o ultimo, o nome pode ter dois-pontos)."""
+    titular = (titular or "").strip()
+    nome, separador, fim = titular.rpartition(":")
+    if separador and re.fullmatch(r"\d{14}", fim.strip()):
+        return nome.strip()
+    return titular
 
 
 def _nome_comum(nome: x509.Name) -> str:

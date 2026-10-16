@@ -975,3 +975,11 @@ label.permissao input { margin-top: 3px; }
   border-radius: 10px; background: var(--papel-2);
 }
 .nfse-grade label { min-width: 200px; }
+/* Perfil pelo certificado (spec 009): o que veio de fora fica marcado ate a
+   pessoa salvar, para ninguem confundir sugestao com decisao. */
+.nfse-certificado {
+  margin: 10px 0 14px; padding: 4px 14px 12px; border: 1px dashed var(--menta);
+  border-radius: 10px; background: var(--papel-2);
+}
+.nfse-auto { outline: 2px solid var(--menta); outline-offset: 1px; }
+.nfse-certificado ul { margin: 4px 0 8px 18px; padding: 0; }

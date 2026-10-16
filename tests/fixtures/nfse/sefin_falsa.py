@@ -10,6 +10,9 @@ Implementa o que a transmissao usa:
     GET  /SefinNacional/dps/{id}        chave de acesso da DPS ja emitida
     GET  /SefinNacional/nfse/{chave}    XML da NFS-e
     GET  /danfse/{chave}                PDF (pode ser desligado)
+    GET  /parametrizacao/...            parametros municipais do ADN (spec 009):
+                                        convenio, aliquota e retencoes, nos
+                                        formatos conferidos no servico real
 
 `programar(...)` enfileira comportamentos para os proximos POST: "500",
 "403", ("400", codigo, descricao), "emitir_e_500" (gera a nota e responde
@@ -48,6 +51,24 @@ class SefinFalsa:
         self.cnpjs_conexao: list[str | None] = []
         self.danfse_disponivel = True
         self.consultas: list[str] = []
+        # Parametrizacao (ADN). Municipio fora de `convenios` = sem convenio ativo.
+        self.convenios: dict[str, dict] = {"2927408": {
+            "aderenteAmbienteNacional": 1, "aderenteEmissorNacional": 1,
+            "situacaoEmissaoPadraoContribuintesRFB": 1, "aderenteMAN": 0,
+            "permiteAproveitametoDeCreditos": True}}
+        self.aliquotas: dict[tuple[str, str], list[dict]] = {
+            ("2927408", "08.01.01.000"): [
+                {"Incidencia": "SIM", "Aliq": 2.00, "DtIni": "2020-01-01T00:00:00",
+                 "DtFim": "2022-12-31T00:00:00"},
+                {"Incidencia": "SIM", "Aliq": 5.00, "DtIni": "2023-01-01T00:00:00",
+                 "DtFim": None}]}
+        self.retencoes: dict[str, dict] = {"2927408": {
+            "retencoesMunicipais": [{"descricao": "Retenção na fonte",
+                                     "dataInicioVigencia": "2023-01-01T00:00:00",
+                                     "tiposRetencao": [2],
+                                     "servicos": [{"codigoCompleto": "07.02.01.000"}]}]}}
+        self.parametros_fora_do_ar = False
+        self.caminhos_parametros: list[str] = []
         self._contador = 0
         self._trava = threading.Lock()
         self._servidor = None
@@ -176,9 +197,54 @@ class _Handler(BaseHTTPRequestHandler):
             time.sleep(falsa.atraso)
         return self._sucesso(id_dps, chave)
 
+    def _parametrizacao(self) -> None:
+        falsa = self.falsa
+        falsa.caminhos_parametros.append(self.path)
+        if falsa.parametros_fora_do_ar:
+            return self._responder(500, {"mensagem": "falha interna"})
+        partes = self.path.split("/")[2:]          # depois de /parametrizacao/
+        if len(partes) == 2 and partes[1] == "convenio":
+            dados = falsa.convenios.get(partes[0])
+            if dados is None:
+                return self._responder(404, {
+                    "parametrosConvenio": None,
+                    "mensagem": f"O convênio do município <{partes[0]}> ainda não "
+                                "está ativo no Sistema Nacional NFS-e."})
+            return self._responder(200, {"parametrosConvenio": dados, "mensagem":
+                                         "Parâmetros do convênio recuperados com sucesso."})
+        if len(partes) == 4 and partes[3] == "aliquota":
+            municipio, codigo, competencia = partes[:3]
+            if not re.fullmatch(r"\d{2}\.\d{2}\.\d{2}\.\d{3}", codigo):
+                return self._responder(400, {
+                    "aliquotas": None, "mensagem": "Chamada mal formada. O código do "
+                                                  "serviço deve ser composto por nove dígitos."})
+            if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", competencia):
+                return self._responder(400, {
+                    "type": "https://tools.ietf.org/html/rfc9110#section-15.5.1",
+                    "title": "One or more validation errors occurred.", "status": 400,
+                    "errors": {"competencia": [f"The value '{competencia}' is not valid."]}})
+            lista = falsa.aliquotas.get((municipio, codigo))
+            if not lista:
+                return self._responder(404, {"aliquotas": None,
+                                             "mensagem": "Alíquota não encontrada."})
+            vigentes = [a for a in lista if a["DtIni"][:10] <= competencia
+                        and (a["DtFim"] is None or a["DtFim"][:10] >= competencia)]
+            return self._responder(200, {"aliquotas": {codigo: vigentes},
+                                         "mensagem": "Alíquotas recuperadas com sucesso."})
+        if len(partes) == 3 and partes[2] == "retencoes":
+            dados = falsa.retencoes.get(partes[0])
+            if dados is None:
+                return self._responder(404, {"retencoes": None,
+                                             "mensagem": "Sem retenções parametrizadas."})
+            return self._responder(200, {"retencoes": dados,
+                                         "mensagem": "Retenções recuperadas com sucesso."})
+        return self._responder(404, {"mensagem": "rota"})
+
     def do_GET(self):
         falsa = self.falsa
         falsa.cnpjs_conexao.append(self._cnpj_conexao())
+        if self.path.startswith("/parametrizacao/"):
+            return self._parametrizacao()
         achado = re.fullmatch(r"/SefinNacional/dps/(DPS\d{42})", self.path)
         if achado:
             falsa.consultas.append(achado.group(1))

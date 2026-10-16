@@ -30,6 +30,7 @@ from ..core import nfse_assinatura as na
 from ..core import nfse_certificado as ncert
 from ..core import nfse_dps as nd
 from ..core import nfse_entrada as ne
+from ..ferramentas import nfse_parametros as npar
 from ..ferramentas import nfse_sefin as sf
 from ..ferramentas import nfse_transmissao as nt
 from ..ferramentas import relatorio_nfse as rn
@@ -187,6 +188,36 @@ def criar_versao(perfil_id: int, corpo: PerfilCorpo, request: Request,
     r = _executar(lambda s: s.criar_versao(perfil_id, corpo.dados,
                                            motivo=corpo.motivo, **_quem(usuario)))
     detalhar(request, f"perfil={perfil_id} versao={r['versao']}")
+    return r
+
+
+@router.post("/perfis/sugestao")
+def sugestao_de_perfil(request: Request, certificado: UploadFile = File(...),
+                       senha: str = Form(""), municipio_ibge: str = Form(""),
+                       c_trib_nac: str = Form(""),
+                       usuario: Usuario = Depends(acesso("nfse.perfil_sugestao"))) -> dict:
+    """Spec 009: le o certificado e consulta a parametrizacao do ADN para
+    PREENCHER o formulario. Nao grava nada; o certificado vive so neste
+    pedido, como na transmissao."""
+    if len(senha) > MAX_SENHA_CERTIFICADO:
+        raise erro(422, "Senha do certificado longa demais.", ncert.CERTIFICADO_ILEGIVEL)
+    dados = certificado.file.read(ncert.MAX_PFX_BYTES + 1)
+    try:
+        cert = ncert.ler_pfx(dados, senha)
+    except nf.ErroNfse as exc:
+        raise _traduzir(exc) from None
+    finally:
+        dados = b""
+    codigos = [c.strip() for c in (c_trib_nac or "").split(",") if c.strip()]
+    competencia = _agora().date().replace(day=1)
+    try:
+        npar.municipio_valido(municipio_ibge)
+        cliente = npar.ClienteParametros.do_ambiente(cert)
+        r = npar.sugerir_perfil(cliente, cert, municipio=municipio_ibge,
+                                c_trib_nacs=codigos, competencia=competencia)
+    except nf.ErroNfse as exc:
+        raise _traduzir(exc) from None
+    detalhar(request, f"consultas={len(r['consultas'])} campos={len(r['campos'])}")
     return r
 
 

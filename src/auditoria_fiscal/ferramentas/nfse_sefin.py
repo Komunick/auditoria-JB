@@ -85,12 +85,44 @@ class RespostaConsulta:
     mensagem: str = ""
 
 
-class _SemConexao(Exception):
-    pass
+class SemConexao(Exception):
+    """Nada saiu daqui: TLS ou rede falharam antes do pedido."""
 
 
-class _Incerto(Exception):
-    pass
+class Incerto(Exception):
+    """O pedido saiu, mas a resposta nao chegou inteira."""
+
+
+def chamar_https(contexto: ssl.SSLContext, timeout: float, metodo: str, url: str,
+                 corpo: bytes | None = None, *, servico: str = "a Sefin"
+                 ) -> tuple[int, bytes, str]:
+    """Uma chamada HTTPS com o contexto mTLS ja montado. Levanta SemConexao
+    quando nada chegou a sair e Incerto quando saiu sem resposta completa."""
+    partes = urlsplit(url)
+    conexao = http.client.HTTPSConnection(partes.hostname, partes.port or 443,
+                                          context=contexto, timeout=timeout)
+    try:
+        try:
+            conexao.connect()
+        except (OSError, ssl.SSLError) as exc:
+            raise SemConexao(f"sem conexão segura com {servico}: "
+                             f"{type(exc).__name__}") from None
+        cabecalhos = {"Accept": "application/json"}
+        if corpo is not None:
+            cabecalhos["Content-Type"] = "application/json"
+        try:
+            conexao.request(metodo, partes.path or "/", body=corpo, headers=cabecalhos)
+            resposta = conexao.getresponse()
+            dado = resposta.read(MAX_RESPOSTA + 1)
+        except (socket.timeout, TimeoutError):
+            raise Incerto(f"tempo esgotado esperando {servico}") from None
+        except (OSError, ssl.SSLError, http.client.HTTPException) as exc:
+            raise Incerto(f"conexão interrompida: {type(exc).__name__}") from None
+        if len(dado) > MAX_RESPOSTA:
+            raise Incerto("resposta maior que o limite")
+        return resposta.status, dado, resposta.getheader("Content-Type", "")
+    finally:
+        conexao.close()
 
 
 def _host_permitido(host: str) -> bool:
@@ -206,32 +238,7 @@ class ClienteSefin:
 
     def _chamar(self, metodo: str, url: str, corpo: bytes | None = None
                 ) -> tuple[int, bytes, str]:
-        partes = urlsplit(url)
-        conexao = http.client.HTTPSConnection(partes.hostname, partes.port or 443,
-                                              context=self._contexto,
-                                              timeout=self.timeout)
-        try:
-            try:
-                conexao.connect()
-            except (OSError, ssl.SSLError) as exc:
-                raise _SemConexao(f"sem conexão segura com a Sefin: "
-                                  f"{type(exc).__name__}") from None
-            cabecalhos = {"Accept": "application/json"}
-            if corpo is not None:
-                cabecalhos["Content-Type"] = "application/json"
-            try:
-                conexao.request(metodo, partes.path or "/", body=corpo, headers=cabecalhos)
-                resposta = conexao.getresponse()
-                dado = resposta.read(MAX_RESPOSTA + 1)
-            except (socket.timeout, TimeoutError):
-                raise _Incerto("tempo esgotado esperando a Sefin") from None
-            except (OSError, ssl.SSLError, http.client.HTTPException) as exc:
-                raise _Incerto(f"conexão interrompida: {type(exc).__name__}") from None
-            if len(dado) > MAX_RESPOSTA:
-                raise _Incerto("resposta maior que o limite")
-            return resposta.status, dado, resposta.getheader("Content-Type", "")
-        finally:
-            conexao.close()
+        return chamar_https(self._contexto, self.timeout, metodo, url, corpo)
 
     @staticmethod
     def _json(dado: bytes):
@@ -256,9 +263,9 @@ class ClienteSefin:
             gzip.compress(xml_assinado)).decode("ascii")}).encode("utf-8")
         try:
             status, dado, _ = self._chamar("POST", f"{self.url_sefin}/nfse", corpo)
-        except _SemConexao as exc:
+        except SemConexao as exc:
             return RespostaEnvio(SEM_CONEXAO, mensagem=str(exc))
-        except _Incerto as exc:
+        except Incerto as exc:
             return RespostaEnvio(INCERTA, mensagem=str(exc))
 
         resposta = self._json(dado)
@@ -303,9 +310,9 @@ class ClienteSefin:
     def _consultar(self, url: str, *, com_xml: bool = False) -> RespostaConsulta:
         try:
             status, dado, _ = self._chamar("GET", url)
-        except _SemConexao as exc:
+        except SemConexao as exc:
             return RespostaConsulta(SEM_CONEXAO, mensagem=str(exc))
-        except _Incerto as exc:
+        except Incerto as exc:
             return RespostaConsulta(INCERTA, mensagem=str(exc))
         if status == 404:
             return RespostaConsulta(NAO_EXISTE, http_status=404)
@@ -339,7 +346,7 @@ class ClienteSefin:
             return None
         try:
             status, dado, tipo = self._chamar("GET", f"{self.url_adn}/danfse/{chave}")
-        except (_SemConexao, _Incerto):
+        except (SemConexao, Incerto):
             return None
         if status != 200 or not dado.startswith(b"%PDF"):
             return None

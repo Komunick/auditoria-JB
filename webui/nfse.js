@@ -824,6 +824,100 @@ Abas.registrar("nfse", (container) => {
   const percentual = (c) => (c === null || c === undefined ? ""
     : (c / 100).toFixed(2).replace(".", ","));
 
+  /* Spec 009: preencher pelo certificado. Lê o .pfx (CNPJ e razão social) e
+     consulta a parametrização do ADN (convênio e alíquota). Só PREENCHE o
+     formulário: nada é gravado até a pessoa salvar, e o certificado não fica
+     guardado. */
+  function painelCertificado(caixa, perfil, c, turmas, motivo) {
+    caixa.appendChild(el("h3", "Preencher pelo certificado (opcional)", "pat-titulo"));
+    caixa.appendChild(el("p", "Com o certificado A1 da escola, o sistema lê o CNPJ e a "
+      + "razão social e consulta no Sistema Nacional se o convênio do município está "
+      + "ativo e a alíquota dos códigos das turmas. Confira tudo antes de salvar. O "
+      + "certificado é usado só nesta consulta e não fica guardado.", "dica"));
+    const form = el("div", null, "linha-form");
+    const arquivo = el("input"); arquivo.type = "file"; arquivo.accept = ".pfx,.p12";
+    const senha = el("input"); senha.type = "password"; senha.autocomplete = "off";
+    senha.placeholder = "Senha do certificado";
+    const la = el("label", "Certificado A1 (.pfx)"); la.appendChild(arquivo);
+    const ls = el("label", "Senha"); ls.appendChild(senha);
+    const b = el("button", "Ler certificado e consultar"); b.type = "button";
+    form.append(la, ls, b);
+    caixa.appendChild(form);
+    const resultado = el("div");
+    caixa.appendChild(resultado);
+
+    const ROTULOS = { cnpj: "CNPJ", razao_social: "Razão social",
+                      convenio_incidencia_ativo: "Convênio do município ativo",
+                      aliquota: "Alíquota (%)" };
+    const marcar = (campo, fonte) => {
+      campo.classList.add("nfse-auto");
+      campo.title = `Preenchido automaticamente — ${fonte}. Confira antes de salvar.`;
+      campo.addEventListener("change", () => campo.classList.remove("nfse-auto"),
+                             { once: true });
+    };
+
+    b.addEventListener("click", async () => {
+      if (!arquivo.files.length) { toast("Escolha o arquivo .pfx do certificado.", "erro"); return; }
+      const codigos = [...turmas.children].map((l) => l._campos.c_trib_nac.value.trim())
+        .filter(Boolean);
+      const corpo = new FormData();
+      corpo.append("certificado", arquivo.files[0]);
+      corpo.append("senha", senha.value);
+      corpo.append("municipio_ibge", c.municipio_prestacao_ibge.value.trim()
+        || c.municipio_ibge.value.trim() || c.municipio_prestacao_ibge.placeholder);
+      corpo.append("c_trib_nac", codigos.join(","));
+      senha.value = "";
+      arquivo.value = "";
+      b.disabled = true;
+      resultado.textContent = "";
+      status("Lendo o certificado e consultando o Sistema Nacional…");
+      try {
+        const r = await api("/api/nfse/perfis/sugestao", { method: "POST", body: corpo });
+        const aplicados = [];
+        for (const [nome, s] of Object.entries(r.campos)) {
+          if (nome === "cnpj" && perfil) {
+            if (s.valor.replace(/\D/g, "") !== perfil.cnpj) {
+              toast(`O certificado é do CNPJ ${s.valor}, não deste perfil.`, "erro");
+            }
+            continue;
+          }
+          const campo = c[nome];
+          if (!campo) continue;
+          campo.value = typeof s.valor === "boolean" ? (s.valor ? "1" : "0") : s.valor;
+          marcar(campo, s.fonte);
+          aplicados.push(`${ROTULOS[nome] || nome}: ${typeof s.valor === "boolean"
+            ? (s.valor ? "sim" : "não") : s.valor} (${s.fonte})`);
+        }
+        if (!c.municipio_prestacao_ibge.value.trim()) {
+          c.municipio_prestacao_ibge.value = r.municipio;
+        }
+        if (!c.municipio_ibge.value.trim()) c.municipio_ibge.value = r.municipio;
+        if (aplicados.length && !motivo.value.trim()) {
+          motivo.value = "Preenchido pelo certificado e pela parametrização do ADN";
+        }
+        const lista = (titulo, itens, classe) => {
+          if (!itens.length) return;
+          resultado.appendChild(el("p", titulo, classe || "dica"));
+          const ul = el("ul");
+          itens.forEach((t) => ul.appendChild(el("li", t)));
+          resultado.appendChild(ul);
+        };
+        const cert = r.certificado;
+        resultado.appendChild(el("p", `Certificado de ${cert.titular}, válido até `
+          + `${cert.valido_ate.slice(0, 10).split("-").reverse().join("/")}. `
+          + `Consulta em ${r.ambiente}, competência `
+          + `${r.competencia.slice(5, 7)}/${r.competencia.slice(0, 4)}.`, "dica"));
+        lista("Preenchido automaticamente (marcado em verde):", aplicados);
+        lista("Avisos:", r.avisos, "nfse-faixa aviso");
+        lista("Continua manual (nenhuma consulta responde):", r.manuais);
+        status("");
+        toast(aplicados.length ? `${aplicados.length} campo(s) preenchido(s). Confira e salve.`
+          : "Nada a preencher automaticamente.", aplicados.length ? "ok" : "erro");
+      } catch (erro) { erroNaTela(erro); }
+      b.disabled = false;
+    });
+  }
+
   function formularioPerfil(perfil) {
     const a = perfil ? perfil.atual : {};
     const alvo = $("nfse-perfil");
@@ -835,6 +929,9 @@ Abas.registrar("nfse", (container) => {
     alvo.appendChild(el("p", "Campos marcados como pendentes ficam sem valor: o perfil "
       + "pode ser usado para importar e revisar, mas a DPS só é gerada quando tudo "
       + "estiver decidido. Nada aqui ganha valor padrão.", "dica"));
+    // Preenchida depois que os campos e as turmas existem (fim da função).
+    const caixaCertificado = el("div", null, "nfse-certificado");
+    alvo.appendChild(caixaCertificado);
 
     const c = {};
     const grade = el("div", null, "linha-form nfse-grade");
@@ -920,6 +1017,7 @@ Abas.registrar("nfse", (container) => {
     salvar.type = "button";
     const rodape = el("div", null, "linha-form"); rodape.append(lmot, salvar);
     alvo.appendChild(rodape);
+    painelCertificado(caixaCertificado, perfil, c, turmas, motivo);
 
     salvar.addEventListener("click", async () => {
       const vazio = (v) => (v === "" ? null : v);

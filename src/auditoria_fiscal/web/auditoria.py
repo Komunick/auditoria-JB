@@ -187,6 +187,9 @@ ACOES: dict[str, Acao] = dict((
     # CPFs de responsaveis ficam no nfse.db, nunca no historico de uso.
     _a("nfse.perfil", "Cadastrou ou versionou perfil de emissao",
        CAT_MUTACAO, "nfse.perfis", "nfse"),
+    _a("nfse.perfil_sugestao",
+       "Leu o certificado e consultou o ADN para preencher o perfil (nada gravado)",
+       CAT_PROCESSAMENTO, "nfse.perfis", "nfse"),
     _a("nfse.modelo", "Baixou a planilha-modelo da NFS-e",
        CAT_DOWNLOAD, aba="nfse"),
     _a("nfse.importar", "Importou lote de NFS-e",
