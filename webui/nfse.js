@@ -824,6 +824,202 @@ Abas.registrar("nfse", (container) => {
   const percentual = (c) => (c === null || c === undefined ? ""
     : (c / 100).toFixed(2).replace(".", ","));
 
+  /* Comum aos dois painéis de preenchimento automático (spec 009): o campo
+     preenchido fica verde com a fonte no title, até a pessoa mexer nele. */
+  const ROTULOS_AUTO = {
+    cnpj: "CNPJ", razao_social: "Razão social", inscricao_municipal: "Inscrição municipal",
+    informar_im: "IM vai na DPS", municipio_ibge: "Município emissor",
+    municipio_prestacao_ibge: "Local da prestação", iss_retido: "ISS retido",
+    reg_ap_trib_sn: "Regime de apuração no Simples", reg_esp_trib: "Regime especial",
+    convenio_incidencia_ativo: "Convênio do município ativo", aliquota: "Alíquota (%)",
+    tributos_aprox: "Tributos aproximados", p_tot_trib_sn: "pTotTribSN (%)",
+    p_tot_trib_fed: "Federal (%)", p_tot_trib_est: "Estadual (%)",
+    p_tot_trib_mun: "Municipal (%)", modelo_discriminacao: "Modelo da discriminação",
+  };
+  const mostrarAuto = (v) => (typeof v === "boolean" ? (v ? "sim" : "não") : String(v));
+
+  function marcarAuto(campo, fonte) {
+    campo.classList.add("nfse-auto");
+    campo.title = `Preenchido automaticamente — ${fonte}. Confira antes de salvar.`;
+    campo.addEventListener("change", () => campo.classList.remove("nfse-auto"),
+                           { once: true });
+  }
+
+  function listaResultado(alvo, titulo, itens, classe) {
+    if (!itens.length) return;
+    alvo.appendChild(el("p", titulo, classe || "dica"));
+    const ul = el("ul");
+    itens.forEach((t) => ul.appendChild(el("li", t)));
+    alvo.appendChild(ul);
+  }
+
+  /* Spec 009: preencher pelo certificado. Lê o .pfx (CNPJ e razão social) e
+     consulta a parametrização do ADN (convênio e alíquota). Só PREENCHE o
+     formulário: nada é gravado até a pessoa salvar, e o certificado não fica
+     guardado. */
+  function painelCertificado(caixa, perfil, c, turmas, motivo) {
+    caixa.appendChild(el("h3", "Preencher pelo certificado (opcional)", "pat-titulo"));
+    caixa.appendChild(el("p", "Com o certificado A1 da escola, o sistema lê o CNPJ e a "
+      + "razão social e consulta no Sistema Nacional se o convênio do município está "
+      + "ativo e a alíquota dos códigos das turmas. Confira tudo antes de salvar. O "
+      + "certificado é usado só nesta consulta e não fica guardado.", "dica"));
+    const form = el("div", null, "linha-form");
+    const arquivo = el("input"); arquivo.type = "file"; arquivo.accept = ".pfx,.p12";
+    const senha = el("input"); senha.type = "password"; senha.autocomplete = "off";
+    senha.placeholder = "Senha do certificado";
+    const la = el("label", "Certificado A1 (.pfx)"); la.appendChild(arquivo);
+    const ls = el("label", "Senha"); ls.appendChild(senha);
+    const b = el("button", "Ler certificado e consultar"); b.type = "button";
+    form.append(la, ls, b);
+    caixa.appendChild(form);
+    const resultado = el("div");
+    caixa.appendChild(resultado);
+
+    b.addEventListener("click", async () => {
+      if (!arquivo.files.length) { toast("Escolha o arquivo .pfx do certificado.", "erro"); return; }
+      const codigos = [...turmas.children].map((l) => l._campos.c_trib_nac.value.trim())
+        .filter(Boolean);
+      const corpo = new FormData();
+      corpo.append("certificado", arquivo.files[0]);
+      corpo.append("senha", senha.value);
+      corpo.append("municipio_ibge", c.municipio_prestacao_ibge.value.trim()
+        || c.municipio_ibge.value.trim() || c.municipio_prestacao_ibge.placeholder);
+      corpo.append("c_trib_nac", codigos.join(","));
+      senha.value = "";
+      arquivo.value = "";
+      b.disabled = true;
+      resultado.textContent = "";
+      status("Lendo o certificado e consultando o Sistema Nacional…");
+      try {
+        const r = await api("/api/nfse/perfis/sugestao", { method: "POST", body: corpo });
+        const aplicados = [];
+        for (const [nome, s] of Object.entries(r.campos)) {
+          if (nome === "cnpj" && perfil) {
+            if (s.valor.replace(/\D/g, "") !== perfil.cnpj) {
+              toast(`O certificado é do CNPJ ${s.valor}, não deste perfil.`, "erro");
+            }
+            continue;
+          }
+          const campo = c[nome];
+          if (!campo) continue;
+          campo.value = typeof s.valor === "boolean" ? (s.valor ? "1" : "0") : s.valor;
+          marcarAuto(campo, s.fonte);
+          aplicados.push(`${ROTULOS_AUTO[nome] || nome}: ${mostrarAuto(s.valor)} (${s.fonte})`);
+        }
+        if (!c.municipio_prestacao_ibge.value.trim()) {
+          c.municipio_prestacao_ibge.value = r.municipio;
+        }
+        if (!c.municipio_ibge.value.trim()) c.municipio_ibge.value = r.municipio;
+        if (aplicados.length && !motivo.value.trim()) {
+          motivo.value = "Preenchido pelo certificado e pela parametrização do ADN";
+        }
+        const cert = r.certificado;
+        resultado.appendChild(el("p", `Certificado de ${cert.titular}, válido até `
+          + `${cert.valido_ate.slice(0, 10).split("-").reverse().join("/")}. `
+          + `Consulta em ${r.ambiente}, competência `
+          + `${r.competencia.slice(5, 7)}/${r.competencia.slice(0, 4)}.`, "dica"));
+        listaResultado(resultado, "Preenchido automaticamente (marcado em verde):", aplicados);
+        listaResultado(resultado, "Avisos:", r.avisos, "nfse-faixa aviso");
+        listaResultado(resultado, "Continua manual (nenhuma consulta responde):", r.manuais);
+        status("");
+        toast(aplicados.length ? `${aplicados.length} campo(s) preenchido(s). Confira e salve.`
+          : "Nada a preencher automaticamente.", aplicados.length ? "ok" : "erro");
+      } catch (erro) { erroNaTela(erro); }
+      b.disabled = false;
+    });
+  }
+
+  const CODIGOS_TURMA = { c_trib_nac: "cód. nacional", c_nbs: "NBS",
+    c_ind_op: "ind. operação", c_class_trib: "class. trib.", ref_cnae: "CNAE",
+    ref_item_lista: "item", ref_ctiss: "CTISS" };
+
+  /* Põe os códigos de uma turma sugerida na linha certa: a de mesmo nome; sem
+     nome, a primeira linha vazia; se não houver, uma linha nova. */
+  function aplicarTurma(turmas, novaTurma, t) {
+    const linhas = [...turmas.children];
+    const vazia = (l) => !l._campos.nome.value.trim()
+      && Object.keys(CODIGOS_TURMA).every((k) => !l._campos[k].value.trim());
+    let linha = t.nome ? linhas.find((l) => l._campos.nome.value.trim()
+      .localeCompare(t.nome, "pt-BR", { sensitivity: "base" }) === 0) : null;
+    if (!linha) linha = linhas.find(vazia);
+    if (!linha) { novaTurma(); linha = turmas.lastElementChild; }
+    const postos = [];
+    for (const [k, rotulo] of Object.entries(CODIGOS_TURMA)) {
+      if (!t[k]) continue;
+      linha._campos[k].value = t[k];
+      marcarAuto(linha._campos[k], t.fonte);
+      postos.push(`${rotulo} ${t[k]}`);
+    }
+    if (t.nome && !linha._campos.nome.value.trim()) linha._campos.nome.value = t.nome;
+    return postos.length ? [`Turma ${linha._campos.nome.value.trim() || "(sem nome)"}: `
+      + `${postos.join(", ")} (${t.notas} nota(s))`] : [];
+  }
+
+  /* Spec 009, Parte 2: preencher por uma nota já emitida. Lê o XML (ou .zip)
+     da Nota Salvador ou da NFS-e nacional. Só PREENCHE o formulário: nada é
+     gravado até a pessoa salvar, e a nota não fica guardada. */
+  function painelNotaAnterior(caixa, perfil, c, turmas, novaTurma, modelo, motivo) {
+    caixa.appendChild(el("h3", "Preencher por uma nota já emitida (opcional)", "pat-titulo"));
+    caixa.appendChild(el("p", "Envie o XML de uma NFS-e que a escola já emitiu: da Nota "
+      + "Salvador, da NFS-e nacional ou um .zip com várias. O sistema lê a inscrição "
+      + "municipal, o ISS retido, a alíquota, o regime e os códigos da turma, e monta o "
+      + "modelo da discriminação sem os nomes. Cadastre os nomes das turmas antes, para "
+      + "os códigos irem para a turma certa. A nota não fica guardada.", "dica"));
+    const form = el("div", null, "linha-form");
+    const arquivo = el("input"); arquivo.type = "file"; arquivo.accept = ".xml,.zip";
+    const la = el("label", "XML da nota (.xml ou .zip)"); la.appendChild(arquivo);
+    const b = el("button", "Ler a nota"); b.type = "button";
+    form.append(la, b);
+    caixa.appendChild(form);
+    const resultado = el("div");
+    caixa.appendChild(resultado);
+
+    b.addEventListener("click", async () => {
+      if (!arquivo.files.length) { toast("Escolha o XML da nota.", "erro"); return; }
+      const nomes = [...turmas.children].map((l) => l._campos.nome.value.trim())
+        .filter(Boolean);
+      const corpo = new FormData();
+      corpo.append("arquivo", arquivo.files[0]);
+      corpo.append("cnpj", perfil ? perfil.cnpj : "");
+      corpo.append("turmas", nomes.join("\n"));
+      arquivo.value = "";
+      b.disabled = true;
+      resultado.textContent = "";
+      status("Lendo a nota…");
+      try {
+        const r = await api("/api/nfse/perfis/sugestao-nota", { method: "POST", body: corpo });
+        const aplicados = [];
+        for (const [nome, s] of Object.entries(r.campos)) {
+          if (nome === "cnpj" && perfil) continue;   // o servidor já conferiu
+          const campo = nome === "modelo_discriminacao" ? modelo : c[nome];
+          if (!campo) continue;
+          campo.value = typeof s.valor === "boolean" ? (s.valor ? "1" : "0") : String(s.valor);
+          marcarAuto(campo, s.fonte);
+          const visto = campo.tagName === "SELECT" && campo.selectedOptions.length
+            ? campo.selectedOptions[0].text : mostrarAuto(s.valor);
+          aplicados.push(`${ROTULOS_AUTO[nome] || nome}: ${visto}`);
+        }
+        r.turmas.forEach((t) => aplicados.push(...aplicarTurma(turmas, novaTurma, t)));
+        if (aplicados.length && !motivo.value.trim()) {
+          motivo.value = "Preenchido pela nota já emitida";
+        }
+        const n = r.notas;
+        const fonte = Object.values(r.campos)[0];
+        resultado.appendChild(el("p", `Lido: ${fonte ? fonte.fonte : n.leiautes.join(", ")}`
+          + (n.lidas > n.usadas ? ` (de ${n.lidas} no arquivo)` : "")
+          + (n.competencias.length ? `, competência ${n.competencias.map(competencia)
+            .join(", ")}` : "") + ".", "dica"));
+        listaResultado(resultado, "Preenchido automaticamente (marcado em verde):", aplicados);
+        listaResultado(resultado, "Avisos:", r.avisos, "nfse-faixa aviso");
+        listaResultado(resultado, "Continua manual (a nota não diz):", r.manuais);
+        status("");
+        toast(aplicados.length ? `${aplicados.length} item(ns) preenchido(s). Confira e salve.`
+          : "Nada a preencher pela nota.", aplicados.length ? "ok" : "erro");
+      } catch (erro) { erroNaTela(erro); }
+      b.disabled = false;
+    });
+  }
+
   function formularioPerfil(perfil) {
     const a = perfil ? perfil.atual : {};
     const alvo = $("nfse-perfil");
@@ -835,6 +1031,11 @@ Abas.registrar("nfse", (container) => {
     alvo.appendChild(el("p", "Campos marcados como pendentes ficam sem valor: o perfil "
       + "pode ser usado para importar e revisar, mas a DPS só é gerada quando tudo "
       + "estiver decidido. Nada aqui ganha valor padrão.", "dica"));
+    // Preenchida depois que os campos e as turmas existem (fim da função).
+    const caixaCertificado = el("div", null, "nfse-certificado");
+    alvo.appendChild(caixaCertificado);
+    const caixaNota = el("div", null, "nfse-certificado");
+    alvo.appendChild(caixaNota);
 
     const c = {};
     const grade = el("div", null, "linha-form nfse-grade");
@@ -920,6 +1121,8 @@ Abas.registrar("nfse", (container) => {
     salvar.type = "button";
     const rodape = el("div", null, "linha-form"); rodape.append(lmot, salvar);
     alvo.appendChild(rodape);
+    painelCertificado(caixaCertificado, perfil, c, turmas, motivo);
+    painelNotaAnterior(caixaNota, perfil, c, turmas, linhaTurma, modelo, motivo);
 
     salvar.addEventListener("click", async () => {
       const vazio = (v) => (v === "" ? null : v);
