@@ -40,19 +40,6 @@ MIME_XLSX = ("application/vnd.openxmlformats-officedocument"
 MAX_UPLOAD_BYTES = ne.MAX_PLANILHA_BYTES
 AVISOS_NAO_CONFIRMADOS = "AVISOS_NAO_CONFIRMADOS"
 LOTE_SEM_DPS = "LOTE_SEM_DPS"
-PERFIL_OBRIGATORIO = "PERFIL_OBRIGATORIO"
-
-
-def _perfil_escolhido(valor) -> int:
-    """O perfil chega da tela; vazio (lista sem perfil, nada selecionado) vira
-    mensagem clara. Com `int` direto na assinatura, o FastAPI devolvia a lista
-    de validacao dele e a tela so mostrava "Erro 422"."""
-    texto = str(valor if valor is not None else "").strip()
-    if not texto.isdigit() or int(texto) <= 0:
-        raise erro(422, "Escolha o perfil de emissão antes de importar. Se a lista "
-                        "estiver vazia, cadastre o perfil em \"Perfis de emissão\".",
-                   PERFIL_OBRIGATORIO)
-    return int(texto)
 
 _STATUS = {
     ns.PERFIL_NAO_ENCONTRADO: 404, ns.LOTE_NAO_ENCONTRADO: 404,
@@ -204,6 +191,21 @@ def planilha_modelo(request: Request,
 
 # ----------------------------------------------------------------------
 # Importacao
+
+PERFIL_OBRIGATORIO = "PERFIL_OBRIGATORIO"
+
+
+def _perfil_escolhido(valor) -> int:
+    """O perfil chega da tela; vazio (lista sem perfil, nada selecionado) vira
+    mensagem clara. Com `int` direto na assinatura, o FastAPI devolvia a lista
+    de validacao dele e a tela so mostrava "Erro 422"."""
+    texto = str(valor if valor is not None else "").strip()
+    if not texto.isdigit() or int(texto) <= 0:
+        raise erro(422, "Escolha o perfil de emissão antes de importar. Se a lista "
+                        "estiver vazia, cadastre o perfil em \"Perfis de emissão\".",
+                   PERFIL_OBRIGATORIO)
+    return int(texto)
+
 
 @router.post("/lotes/planilha")
 async def importar_planilha(request: Request, perfil_id: str = Form(""),
