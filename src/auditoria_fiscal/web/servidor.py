@@ -16,7 +16,7 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import auditoria, auth, permissoes
+from . import auditoria, auth, permissoes, seguranca
 from .auditoria import acesso
 from .auth import Usuario, exigir_usuario
 from .infra import raiz_projeto
@@ -70,9 +70,25 @@ class WebuiSemCache(StaticFiles):
         return resposta
 
 
+def _gravar_cookie_sessao(response: Response, request: Request,
+                          token: str) -> None:
+    """Cookie de sessao: HttpOnly e SameSite=lax como sempre, mais Secure
+    quando a requisicao chegou por HTTPS (direto ou pelo proxy declarado)
+    ou quando o operador forca (AUDITORIA_COOKIES_SEGUROS=1). Na LAN em HTTP
+    puro o Secure faria o navegador descartar o cookie."""
+    response.set_cookie(auth.COOKIE_SESSAO, token, httponly=True,
+                        samesite="lax",
+                        secure=seguranca.cookie_seguro(request))
+
+
 def criar_app() -> FastAPI:
     app = FastAPI(title="Auditoria Fiscal Web", docs_url=None, redoc_url=None)
     app.middleware("http")(auditoria.middleware_historico)
+    # Registrado por ultimo = a camada mais externa: Host e Origin sao
+    # conferidos antes de qualquer rota (requisicao recusada nao vira linha
+    # do historico nem tentativa de login) e toda resposta da API, inclusive
+    # as de erro, sai com nosniff e CSP.
+    app.add_middleware(seguranca.SegurancaMiddleware)
 
     # ------------------------------------------------------------------
     # Autenticacao
@@ -107,9 +123,10 @@ def criar_app() -> FastAPI:
                                admin=True)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        # Sem IP de proposito: o primeiro administrador acabou de nascer e
+        # nao pode ficar de fora por falhas de antes da instalacao.
         token = auth.autenticar(entrada.usuario, entrada.senha)
-        response.set_cookie(auth.COOKIE_SESSAO, token or "", httponly=True,
-                            samesite="lax")
+        _gravar_cookie_sessao(response, request, token or "")
         criado = auth.usuario_do_token(token)
         auditoria.registrar("admin.usuario_criado", criado, request=request,
                             detalhe="primeiro administrador (bootstrap)")
@@ -119,14 +136,25 @@ def criar_app() -> FastAPI:
     @app.post("/api/login")
     def login(entrada: LoginEntrada, request: Request,
               response: Response) -> dict:
-        token = auth.autenticar(entrada.usuario, entrada.senha)
+        try:
+            token = auth.autenticar(entrada.usuario, entrada.senha,
+                                    ip=seguranca.ip_do_cliente(request))
+        except auth.LoginBloqueado as bloqueio:
+            # 429 com Retry-After: a tela mostra quanto falta, e o bloqueio
+            # fica na trilha como as outras tentativas negadas.
+            auditoria.registrar_login(request, None, tentado=entrada.usuario,
+                                      http_status=429)
+            raise HTTPException(
+                status_code=429,
+                detail="Muitas tentativas seguidas. Aguarde "
+                       f"{bloqueio.segundos} segundo(s) e tente de novo.",
+                headers={"Retry-After": str(bloqueio.segundos)}) from None
         if token is None:
             auditoria.registrar_login(request, None, tentado=entrada.usuario)
             # Mensagem generica: nao revela se o usuario existe.
             raise HTTPException(status_code=401,
                                 detail="Usuario ou senha invalidos.")
-        response.set_cookie(auth.COOKIE_SESSAO, token, httponly=True,
-                            samesite="lax")
+        _gravar_cookie_sessao(response, request, token)
         auditoria.registrar_login(request, auth.usuario_do_token(token))
         # Cada login fecha as sessoes vencidas e registra a saida por tempo de
         # quem nao voltou — assim "quando saiu" nao fica em aberto para sempre.
@@ -141,7 +169,9 @@ def criar_app() -> FastAPI:
             auth.encerrar_sessao(token)
         if usuario is not None:
             auditoria.registrar("sessao.logout", usuario, request=request)
-        response.delete_cookie(auth.COOKIE_SESSAO)
+        response.delete_cookie(auth.COOKIE_SESSAO, httponly=True,
+                               samesite="lax",
+                               secure=seguranca.cookie_seguro(request))
         return {"ok": True}
 
     # ------------------------------------------------------------------
