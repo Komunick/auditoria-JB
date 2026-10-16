@@ -250,6 +250,21 @@ def _main() -> int:
     checar(r.status_code == 422 and r.json()["detail"]["code"] == "ARQUIVO_RECUSADO",
            r.text[:200])
 
+    # Sem perfil escolhido (lista de perfis vazia ou nada selecionado): a tela
+    # recebia a lista de validacao do FastAPI e so mostrava "Erro 422".
+    for dados in ({"perfil_id": ""}, {}, {"perfil_id": "abc"}):
+        r = atendente.post("/api/nfse/lotes/planilha", data=dados, files=arquivo)
+        checar(r.status_code == 422 and isinstance(r.json()["detail"], dict)
+               and r.json()["detail"]["code"] == "PERFIL_OBRIGATORIO"
+               and "perfil" in r.json()["detail"]["detail"].lower(),
+               f"planilha sem perfil {dados}: {r.status_code} {r.text[:200]}")
+    for corpo in ({"texto": TEXTO}, {"perfil_id": 0, "texto": TEXTO},
+                  {"perfil_id": None, "texto": TEXTO}):
+        r = atendente.post("/api/nfse/lotes/texto", json=corpo)
+        checar(r.status_code == 422 and isinstance(r.json()["detail"], dict)
+               and r.json()["detail"]["code"] == "PERFIL_OBRIGATORIO",
+               f"texto sem perfil {corpo}: {r.status_code} {r.text[:200]}")
+
     r = atendente.post("/api/nfse/lotes/texto", json={"perfil_id": perfil_id,
                                                       "texto": TEXTO})
     checar(r.status_code == 200, r.text[:300])

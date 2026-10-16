@@ -590,8 +590,18 @@ Abas.registrar("nfse", (container) => {
     await abrirLote(r.lote_id);
   }
 
+  /* Sem perfil não há como montar a nota: avisa aqui, antes de mandar. */
+  function perfilEscolhido() {
+    if ($("nfse-i-perfil").value) return true;
+    toast(estado.perfis.length ? "Escolha o perfil de emissão."
+      : "Cadastre o perfil de emissão (em \"Perfis de emissão\") antes de importar.",
+      "erro");
+    return false;
+  }
+
   $("nfse-i-planilha").addEventListener("click", async () => {
     const arquivo = $("nfse-i-arquivo").files[0];
+    if (!perfilEscolhido()) return;
     if (!arquivo) { toast("Escolha a planilha .xlsx.", "erro"); return; }
     const corpo = new FormData();
     corpo.append("perfil_id", $("nfse-i-perfil").value);
@@ -605,6 +615,7 @@ Abas.registrar("nfse", (container) => {
 
   $("nfse-i-colar").addEventListener("click", async () => {
     const texto = $("nfse-i-texto").value;
+    if (!perfilEscolhido()) return;
     if (!texto.trim()) { toast("Cole o texto da conversa.", "erro"); return; }
     try {
       const r = await api("/api/nfse/lotes/texto", {
