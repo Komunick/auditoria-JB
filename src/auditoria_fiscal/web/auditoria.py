@@ -202,6 +202,8 @@ ACOES: dict[str, Acao] = dict((
     _a("nfse.descartar", "Descartou lote de NFS-e", CAT_MUTACAO, aba="nfse"),
     _a("nfse.exportar", "Baixou DPS ou resumo de lote de NFS-e",
        CAT_DOWNLOAD, "nfse.exportar", "nfse"),
+    _a("nfse.transmitir", "Transmitiu DPS a producao restrita (sem valor fiscal)",
+       CAT_MUTACAO, "nfse.transmitir", "nfse"),
 
     # ------------------------------------------------------------------
     # Administracao

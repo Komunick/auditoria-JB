@@ -30,3 +30,6 @@ pandas>=2.2
 
 # DANFE (PDF) do Livro de Conferência
 brazilfiscalreport>=1.0
+
+# NFS-e Fase 2: certificado A1, assinatura XML e mTLS com a Sefin
+cryptography>=42
