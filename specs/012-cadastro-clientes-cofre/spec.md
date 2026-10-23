@@ -40,9 +40,9 @@ nos testes.
   inscrição municipal, **senha SEFAZ estadual**, **senha Prefeitura**, IPTU,
   TVL, vencimento da TVL, vencimento do alvará, **código de acesso**,
   publicidade, alvará saúde e legenda (O).
-- **Duas colunas sem cabeçalho com conteúdo**: N (65 valores curtos, de 5 a
-  7 caracteres) e P (49 "RENOVAR" e 14 valores curtos). O significado não
-  está na planilha — pendência P-01.
+- Duas colunas sem cabeçalho com conteúdo: N (65 valores curtos) e P (49
+  "RENOVAR" e 14 valores curtos). **A JB confirmou em 23/10/2026 que não
+  têm nada de útil**: a importação as ignora.
 - **A situação do cliente está na cor da linha**, não num campo. Legenda:
   vermelho = baixada, laranja = inativa, cinza = não é cliente, rosa-claro =
   Lauro de Freitas (município, não situação). Cerca de 60 linhas usam cores
@@ -54,7 +54,27 @@ nos testes.
   algumas datas impossíveis (ano 2878).
 - **Não há coluna de certificado digital.** O certificado só aparece como
   motivo de senha pendente ("AGUARDANDO CERTIFICADO", "NÃO TEM
-  CERTIFICADO"). Os dados de certificado vêm de outra fonte — pendência P-05.
+  CERTIFICADO"). Os dados de certificado vêm da pasta descrita abaixo.
+
+### Onde estão os certificados hoje (fotos e áudio da JB, 22/10/2026)
+
+- Pasta compartilhada do servidor de arquivos da JB, na rede do escritório:
+  `Public\CERTIFICADOS DIGITAIS ATUALIZADOS`, com **uma subpasta por
+  cliente**, nomeada pela razão social ou pelo nome do responsável.
+- Em cada subpasta, em geral: o certificado A1 (`.pfx`), a chave privada
+  (`.key`) e um texto `_info` com razão social, nome fantasia, CNPJ,
+  **validade** e **a senha do certificado em texto aberto**. Algumas têm
+  lixo de sistema (`GPUCache`).
+- O `_info` é digitado à mão: a validade dele pode estar desatualizada em
+  relação ao certificado. No exemplo fotografado, a validade era de 2023.
+- Pedido do áudio: hoje "tem essa informação [...] onde tem a gente vai
+  colocar na validade", "porém eu queria um controle maior [...] acompanhar a
+  validade desses ativos".
+- **Observação de segurança (fora do escopo, a repassar à JB):** uma pasta
+  chamada `Public` guarda chaves privadas e senhas de certificados em texto
+  aberto. Qualquer pessoa ou programa com acesso à rede do escritório pode
+  copiar os certificados e assinar em nome dos clientes. Restringir o
+  compartilhamento só a quem precisa é urgente, com ou sem este sistema.
 - Há formatação condicional que pinta de vermelho datas da semana seguinte em
   poucas células: a equipe já tentou montar o aviso de vencimento na planilha.
 
@@ -76,8 +96,9 @@ nos testes.
   depende de SMTP — pendência P-03).
 - Guardar o arquivo do certificado (.pfx/.cer) no sistema. A v1 guarda só os
   dados do certificado; o arquivo continua onde está hoje.
-- Ler a pasta de rede do escritório: o servidor roda fora da rede da JB
-  (VM na nuvem) e não a alcança.
+- Ler a pasta de rede direto do servidor: ele roda fora da rede da JB (VM
+  na nuvem) e não a alcança. A leitura é feita pelo **coletor local** (US8),
+  rodado num computador do escritório.
 - Login automático nos portais com a senha guardada.
 - Licenças municipais (alvará, TVL, alvará saúde, publicidade) no painel de
   vencimentos: a planilha já traz essas datas, mas o pedido falou de
@@ -233,6 +254,8 @@ e conferir a classificação no painel e no cálculo dos dias restantes.
    histórico fica.
 5. Certificado vencido continua listado como vencido até ser substituído ou
    marcado como "não renovar".
+6. Cada certificado mostra a origem dos dados: digitado, lido do arquivo ou
+   trazido pelo coletor (com a data da coleta).
 
 ### User Story 7 — Ser avisado antes do vencimento (P1)
 
@@ -254,6 +277,36 @@ o aviso no topo e a ordenação do painel.
    painel; a marcação tem autor e data.
 5. O fuso usado para "hoje" é America/Bahia, o mesmo do servidor.
 
+### User Story 8 — Trazer os certificados da pasta da rede (P1)
+
+Como administrador, quero carregar de uma vez os certificados que já estão na
+pasta do escritório, com a validade **real** de cada um, sem digitar.
+
+**Independent Test**: rodar o coletor numa pasta sintética com os casos
+abaixo e importar o resultado, conferindo o relatório e o que foi gravado.
+
+**Acceptance Scenarios**:
+
+1. O coletor é um comando de linha do próprio repositório, rodado à mão num
+   computador do escritório com acesso à pasta. Não é serviço, não abre porta
+   e não fica rodando.
+2. Para cada subpasta, ele lê o `_info`, abre o `.pfx` com a senha do `_info`
+   e tira do certificado: titular (CNPJ/CPF e nome), AC, início e fim da
+   validade e número de série.
+3. O resultado é um arquivo de coleta com esses dados, o nome da subpasta e
+   o hash do `.pfx`. **Não leva** o `.pfx`, a chave privada nem a senha
+   (salvo decisão contrária na pendência P-13).
+4. O relatório aponta, por subpasta: sem `.pfx`; `.pfx` que não abre com a
+   senha do `_info`; sem `_info`; validade do `_info` diferente da do
+   certificado; CNPJ do `_info` diferente do certificado; mais de um `.pfx`.
+5. O arquivo de coleta é enviado na aba 9 e passa pela mesma prévia da US3:
+   casa cada certificado com o cliente **pelo CNPJ do certificado** (não pelo
+   nome da pasta) e mostra os que não casam.
+6. Coletar de novo não duplica: o mesmo número de série atualiza a coleta;
+   série nova para o mesmo cliente vira renovação (US6).
+7. A validade que vale no sistema é a do certificado. A do `_info` só aparece
+   como divergência, para a equipe corrigir o texto se quiser.
+
 ### Edge Cases
 
 - Chave do cofre ausente ou inválida na partida: o cofre fica **indisponível**
@@ -270,6 +323,11 @@ o aviso no topo e a ordenação do painel.
 - `.pfx` com senha errada ou arquivo corrompido: erro claro, nada gravado.
 - Importação interrompida: nada parcial gravado e nenhum texto aberto
   esquecido em disco.
+- `_info` com formato diferente (rótulos em outra ordem, sem acento, linha
+  em branco): o coletor reconhece pelos rótulos, não pela posição; o que não
+  reconhece vai para o relatório.
+- Certificado A3 (token ou cartão) não tem `.pfx`: aparece como "sem
+  arquivo" e é cadastrado à mão.
 
 ## Requirements
 
@@ -307,6 +365,11 @@ o aviso no topo e a ordenação do painel.
   anterior e novo (exceto senhas), na mesma transação.
 - **FR-015**: A exportação em Excel DEVE usar `core/planilha_segura.py` e não
   conter senhas.
+- **FR-016**: O sistema DEVE oferecer um coletor de linha de comando que lê a
+  pasta de certificados e gera um arquivo de coleta sem `.pfx`, chave privada
+  nem senha.
+- **FR-017**: A importação da coleta DEVE casar certificado e cliente pelo
+  CNPJ do certificado e apontar divergências com o `_info`.
 
 ### Permissões novas
 
@@ -374,9 +437,8 @@ ciclo de vida, trilha e backup próprios. Schema aditivo e idempotente.
 
 ## Pendências (perguntas à JB e ao dono)
 
-- **P-01**: O que são as colunas **N** e **P**, que não têm cabeçalho? (N: 65
-  valores curtos; P: 49 "RENOVAR" e 14 valores curtos.) Se forem senhas, viram
-  campos do cofre.
+- ~~**P-01**: O que são as colunas N e P.~~ Respondida em 23/10/2026: não têm
+  nada; a importação ignora.
 - **P-02**: Prazos do aviso. A transcrição do áudio ficou ambígua; a proposta
   é 30, 20 e 15 dias antes. Confirmar.
 - **P-03**: Aviso só dentro do sistema na v1, ou o e-mail é indispensável? Se
@@ -384,9 +446,9 @@ ciclo de vida, trilha e backup próprios. Schema aditivo e idempotente.
 - **P-04**: Quem pode ver senhas. Administrador vê por padrão (regra atual do
   sistema) — o dono quer exceção? Aprova pedir a senha do usuário de novo
   antes de revelar e o limite de 30 por hora?
-- **P-05**: Onde estão os certificados hoje e quantos são. Na rede há os
-  arquivos `.pfx`/`.cer` de todos, ou só de parte? Há certificado A3 (token ou
-  cartão)?
+- **P-05**: ~~Onde estão os certificados.~~ Respondida em 22/10/2026 (pasta
+  da rede, uma subpasta por cliente). Falta saber: há certificado A3 (token ou
+  cartão)? E quem vai rodar o coletor no escritório?
 - **P-06**: O que significam as cores fora da legenda (cerca de 60 linhas).
 - **P-07**: Alvará, TVL, alvará saúde e publicidade entram no painel de
   vencimentos? "DEFINITIVO" na TVL quer dizer que não vence?
@@ -396,4 +458,12 @@ ciclo de vida, trilha e backup próprios. Schema aditivo e idempotente.
 - **P-10**: Quem guarda a cópia da chave do cofre, e onde.
 - **P-11**: "Código de acesso" é o do Simples Nacional? (Define o rótulo e a
   ajuda na tela.)
-- **P-12**: O que significa "RENOVAR" na coluna P — renovação de quê?
+- ~~**P-12**: O que significa "RENOVAR" na coluna P.~~ Respondida junto com
+  a P-01.
+- **P-13**: A **senha do certificado** também vai para o cofre? A aba 8 (NFS-e)
+  pede o `.pfx` e a senha a cada envio; com a senha no cofre, quem tem
+  `cofre.ver` a consulta em vez de abrir o `_info`. Se sim, o coletor passa a
+  levar a senha, cifrada no envio.
+- **P-14**: O que mais é o "controle maior" do áudio? Proposta: responsável
+  pela renovação de cada certificado, situação da renovação (avisado o
+  cliente, comprado, instalado) e histórico. Confirmar o que a JB espera.
