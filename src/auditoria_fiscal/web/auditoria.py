@@ -37,6 +37,7 @@ CAT_PROCESSAMENTO = "processamento"
 CAT_MUTACAO = "mutacao"
 CAT_DOWNLOAD = "download"
 CAT_ADMIN = "admin"
+CAT_COFRE = "cofre"
 
 ROTULO_CATEGORIA = {
     CAT_SESSAO: "Entrada e saida",
@@ -45,6 +46,7 @@ ROTULO_CATEGORIA = {
     CAT_MUTACAO: "Mutacoes fiscais",
     CAT_DOWNLOAD: "Downloads",
     CAT_ADMIN: "Administracao",
+    CAT_COFRE: "Cofre de senhas",
 }
 
 RESULTADO_OK = "ok"
@@ -211,6 +213,32 @@ ACOES: dict[str, Acao] = dict((
        CAT_DOWNLOAD, "nfse.exportar", "nfse"),
     _a("nfse.transmitir", "Transmitiu DPS a producao restrita (sem valor fiscal)",
        CAT_MUTACAO, "nfse.transmitir", "nfse"),
+
+    # ------------------------------------------------------------------
+    # Clientes e cofre (spec 012). O detalhe leva so IDs e contagens; a
+    # senha revelada nunca passa por aqui. A trilha do cofre propriamente
+    # dita (quem viu qual senha) mora em clientes.db, na mesma transacao da
+    # leitura — esta e' a trilha de uso, que e' fail-open.
+    _a("clientes.cadastrar", "Cadastrou ou editou um cliente",
+       CAT_MUTACAO, "clientes.editar", "clientes"),
+    _a("clientes.situacao", "Mudou a situacao de um cliente",
+       CAT_MUTACAO, "clientes.editar", "clientes"),
+    _a("clientes.certificado", "Cadastrou ou alterou um certificado",
+       CAT_MUTACAO, "clientes.editar", "clientes"),
+    _a("clientes.importar", "Importou clientes ou certificados",
+       CAT_PROCESSAMENTO, "clientes.importar", "clientes"),
+    _a("clientes.exportar", "Exportou o cadastro de clientes",
+       CAT_DOWNLOAD, "clientes.exportar", "clientes"),
+    _a("vencimentos.configurar", "Mudou os prazos de aviso de vencimento",
+       CAT_MUTACAO, "vencimentos.configurar", "clientes"),
+    _a("cofre.desbloquear", "Confirmou a senha para ver o cofre",
+       CAT_COFRE, "cofre.ver", "clientes"),
+    _a("cofre.revelar", "Revelou uma senha de cliente",
+       CAT_COFRE, "cofre.ver", "clientes"),
+    _a("cofre.gravar", "Gravou, trocou ou removeu senha de cliente",
+       CAT_COFRE, "cofre.editar", "clientes"),
+    _a("cofre.acessos", "Consultou quem viu senhas de clientes",
+       CAT_COFRE, "admin.historico"),
 
     # ------------------------------------------------------------------
     # Administracao

@@ -984,3 +984,38 @@ label.permissao input { margin-top: 3px; }
 }
 .nfse-auto { outline: 2px solid var(--menta); outline-offset: 1px; }
 .nfse-certificado ul { margin: 4px 0 8px 18px; padding: 0; }
+
+/* ------------------------------------------------------------------
+   Aba 9 — Clientes (spec 012). Reusa .caixa, .cartoes, .rolagem,
+   .linha-form e .conc-*; aqui fica so o que e' proprio dela. */
+
+.aviso-topo {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin-bottom: 16px; padding: 12px 16px; border-radius: 10px;
+  background: var(--alerta-suave); border: 1px solid var(--alerta-linha);
+  color: var(--alerta); font-weight: 600;
+}
+.aviso-topo button { margin-left: auto; }
+
+.cli-faixa {
+  display: inline-block; padding: 2px 8px; border-radius: 999px;
+  font-size: 12px; font-weight: 600; white-space: nowrap;
+}
+.cli-faixa.vencido { background: var(--erro-suave); color: var(--erro); }
+.cli-faixa.perto { background: var(--alerta-suave); color: var(--alerta); }
+.cli-faixa.em-dia { background: var(--ok-suave); color: var(--ok); }
+
+.cli-senha {
+  font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+  padding: 2px 6px; margin-right: 8px; border-radius: 6px;
+  background: var(--papel-2); border: 1px solid var(--borda);
+  user-select: all;
+}
+
+.cli-grade { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; }
+.cli-grade label { display: flex; flex-direction: column; gap: 4px; font-size: 13px;
+  color: var(--texto-suave); }
+.cli-grade input, .cli-grade select, .cli-grade textarea { font-size: 14px; }
+/* Vence o `td:last-child { white-space: normal }` dos blocos de detalhe. */
+.cli-acoes, .conc-bloco table td.cli-acoes { white-space: nowrap; }
+.cli-acoes button + button { margin-left: 6px; }

@@ -21,6 +21,60 @@ Acesse `http://<ip-do-servidor>:8600`. No **primeiro acesso** o site pede a
 criação do usuário administrador. A partir daí tudo é feito pela aba
 **Administração** do próprio site — veja a seção abaixo.
 
+## Clientes e cofre de senhas (aba 9)
+
+Somente web. Cadastro dos clientes do escritório no lugar da planilha de
+senhas, com as senhas de portais (SEFAZ, Prefeitura, código de acesso e
+outros) num **cofre criptografado**, os certificados digitais e o aviso de
+vencimento. Spec: `specs/012-cadastro-clientes-cofre/`.
+
+**Chave do cofre (obrigatória para as senhas).** Gere uma vez, **no próprio
+servidor**, e guarde (só precisa do Python, nada do projeto):
+
+```
+python3 -c "import base64,secrets;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+```
+
+(no Windows, `python` no lugar de `python3`). Sai uma linha de 44 caracteres
+terminada em `=`. Não mande a chave por WhatsApp, e-mail ou chat.
+
+Defina a saída na variável `AUDITORIA_COFRE_CHAVE` do serviço (na VM, no
+drop-in do systemd, como as variáveis de segurança) e reinicie. Sem a chave o
+cadastro e os vencimentos funcionam, mas as senhas não podem ser vistas nem
+gravadas — nunca existe modo "sem criptografia".
+
+- **Chave perdida = senhas perdidas.** Guarde uma cópia num lugar seguro.
+- **Chave e backup nunca juntos.** O backup de `clientes.db` sem a chave não
+  revela nada; com a chave ao lado, o cofre não protege nada.
+- **Trocar de chave:** gere uma nova, ponha a antiga em
+  `AUDITORIA_COFRE_CHAVES_ANTERIORES` (lista separada por vírgula) e a nova em
+  `AUDITORIA_COFRE_CHAVE`. As senhas antigas continuam abrindo; cada senha
+  regravada passa para a chave nova.
+
+**Permissões.** Nenhuma entra no padrão de usuário novo. `aba.clientes` abre a
+aba e **não mostra senha**; `cofre.ver` revela uma senha por vez, depois de a
+pessoa confirmar a própria senha (vale 15 minutos naquela sessão), com limite
+de 30 por hora; `cofre.editar` grava e troca senhas sem dar o direito de ver;
+`clientes.editar`, `clientes.importar`, `clientes.exportar` (o Excel nunca traz
+senha) e `vencimentos.configurar` completam. Administrador tem todas. Quem viu
+cada senha fica em "Quem viu senhas" (exige `admin.historico`).
+
+**Importar a planilha atual.** Aba 9 → Importar → planilha. A prévia mostra o
+que entra, o que atualiza e o que precisa de atenção; nada é gravado antes de
+confirmar, e o arquivo enviado é apagado assim que é lido. Depois de importar,
+tire a planilha original de circulação: ela tem as senhas em texto aberto.
+
+**Certificados da pasta da rede.** O servidor não enxerga a rede do escritório.
+Num computador de lá, com o projeto e o `.venv`:
+
+```powershell
+.\.venv\Scripts\python.exe coletar-certificados.py "X:\CERTIFICADOS DIGITAIS ATUALIZADOS"
+```
+
+Ele lê cada `.pfx` com a senha do `_info`, grava `coleta-certificados-*.json`
+**sem senha, chave nem certificado** e mostra um resumo. Envie o arquivo em
+Importar → certificados e apague-o depois (ele tem nomes e CNPJs).
+
 ## Emissão de NFS-e (aba 8)
 
 Somente web. A ferramenta importa a lista do cliente (planilha-modelo ou
@@ -165,6 +219,9 @@ Tudo em `dados_web\` (fora do git):
   de alunos, CPFs de responsáveis). Não guarda certificado nem senha
 - `nfse\origens\<sha256>.xlsx` — as planilhas recebidas, imutáveis (o texto
   colado fica dentro do `nfse.db`)
+- `clientes.db` — Clientes: cadastro, licenças, certificados, a trilha de
+  alterações e a de **quem viu cada senha** (append-only, por trigger) e as
+  senhas **cifradas**. A chave fica fora desta pasta (`AUDITORIA_COFRE_CHAVE`)
 - `conciliacao\origens\<sha256>.xlsx` — os relatórios da SEFAZ **originais**,
   imutáveis, nomeados pelo hash do conteúdo. São a evidência de cada número
   exibido: sem eles, a proveniência aponta para o vazio
@@ -181,7 +238,7 @@ uma falha visível. Duas formas seguras:
 1. Parar o `servidor.ps1`, copiar a pasta, subir de novo (mais simples); ou
 2. Com o site no ar, usar a API de backup do SQLite em cada `.db`:
    `.\.venv\Scripts\python.exe -c "import sqlite3; o=sqlite3.connect(r'dados_web\conciliacao.db'); d=sqlite3.connect(r'backup\conciliacao.db'); o.backup(d); d.close(); o.close()"`
-   (o mesmo para `patrimonio.db` e `nfse.db`) e copiar `conciliacao\origens\`
+   (o mesmo para `patrimonio.db`, `nfse.db` e `clientes.db`) e copiar `conciliacao\origens\`
    e `nfse\origens\` normalmente (os arquivos lá nunca mudam depois de
    criados).
 
@@ -194,6 +251,9 @@ simples do diretório dá um snapshot consistente.
 - `AUDITORIA_WEB_DADOS` — pasta de dados (padrão `dados_web\` no projeto)
 - `AUDITORIA_WEB_MAX_UPLOAD_MB` — limite por arquivo enviado (padrão 2048; alto
   porque bancos Firebird `.fdb` de ERP passam de 300 MB)
+- `AUDITORIA_COFRE_CHAVE` — chave do cofre de senhas da aba 9 (sem ela, o cofre
+  fica desligado); `AUDITORIA_COFRE_CHAVES_ANTERIORES` — chaves antigas, só
+  para decifrar depois de uma troca
 - `AUDITORIA_CONCILIACAO_MAX_UPLOAD_MB` — limite **só** da Conciliação Fiscal
   (padrão 50). Relatório da SEFAZ tem poucos MB; um teto próprio e baixo reduz
   a superfície de zip bomb e de negação de serviço nessa porta. Valor inválido

@@ -30,6 +30,7 @@ GRUPO_PRODUTOS = "Auditoria de Produtos"
 GRUPO_CONCILIACAO = "Conciliacao Fiscal"
 GRUPO_PATRIMONIO = "Patrimonio"
 GRUPO_NFSE = "Emissao de NFS-e"
+GRUPO_CLIENTES = "Clientes e cofre de senhas"
 GRUPO_ADMIN = "Administracao"
 
 
@@ -62,6 +63,9 @@ CATALOGO: tuple[Permissao, ...] = (
     Permissao("aba.nfse", "8. Emissao de NFS-e", GRUPO_ABAS,
               "Abrir a aba e consultar perfis e lotes de NFS-e (com nomes e "
               "CPFs das listas recebidas)."),
+    Permissao("aba.clientes", "9. Clientes", GRUPO_ABAS,
+              "Abrir a aba e consultar o cadastro, os certificados e os "
+              "vencimentos. NAO mostra senha nenhuma."),
 
     # ------------------------------------------------------------------
     # Livro de Conferencia: acoes que gravam ou geram documento
@@ -186,6 +190,34 @@ CATALOGO: tuple[Permissao, ...] = (
     Permissao("nfse.transmitir", "Transmitir a producao restrita", GRUPO_NFSE,
               "Enviar as DPS de um lote aprovado a producao restrita da Sefin "
               "Nacional com o certificado A1 da escola (sem valor fiscal)."),
+
+    # ------------------------------------------------------------------
+    # Clientes e cofre de senhas (spec 012). Ver senha e gravar senha sao
+    # slugs separados e nenhum entra no padrao de usuario novo: quem consulta
+    # o cadastro nao ve, so por isso, a senha de portal de cliente nenhum.
+    Permissao("clientes.editar", "Editar clientes e certificados",
+              GRUPO_CLIENTES,
+              "Criar e alterar clientes, mudar a situacao e cadastrar ou "
+              "renovar certificados."),
+    Permissao("clientes.importar", "Importar planilha e coleta",
+              GRUPO_CLIENTES,
+              "Enviar a planilha de clientes ou o arquivo do coletor de "
+              "certificados, conferir a previa e confirmar."),
+    Permissao("clientes.exportar", "Exportar o cadastro (Excel)",
+              GRUPO_CLIENTES,
+              "Baixar a relacao de clientes e certificados. O arquivo nunca "
+              "traz senha."),
+    Permissao("cofre.ver", "Ver senhas de clientes", GRUPO_CLIENTES,
+              "Revelar uma senha por vez, depois de confirmar a propria "
+              "senha. Cada consulta fica registrada com usuario, hora e IP."),
+    Permissao("cofre.editar", "Gravar e trocar senhas de clientes",
+              GRUPO_CLIENTES,
+              "Cadastrar, trocar e remover senhas do cofre. Nao da o direito "
+              "de ver as senhas ja gravadas."),
+    Permissao("vencimentos.configurar", "Configurar prazos de aviso",
+              GRUPO_CLIENTES,
+              "Mudar com quantos dias de antecedencia o sistema avisa o "
+              "vencimento de certificado."),
 
     # ------------------------------------------------------------------
     # Administracao
