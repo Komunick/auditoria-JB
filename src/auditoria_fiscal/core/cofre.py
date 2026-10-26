@@ -18,7 +18,9 @@ Regras:
 - Sem chave valida o cofre fica INDISPONIVEL. Nao existe modo "sem
   criptografia".
 
-Gerar uma chave nova: `python -m auditoria_fiscal.core.cofre --gerar-chave`.
+Gerar uma chave nova (da raiz do projeto):
+`PYTHONPATH=src python -m auditoria_fiscal.core.cofre --gerar-chave` — ou,
+sem o projeto, o one-liner de `secrets` do README-servidor.
 """
 
 from __future__ import annotations
@@ -73,11 +75,11 @@ def _conferir(chave: bytes) -> None:
     if len(chave) != TAMANHO_CHAVE:
         raise CofreIndisponivel(
             f"A chave do cofre precisa ter {TAMANHO_CHAVE} bytes "
-            f"(veio com {len(chave)}). Gere uma com --gerar-chave.")
+            f"(veio com {len(chave)}). Veja como gerar no README-servidor.")
     if len(set(chave)) < 8:
         raise CofreIndisponivel(
             "A chave do cofre é fraca demais (bytes repetidos). "
-            "Gere uma com --gerar-chave.")
+            "Veja como gerar no README-servidor.")
 
 
 def impressao(chave: bytes) -> str:
@@ -146,7 +148,8 @@ def main(argv=None) -> int:
 
     argumentos = list(sys.argv[1:] if argv is None else argv)
     if argumentos != ["--gerar-chave"]:
-        print("Uso: python -m auditoria_fiscal.core.cofre --gerar-chave")
+        print("Uso (da raiz do projeto): "
+              "PYTHONPATH=src python -m auditoria_fiscal.core.cofre --gerar-chave")
         return 2
     print(gerar_chave())
     return 0

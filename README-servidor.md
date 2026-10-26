@@ -28,11 +28,15 @@ senhas, com as senhas de portais (SEFAZ, Prefeitura, código de acesso e
 outros) num **cofre criptografado**, os certificados digitais e o aviso de
 vencimento. Spec: `specs/012-cadastro-clientes-cofre/`.
 
-**Chave do cofre (obrigatória para as senhas).** Gere uma vez e guarde:
+**Chave do cofre (obrigatória para as senhas).** Gere uma vez, **no próprio
+servidor**, e guarde (só precisa do Python, nada do projeto):
 
-```powershell
-.\.venv\Scripts\python.exe -m auditoria_fiscal.core.cofre --gerar-chave
 ```
+python3 -c "import base64,secrets;print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())"
+```
+
+(no Windows, `python` no lugar de `python3`). Sai uma linha de 44 caracteres
+terminada em `=`. Não mande a chave por WhatsApp, e-mail ou chat.
 
 Defina a saída na variável `AUDITORIA_COFRE_CHAVE` do serviço (na VM, no
 drop-in do systemd, como as variáveis de segurança) e reinicie. Sem a chave o

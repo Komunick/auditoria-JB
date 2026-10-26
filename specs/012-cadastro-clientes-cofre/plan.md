@@ -37,8 +37,8 @@ local). O coletor é um comando de linha rodado à mão no escritório.
    `AUDITORIA_COFRE_CHAVES_ANTERIORES` (lista separada por vírgula) só decifra,
    para trocar de chave sem perder senhas. Sem chave, o cofre fica indisponível
    (503) e o resto da aba funciona. O comando `coletar-certificados.py` não usa a
-   chave. `python -m auditoria_fiscal.core.cofre --gerar-chave` imprime uma chave
-   nova.
+   chave. A chave nova sai do one-liner de `secrets` do README-servidor (ou de
+   `PYTHONPATH=src python -m auditoria_fiscal.core.cofre --gerar-chave`).
 2. **Dados associados (AAD)**: `cliente_id:campo:segredo_id`. Trocar o texto
    cifrado de linha faz a decifração falhar.
 3. **Confirmação de senha antes de revelar** (proposta P-04, ligada por
