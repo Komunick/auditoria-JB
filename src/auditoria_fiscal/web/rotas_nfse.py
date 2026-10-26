@@ -7,7 +7,9 @@ aba + slug e marca a linha da trilha — inclusive quando a tentativa e negada.
 A trilha geral recebe so IDs e contagens (`detalhar`). Nomes de alunos e CPFs
 de responsaveis ficam no `nfse.db`, nunca no historico de uso.
 
-Nada aqui transmite: a Fase 1 gera a DPS e para. Este modulo e a UNICA
+A Fase 1 gera a DPS e para. A Fase 2 (spec 008) acrescenta a transmissao a
+PRODUCAO RESTRITA: o .pfx e a senha chegam no proprio pedido, sao conferidos
+antes de qualquer conexao e vivem so na memoria do job. Este modulo e a UNICA
 camada que conhece FastAPI nesta feature.
 """
 
@@ -24,14 +26,21 @@ from pydantic import BaseModel
 from starlette.background import BackgroundTask
 
 from ..core import nfse as nf
+from ..core import nfse_assinatura as na
+from ..core import nfse_certificado as ncert
 from ..core import nfse_dps as nd
 from ..core import nfse_entrada as ne
+from ..core import nfse_nota_anterior as nna
+from ..ferramentas import nfse_parametros as npar
+from ..ferramentas import nfse_sefin as sf
+from ..ferramentas import nfse_transmissao as nt
 from ..ferramentas import relatorio_nfse as rn
 from ..ferramentas.nfse_store import ConcorrenciaError, NfseStore
 from ..ferramentas import nfse_store as ns
 from .auditoria import acesso, detalhar, exigir_aba, exigir_permissao
 from .auth import Usuario
 from .infra import caminho_db_nfse, pasta_origens_nfse
+from .sessoes import criar_sessao, descartar_sessao, iniciar_job
 
 router = APIRouter(prefix="/api/nfse", tags=["nfse"])
 
@@ -40,13 +49,22 @@ MIME_XLSX = ("application/vnd.openxmlformats-officedocument"
 MAX_UPLOAD_BYTES = ne.MAX_PLANILHA_BYTES
 AVISOS_NAO_CONFIRMADOS = "AVISOS_NAO_CONFIRMADOS"
 LOTE_SEM_DPS = "LOTE_SEM_DPS"
+CONFIRMACAO_OBRIGATORIA = "CONFIRMACAO_OBRIGATORIA"
+NFSE_NAO_ENCONTRADA = "NFSE_NAO_ENCONTRADA"
+DANFSE_NAO_ENCONTRADO = "DANFSE_NAO_ENCONTRADO"
+MAX_SENHA_CERTIFICADO = 200
+MARCA_RESTRITA = "PRODUCAO-RESTRITA-SEM-VALOR-FISCAL"
 
 _STATUS = {
     ns.PERFIL_NAO_ENCONTRADO: 404, ns.LOTE_NAO_ENCONTRADO: 404,
     ns.LINHA_NAO_ENCONTRADA: 404, ns.DPS_NAO_ENCONTRADA: 404,
+    NFSE_NAO_ENCONTRADA: 404, DANFSE_NAO_ENCONTRADO: 404,
     ns.PERFIL_DUPLICADO: 409, ns.ESTADO_INVALIDO: 409, nf.DUPLICATA_APROVADA: 409,
-    LOTE_SEM_DPS: 409,
+    LOTE_SEM_DPS: 409, ns.LOTE_COM_NFSE: 409,
     ne.TEXTO_GRANDE_DEMAIS: 413, ne.PLANILHA_GRANDE_DEMAIS: 413,
+    ncert.CERTIFICADO_GRANDE_DEMAIS: 413, nna.NOTA_GRANDE_DEMAIS: 413,
+    # Configuracao do servidor apontando para fora da producao restrita.
+    sf.DESTINO_PROIBIDO: 503,
 }
 
 
@@ -106,7 +124,7 @@ class PerfilCorpo(BaseModel):
 
 
 class TextoCorpo(BaseModel):
-    perfil_id: int
+    perfil_id: int | None = None
     texto: str
 
 
@@ -174,6 +192,64 @@ def criar_versao(perfil_id: int, corpo: PerfilCorpo, request: Request,
     return r
 
 
+@router.post("/perfis/sugestao")
+def sugestao_de_perfil(request: Request, certificado: UploadFile = File(...),
+                       senha: str = Form(""), municipio_ibge: str = Form(""),
+                       c_trib_nac: str = Form(""),
+                       usuario: Usuario = Depends(acesso("nfse.perfil_sugestao"))) -> dict:
+    """Spec 009: le o certificado e consulta a parametrizacao do ADN para
+    PREENCHER o formulario. Nao grava nada; o certificado vive so neste
+    pedido, como na transmissao."""
+    if len(senha) > MAX_SENHA_CERTIFICADO:
+        raise erro(422, "Senha do certificado longa demais.", ncert.CERTIFICADO_ILEGIVEL)
+    dados = certificado.file.read(ncert.MAX_PFX_BYTES + 1)
+    try:
+        cert = ncert.ler_pfx(dados, senha)
+    except nf.ErroNfse as exc:
+        raise _traduzir(exc) from None
+    finally:
+        dados = b""
+    codigos = [c.strip() for c in (c_trib_nac or "").split(",") if c.strip()]
+    competencia = _agora().date().replace(day=1)
+    try:
+        npar.municipio_valido(municipio_ibge)
+        cliente = npar.ClienteParametros.do_ambiente(cert)
+        r = npar.sugerir_perfil(cliente, cert, municipio=municipio_ibge,
+                                c_trib_nacs=codigos, competencia=competencia)
+    except nf.ErroNfse as exc:
+        raise _traduzir(exc) from None
+    detalhar(request, f"consultas={len(r['consultas'])} campos={len(r['campos'])}")
+    return r
+
+
+MAX_TURMAS_TEXTO = 4000
+
+
+@router.post("/perfis/sugestao-nota")
+def sugestao_pela_nota(request: Request, arquivo: UploadFile = File(...),
+                       cnpj: str = Form(""), turmas: str = Form(""),
+                       usuario: Usuario = Depends(acesso("nfse.perfil_nota_anterior"))
+                       ) -> dict:
+    """Spec 009, Parte 2: le uma NFS-e ja emitida (Nota Salvador ou nacional)
+    para PREENCHER o formulario. Nao grava nada; a nota vive so neste pedido,
+    e nem a resposta nem a trilha levam CPF ou nome de tomador e aluno.
+    `turmas` sao os nomes ja no formulario, um por linha."""
+    if len(cnpj) > 30 or len(turmas) > MAX_TURMAS_TEXTO:
+        raise erro(422, "Dados do formulário longos demais.", nna.NOTA_ILEGIVEL)
+    dados = arquivo.file.read(nna.MAX_ARQUIVO_BYTES + 1)
+    try:
+        notas = nna.ler_arquivo(dados)
+        r = nna.sugerir_perfil(notas, cnpj_perfil=cnpj.strip() or None,
+                               turmas=turmas.splitlines())
+    except nf.ErroNfse as exc:
+        raise _traduzir(exc) from None
+    finally:
+        dados = b""
+    detalhar(request, f"notas={r['notas']['usadas']}/{r['notas']['lidas']} "
+                      f"campos={len(r['campos'])} turmas={len(r['turmas'])}")
+    return r
+
+
 @router.post("/planilha-modelo")
 def planilha_modelo(request: Request,
                     usuario: Usuario = Depends(acesso("nfse.modelo"))) -> FileResponse:
@@ -192,10 +268,26 @@ def planilha_modelo(request: Request,
 # ----------------------------------------------------------------------
 # Importacao
 
+PERFIL_OBRIGATORIO = "PERFIL_OBRIGATORIO"
+
+
+def _perfil_escolhido(valor) -> int:
+    """O perfil chega da tela; vazio (lista sem perfil, nada selecionado) vira
+    mensagem clara. Com `int` direto na assinatura, o FastAPI devolvia a lista
+    de validacao dele e a tela so mostrava "Erro 422"."""
+    texto = str(valor if valor is not None else "").strip()
+    if not texto.isdigit() or int(texto) <= 0:
+        raise erro(422, "Escolha o perfil de emissão antes de importar. Se a lista "
+                        "estiver vazia, cadastre o perfil em \"Perfis de emissão\".",
+                   PERFIL_OBRIGATORIO)
+    return int(texto)
+
+
 @router.post("/lotes/planilha")
-async def importar_planilha(request: Request, perfil_id: int = Form(...),
+async def importar_planilha(request: Request, perfil_id: str = Form(""),
                             arquivo: UploadFile = File(...),
                             usuario: Usuario = Depends(acesso("nfse.importar"))) -> dict:
+    perfil_id = _perfil_escolhido(perfil_id)
     pasta = tempfile.mkdtemp(prefix="nfse_upload_")
     destino = os.path.join(pasta, "lote.xlsx")
     try:
@@ -225,10 +317,11 @@ async def importar_planilha(request: Request, perfil_id: int = Form(...),
 @router.post("/lotes/texto")
 def importar_texto(corpo: TextoCorpo, request: Request,
                    usuario: Usuario = Depends(acesso("nfse.importar"))) -> dict:
+    perfil_id = _perfil_escolhido(corpo.perfil_id)
     hoje = _agora().date()
-    r = _executar(lambda s: s.importar_texto(corpo.perfil_id, corpo.texto, hoje=hoje,
+    r = _executar(lambda s: s.importar_texto(perfil_id, corpo.texto, hoje=hoje,
                                              **_quem(usuario)))
-    detalhar(request, f"perfil={corpo.perfil_id} lote={r['lote_id']} texto"
+    detalhar(request, f"perfil={perfil_id} lote={r['lote_id']} texto"
                       f"{' reaproveitado' if r['reaproveitado'] else ''}")
     return r
 
@@ -370,4 +463,102 @@ def dps_xml(dps_id: int, request: Request,
     detalhar(request, f"lote={d['lote_id']} dps={dps_id}")
     nome = rn.nome_xml(d["lote_id"], d)
     return Response(content=bytes(d["xml"]), media_type="application/xml",
+                    headers={"Content-Disposition": f'attachment; filename="{nome}"'})
+
+
+# ----------------------------------------------------------------------
+# Transmissao a producao restrita (spec 008)
+
+def _algoritmo() -> str:
+    """SHA-256 por padrao; AUDITORIA_NFSE_ASSINATURA=sha1 se a Sefin exigir
+    (research.md, R-3). Valor fora da lista vira erro na transmissao."""
+    return (os.environ.get("AUDITORIA_NFSE_ASSINATURA") or na.ALGORITMO_PADRAO).lower()
+
+
+@router.post("/lotes/{lote_id}/transmitir")
+async def transmitir(lote_id: int, request: Request,
+                     certificado: UploadFile = File(...), senha: str = Form(""),
+                     confirmar_producao_restrita: bool = Form(False),
+                     incluir_rejeitadas: bool = Form(False),
+                     usuario: Usuario = Depends(acesso("nfse.transmitir"))) -> dict:
+    """Confere tudo o que da para conferir sem rede e abre o job.
+
+    O .pfx e' lido em memoria (nunca vai para disco) e o objeto do
+    certificado so existe dentro do job; quando ele termina, sai de escopo."""
+    if not confirmar_producao_restrita:
+        raise erro(422, "Confirme que a transmissão é para a produção restrita "
+                        "(sem valor fiscal).", CONFIRMACAO_OBRIGATORIA)
+    if len(senha) > MAX_SENHA_CERTIFICADO:
+        raise erro(422, "Senha do certificado longa demais.", ncert.CERTIFICADO_ILEGIVEL)
+    dados = await certificado.read(ncert.MAX_PFX_BYTES + 1)
+    try:
+        cert = ncert.ler_pfx(dados, senha)
+    except nf.ErroNfse as exc:
+        raise _traduzir(exc) from None
+    finally:
+        dados = b""
+    lote = _executar(lambda s: s.lote_para_transmitir(lote_id))
+    try:
+        ncert.conferir_para_emissao(cert, lote["cnpj"], dt.datetime.now(dt.timezone.utc))
+        cliente = sf.ClienteSefin.do_ambiente(cert)
+    except nf.ErroNfse as exc:
+        raise _traduzir(exc) from None
+    algoritmo = _algoritmo()
+    quem = _quem(usuario)
+    sessao = criar_sessao("nfse", usuario.usuario)
+
+    def _rodar() -> dict:
+        store = _store()
+        try:
+            return nt.transmitir_lote(store, lote_id, cliente, cert, algoritmo=algoritmo,
+                                      incluir_rejeitadas=incluir_rejeitadas, **quem)
+        except nf.ErroNfse as exc:
+            # So a mensagem de negocio vai para o job: nada de objeto, caminho
+            # ou dado do certificado.
+            raise RuntimeError(exc.mensagem) from None
+        finally:
+            store.fechar()
+            try:
+                descartar_sessao(sessao.id, usuario)
+            except HTTPException:
+                pass
+
+    job = iniciar_job(sessao, "Transmitindo DPS à produção restrita", _rodar)
+    detalhar(request, f"lote={lote_id} transmissao")
+    return {"job_id": job.id}
+
+
+@router.post("/dps/{dps_id}/nfse-xml")
+def nfse_xml(dps_id: int, request: Request,
+             usuario: Usuario = Depends(acesso("nfse.exportar"))) -> Response:
+    def _consulta(s):
+        d = s.dps(dps_id)
+        n = s.nfse_da_dps(dps_id)
+        if n is None:
+            raise nf.ErroNfse(NFSE_NAO_ENCONTRADA, "Esta DPS ainda não virou NFS-e.")
+        s.registrar_exportacao(d["lote_id"], "nfse_xml", dps_id=dps_id, **_quem(usuario))
+        return d, n
+    d, n = _executar(_consulta)
+    detalhar(request, f"lote={d['lote_id']} dps={dps_id} nfse")
+    nome = f"NFSe-{MARCA_RESTRITA}_{n['chave_acesso']}.xml"
+    return Response(content=bytes(n["xml"]), media_type="application/xml",
+                    headers={"Content-Disposition": f'attachment; filename="{nome}"'})
+
+
+@router.post("/dps/{dps_id}/danfse")
+def danfse(dps_id: int, request: Request,
+           usuario: Usuario = Depends(acesso("nfse.exportar"))) -> Response:
+    def _consulta(s):
+        d = s.dps(dps_id)
+        n = s.nfse_da_dps(dps_id)
+        pdf = s.danfse_da_dps(dps_id)
+        if n is None or pdf is None:
+            raise nf.ErroNfse(DANFSE_NAO_ENCONTRADO,
+                              "O DANFSe desta nota não foi recebido da Sefin.")
+        s.registrar_exportacao(d["lote_id"], "danfse", dps_id=dps_id, **_quem(usuario))
+        return d, n, pdf
+    d, n, pdf = _executar(_consulta)
+    detalhar(request, f"lote={d['lote_id']} dps={dps_id} danfse")
+    nome = f"DANFSe-{MARCA_RESTRITA}_{n['chave_acesso']}.pdf"
+    return Response(content=pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="{nome}"'})

@@ -30,6 +30,7 @@ GRUPO_PRODUTOS = "Auditoria de Produtos"
 GRUPO_CONCILIACAO = "Conciliacao Fiscal"
 GRUPO_PATRIMONIO = "Patrimonio"
 GRUPO_NFSE = "Emissao de NFS-e"
+GRUPO_CLIENTES = "Clientes e cofre de senhas"
 GRUPO_ADMIN = "Administracao"
 
 
@@ -62,6 +63,9 @@ CATALOGO: tuple[Permissao, ...] = (
     Permissao("aba.nfse", "8. Emissao de NFS-e", GRUPO_ABAS,
               "Abrir a aba e consultar perfis e lotes de NFS-e (com nomes e "
               "CPFs das listas recebidas)."),
+    Permissao("aba.clientes", "9. Clientes", GRUPO_ABAS,
+              "Abrir a aba e consultar o cadastro, os certificados e os "
+              "vencimentos. NAO mostra senha nenhuma."),
 
     # ------------------------------------------------------------------
     # Livro de Conferencia: acoes que gravam ou geram documento
@@ -84,8 +88,8 @@ CATALOGO: tuple[Permissao, ...] = (
     Permissao("conferencia.livro_fiscal", "Gerar Livro Fiscal (PDF)",
               GRUPO_CONFERENCIA, "Gerar o Livro Fiscal completo em PDF."),
     Permissao("conferencia.inconsistencias",
-              "Gerar Relatorio de Inconsistencias (PDF)", GRUPO_CONFERENCIA,
-              "Gerar o relatorio das notas com observacao ou correcao."),
+              "Gerar Carta de Inconsistencias (PDF)", GRUPO_CONFERENCIA,
+              "Gerar a carta das notas com observacao ou correcao."),
     Permissao("conferencia.sped_corrigido", "Gerar SPED corrigido (.txt)",
               GRUPO_CONFERENCIA,
               "Gerar o arquivo SPED com as correcoes aplicadas — a saida que "
@@ -168,8 +172,9 @@ CATALOGO: tuple[Permissao, ...] = (
     # ------------------------------------------------------------------
     # Emissao de NFS-e (spec 006). Consultar e' rotina; mexer no perfil,
     # importar e aprovar sao passos separados de proposito: quem aprova o lote
-    # gera a DPS, e na Fase 2 o mesmo slug transmite. Nada aqui transmite na
-    # Fase 1.
+    # gera a DPS. Transmitir (spec 008) ganhou slug proprio em vez de herdar o
+    # de aprovar, como a 006 previa: herdar daria a quem ja aprova o poder de
+    # usar o certificado da escola sem ninguem conceder (constituicao, III).
     Permissao("nfse.perfis", "Cadastrar perfis de emissao", GRUPO_NFSE,
               "Criar o perfil do cliente e as versoes dele (codigos, turmas, "
               "regime e modelo da discriminacao)."),
@@ -180,7 +185,39 @@ CATALOGO: tuple[Permissao, ...] = (
               "Aprovar o lote, gerar as DPS (sem transmitir na Fase 1) e "
               "descartar lote aprovado."),
     Permissao("nfse.exportar", "Baixar DPS e resumo", GRUPO_NFSE,
-              "Baixar o XML das DPS, o zip do lote e a planilha-resumo."),
+              "Baixar o XML das DPS, o zip do lote e a planilha-resumo, e a "
+              "NFS-e e o DANFSe de producao restrita."),
+    Permissao("nfse.transmitir", "Transmitir a producao restrita", GRUPO_NFSE,
+              "Enviar as DPS de um lote aprovado a producao restrita da Sefin "
+              "Nacional com o certificado A1 da escola (sem valor fiscal)."),
+
+    # ------------------------------------------------------------------
+    # Clientes e cofre de senhas (spec 012). Ver senha e gravar senha sao
+    # slugs separados e nenhum entra no padrao de usuario novo: quem consulta
+    # o cadastro nao ve, so por isso, a senha de portal de cliente nenhum.
+    Permissao("clientes.editar", "Editar clientes e certificados",
+              GRUPO_CLIENTES,
+              "Criar e alterar clientes, mudar a situacao e cadastrar ou "
+              "renovar certificados."),
+    Permissao("clientes.importar", "Importar planilha e coleta",
+              GRUPO_CLIENTES,
+              "Enviar a planilha de clientes ou o arquivo do coletor de "
+              "certificados, conferir a previa e confirmar."),
+    Permissao("clientes.exportar", "Exportar o cadastro (Excel)",
+              GRUPO_CLIENTES,
+              "Baixar a relacao de clientes e certificados. O arquivo nunca "
+              "traz senha."),
+    Permissao("cofre.ver", "Ver senhas de clientes", GRUPO_CLIENTES,
+              "Revelar uma senha por vez, depois de confirmar a propria "
+              "senha. Cada consulta fica registrada com usuario, hora e IP."),
+    Permissao("cofre.editar", "Gravar e trocar senhas de clientes",
+              GRUPO_CLIENTES,
+              "Cadastrar, trocar e remover senhas do cofre. Nao da o direito "
+              "de ver as senhas ja gravadas."),
+    Permissao("vencimentos.configurar", "Configurar prazos de aviso",
+              GRUPO_CLIENTES,
+              "Mudar com quantos dias de antecedencia o sistema avisa o "
+              "vencimento de certificado."),
 
     # ------------------------------------------------------------------
     # Administracao

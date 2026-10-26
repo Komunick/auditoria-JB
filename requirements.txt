@@ -23,5 +23,10 @@ fastapi>=0.115
 uvicorn[standard]>=0.30
 python-multipart>=0.0.9
 
+# NFS-e Fase 2: certificado A1 (.pfx), assinatura XML e mTLS com a Sefin;
+# cofre de senhas dos clientes (AES-256-GCM) e leitura de certificado
+# .cer/.pfx na aba 9 e no coletar-certificados.py (spec 012)
+cryptography>=42
+
 # Testes da versao web (TestClient)
 httpx>=0.27

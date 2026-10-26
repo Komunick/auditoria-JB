@@ -165,8 +165,21 @@ async function api(caminho, opcoes = {}) {
        {detail, code, ...} do contrato da conciliacao. Sem tratar o objeto,
        `new Error(obj)` viraria a mensagem inutil "[object Object]" na cara do
        usuario. O `code` fica no erro para quem precisa reagir a um caso
-       especifico sem depender do texto, que muda. */
-    if (extras && typeof extras === "object") {
+       especifico sem depender do texto, que muda.
+
+       Terceiro formato: a LISTA de validacao do proprio FastAPI (campo que
+       faltou ou veio no tipo errado). Antes ela caia no objeto acima, nao
+       tinha `.detail` e a tela mostrava so "Erro 422", sem dizer o que faltou. */
+    if (Array.isArray(extras)) {
+      const motivos = extras.map((e) => {
+        const campo = (e && Array.isArray(e.loc) ? e.loc : [])
+          .filter((p) => p !== "body" && p !== "query").join(".");
+        const texto = e && e.type === "missing" ? "não foi enviado" : (e && e.msg) || "";
+        return campo ? `${campo} ${texto}` : texto;
+      }).filter(Boolean);
+      detalhe = motivos.length
+        ? `Dados incompletos ou inválidos: ${motivos.join("; ")}.` : detalhe;
+    } else if (extras && typeof extras === "object") {
       detalhe = extras.detail || detalhe;
     } else if (extras) {
       detalhe = extras;
@@ -381,6 +394,11 @@ const Telas = {
       usuario.admin ? "administrador" : "";
     document.getElementById("avatar-usuario").textContent = iniciais(nome);
     Abas.iniciar();
+    /* Certificados vencidos ou vencendo: aviso no topo para quem alcanca a
+       aba 9 (spec 012). Falhar aqui nao atrapalha a entrada no sistema. */
+    if (typeof AvisoVencimentos !== "undefined") {
+      AvisoVencimentos.mostrar().catch(() => {});
+    }
   },
 };
 

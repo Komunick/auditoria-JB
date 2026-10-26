@@ -1,0 +1,1087 @@
+/* Aba 9 — Clientes, cofre de senhas e vencimentos (spec 012).
+
+   Mesma disciplina das outras abas: o que esta tela esconde é conveniência,
+   nunca autorização — quem manda é o 403 do servidor. Todo conteúdo vindo do
+   servidor entra por `textContent`.
+
+   Cofre: a senha só chega a esta tela quando a pessoa pede UMA, depois de
+   confirmar a própria senha. Ela fica 30 segundos na tela e some; não vai
+   para variável global, localStorage nem console. */
+
+"use strict";
+
+/* Aviso do topo (certificados vencidos ou na faixa mais curta). O app.js
+   chama AvisoVencimentos.mostrar() ao entrar no sistema. */
+const AvisoVencimentos = {
+  async mostrar() {
+    const alvo = document.getElementById("aviso-topo");
+    if (!alvo) return;
+    alvo.classList.add("oculto");
+    if (!Sessao.pode("aba.clientes")) return;
+    let r;
+    try { r = await api("/api/clientes/avisos"); } catch { return; }
+    if (!r.aviso) return;
+    alvo.textContent = "";
+    const texto = document.createElement("span");
+    const partes = [];
+    if (r.vencidos) partes.push(`${r.vencidos} vencido(s)`);
+    if (r.na_faixa_curta) partes.push(`${r.na_faixa_curta} vencendo em até ${r.faixa_curta} dias`);
+    texto.textContent = `Certificados digitais: ${partes.join(" e ")}.`;
+    const botao = document.createElement("button");
+    botao.type = "button";
+    botao.textContent = "Ver vencimentos";
+    botao.addEventListener("click", () => {
+      Abas.abrir("clientes");
+      document.dispatchEvent(new CustomEvent("clientes:vencimentos"));
+    });
+    alvo.append(texto, botao);
+    alvo.classList.remove("oculto");
+  },
+};
+
+/* Formulário em modal: devolve {campo: valor} ou null se cancelar. Campo de
+   senha usa type=password e autocomplete desligado — prompt() mostraria a
+   senha em texto aberto e o navegador ofereceria guardá-la. */
+function formularioModal(titulo, campos, { textoConfirmar = "Salvar", ajuda = "" } = {}) {
+  return new Promise((resolver) => {
+    const gatilho = document.activeElement;
+    const fundo = document.createElement("div");
+    fundo.className = "modal-fundo";
+    const modal = document.createElement("form");
+    modal.className = "modal";
+    modal.setAttribute("role", "dialog");
+    modal.setAttribute("aria-modal", "true");
+    modal.setAttribute("aria-label", titulo);
+    const h = document.createElement("h3");
+    h.textContent = titulo;
+    modal.appendChild(h);
+    if (ajuda) {
+      const p = document.createElement("p");
+      p.className = "dica";
+      p.textContent = ajuda;
+      modal.appendChild(p);
+    }
+    const grade = document.createElement("div");
+    grade.className = "cli-grade";
+    const entradas = {};
+    for (const c of campos) {
+      const rotulo = document.createElement("label");
+      rotulo.textContent = c.rotulo;
+      let entrada;
+      if (c.tipo === "select") {
+        entrada = document.createElement("select");
+        for (const o of c.opcoes) {
+          const op = document.createElement("option");
+          op.value = o.valor; op.textContent = o.rotulo;
+          entrada.appendChild(op);
+        }
+      } else if (c.tipo === "textarea") {
+        entrada = document.createElement("textarea");
+        entrada.rows = 3;
+      } else {
+        entrada = document.createElement("input");
+        entrada.type = c.tipo || "text";
+        if (c.tipo === "password") entrada.autocomplete = "new-password";
+        if (c.tipo === "file" && c.aceitar) entrada.accept = c.aceitar;
+        if (c.placeholder) entrada.placeholder = c.placeholder;
+      }
+      if (c.valor !== undefined && c.tipo !== "file") entrada.value = c.valor ?? "";
+      if (c.obrigatorio) entrada.required = true;
+      entrada.name = c.nome;
+      rotulo.appendChild(entrada);
+      grade.appendChild(rotulo);
+      entradas[c.nome] = entrada;
+    }
+    modal.appendChild(grade);
+    const acoes = document.createElement("div");
+    acoes.className = "acoes";
+    const cancelar = document.createElement("button");
+    cancelar.type = "button"; cancelar.textContent = "Cancelar";
+    const ok = document.createElement("button");
+    ok.type = "submit"; ok.className = "botao-primario"; ok.textContent = textoConfirmar;
+    acoes.append(cancelar, ok);
+    modal.appendChild(acoes);
+    fundo.appendChild(modal);
+
+    const fechar = (resposta) => {
+      document.removeEventListener("keydown", aoTeclar, true);
+      // Limpa os campos antes de soltar o DOM: senha digitada não fica pendurada.
+      for (const e of Object.values(entradas)) { if (e.type !== "file") e.value = ""; }
+      fundo.remove();
+      if (gatilho && gatilho.isConnected) gatilho.focus();
+      resolver(resposta);
+    };
+    const aoTeclar = (evento) => {
+      if (evento.key === "Escape") { evento.preventDefault(); fechar(null); }
+    };
+    document.addEventListener("keydown", aoTeclar, true);
+    cancelar.onclick = () => fechar(null);
+    modal.addEventListener("submit", (e) => {
+      e.preventDefault();
+      const valores = {};
+      for (const [nome, e2] of Object.entries(entradas)) {
+        valores[nome] = e2.type === "file" ? e2.files[0] || null : e2.value;
+      }
+      fechar(valores);
+    });
+    document.body.appendChild(fundo);
+    (Object.values(entradas)[0] || ok).focus();
+  });
+}
+
+Abas.registrar("clientes", (container) => {
+  container.innerHTML = `
+    <div class="caixa">
+      <h2>Clientes</h2>
+      <p class="dica">O cadastro dos clientes do escritório, no lugar da
+         planilha de senhas. As senhas ficam <b>criptografadas</b>: aparecem
+         uma por vez, para quem tem permissão, depois de confirmar a própria
+         senha — e cada consulta fica registrada.</p>
+      <p id="cli-status" class="status"></p>
+    </div>
+
+    <div class="cartoes" id="cli-cartoes"></div>
+
+    <div class="caixa">
+      <nav class="conc-subtelas" id="cli-subtelas">
+        <button data-sub="clientes" class="ativa" type="button">Clientes</button>
+        <button data-sub="vencimentos" type="button">Vencimentos</button>
+        <button data-sub="importar" type="button">Importar</button>
+        <button data-sub="acessos" type="button">Quem viu senhas</button>
+      </nav>
+
+      <section id="cli-sub-clientes" class="conc-sub">
+        <div id="cli-novo" class="oculto">
+          <div class="linha-form">
+            <label>Nome do cliente <input id="cli-n-nome" type="text"></label>
+            <label>CNPJ ou CPF <input id="cli-n-doc" type="text" maxlength="18"></label>
+            <label>Município <input id="cli-n-municipio" type="text"></label>
+            <button id="cli-criar" class="botao-primario" type="button">Cadastrar cliente</button>
+          </div>
+          <hr class="conc-divisor">
+        </div>
+        <div class="linha-form">
+          <label>Buscar <input id="cli-f-texto" type="search" placeholder="Nome, CNPJ, IE ou IM"></label>
+          <label>Situação <select id="cli-f-situacao"><option value="">Todas</option></select></label>
+          <label>Município <select id="cli-f-municipio"><option value="">Todos</option></select></label>
+          <label class="pat-checkbox"><span>Só com pendência</span>
+            <input id="cli-f-pendencia" type="checkbox"></label>
+          <button id="cli-limpar" type="button">Limpar</button>
+          <button id="cli-exportar" type="button" class="oculto">Exportar (.xlsx)</button>
+        </div>
+        <div class="rolagem"><table id="cli-lista">
+          <thead><tr><th>Cliente</th><th>CNPJ/CPF</th><th>Situação</th>
+            <th>Município</th><th>Certificado vence</th><th>Pendências</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+        <div class="conc-paginacao">
+          <button id="cli-anterior" type="button">&#8249; Anterior</button>
+          <span id="cli-pagina"></span>
+          <button id="cli-proxima" type="button">Próxima &#8250;</button>
+        </div>
+        <div id="cli-detalhe" class="oculto"></div>
+      </section>
+
+      <section id="cli-sub-vencimentos" class="conc-sub oculto">
+        <p class="dica">Certificados vigentes de clientes que não estão baixados,
+           do que vence primeiro para o último. "Renovação em andamento" tira o
+           certificado do aviso do topo, mas não desta lista.</p>
+        <div class="linha-form">
+          <label>Faixa <select id="cli-v-faixa"></select></label>
+          <label>Cliente <input id="cli-v-texto" type="search"></label>
+        </div>
+        <div class="rolagem"><table id="cli-vencimentos">
+          <thead><tr><th>Cliente</th><th>Titular</th><th>Tipo</th><th>Vence em</th>
+            <th class="conc-num">Dias</th><th>Faixa</th><th>Renovação</th><th>Onde está</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+        <div id="cli-faixas" class="linha-form oculto">
+          <label>Avisar com antecedência de (dias, separados por vírgula)
+            <input id="cli-faixas-valor" type="text" placeholder="15, 20, 30"></label>
+          <button id="cli-faixas-salvar" type="button">Salvar prazos</button>
+        </div>
+      </section>
+
+      <section id="cli-sub-importar" class="conc-sub oculto">
+        <div id="cli-imp-area">
+          <h3 class="pat-titulo">Planilha de senhas atual</h3>
+          <p class="dica">Envie a planilha (.xlsx). Nada é gravado antes de
+             você conferir a prévia. A cor da linha vira a situação do cliente
+             (vermelho = baixada, laranja = inativa, cinza = não é cliente,
+             rosa = Lauro de Freitas). O arquivo é apagado do servidor assim
+             que é lido.</p>
+          <div class="linha-form">
+            <label>Planilha <input id="cli-imp-planilha" type="file" accept=".xlsx"></label>
+            <button id="cli-imp-planilha-enviar" class="botao-primario" type="button">Ver prévia</button>
+          </div>
+          <div id="cli-imp-planilha-previa"></div>
+          <hr class="conc-divisor">
+          <h3 class="pat-titulo">Certificados da pasta da rede</h3>
+          <p class="dica">Num computador do escritório que enxerga a pasta,
+             rode <code>coletar-certificados.py "X:\\CERTIFICADOS DIGITAIS
+             ATUALIZADOS"</code> e envie aqui o arquivo .json que ele gravar.
+             O arquivo não leva senha nem certificado; cada certificado é
+             ligado ao cliente pelo CNPJ que está dentro dele.</p>
+          <div class="linha-form">
+            <label>Arquivo de coleta <input id="cli-imp-coleta" type="file" accept=".json"></label>
+            <button id="cli-imp-coleta-enviar" class="botao-primario" type="button">Ver prévia</button>
+          </div>
+          <div id="cli-imp-coleta-previa"></div>
+        </div>
+        <p id="cli-imp-sem" class="dica oculto">Você não tem permissão para
+           importar. Fale com o administrador.</p>
+      </section>
+
+      <section id="cli-sub-acessos" class="conc-sub oculto">
+        <div class="linha-form">
+          <label>Usuário <input id="cli-a-usuario" type="text"></label>
+          <label>De <input id="cli-a-de" type="date"></label>
+          <label>Até <input id="cli-a-ate" type="date"></label>
+          <button id="cli-a-buscar" type="button">Buscar</button>
+        </div>
+        <div class="rolagem"><table id="cli-acessos">
+          <thead><tr><th>Quando</th><th>Usuário</th><th>Cliente</th><th>Senha</th>
+            <th>Ação</th><th>Resultado</th><th>IP</th></tr></thead>
+          <tbody></tbody>
+        </table></div>
+      </section>
+    </div>`;
+
+  const $ = (id) => document.getElementById(id);
+  const status = (t) => { $("cli-status").textContent = t; };
+  const estado = { pagina: 1, catalogo: null, desbloqueadoAte: null, detalheId: null };
+  const pode = {
+    editar: Sessao.pode("clientes.editar"),
+    importar: Sessao.pode("clientes.importar"),
+    exportar: Sessao.pode("clientes.exportar"),
+    ver: Sessao.pode("cofre.ver"),
+    gravar: Sessao.pode("cofre.editar"),
+    faixas: Sessao.pode("vencimentos.configurar"),
+    acessos: Sessao.pode("admin.historico"),
+  };
+
+  // ------------------------------------------------------------------
+  // Helpers
+
+  function celula(texto, classe) {
+    const td = document.createElement("td");
+    td.textContent = texto ?? "";
+    if (classe) td.className = classe;
+    return td;
+  }
+
+  function tabela(cabecalhos, linhas) {
+    const wrap = document.createElement("div");
+    wrap.className = "rolagem";
+    const t = document.createElement("table");
+    const tr = document.createElement("tr");
+    for (const c of cabecalhos) {
+      const th = document.createElement("th"); th.textContent = c; tr.appendChild(th);
+    }
+    const thead = document.createElement("thead"); thead.appendChild(tr);
+    const tbody = document.createElement("tbody");
+    for (const linha of linhas) {
+      const l = document.createElement("tr");
+      for (const v of linha) l.appendChild(v instanceof Node ? v : celula(v));
+      tbody.appendChild(l);
+    }
+    t.append(thead, tbody);
+    wrap.appendChild(t);
+    return wrap;
+  }
+
+  function bloco(titulo) {
+    const div = document.createElement("div");
+    div.className = "caixa conc-bloco";
+    const h = document.createElement("h3"); h.textContent = titulo;
+    div.appendChild(h);
+    return div;
+  }
+
+  function botao(rotulo, aoClicar, classe) {
+    const b = document.createElement("button");
+    b.type = "button"; b.textContent = rotulo;
+    if (classe) b.className = classe;
+    b.addEventListener("click", aoClicar);
+    return b;
+  }
+
+  function opcoes(select, itens, vazio) {
+    select.textContent = "";
+    if (vazio) {
+      const o = document.createElement("option"); o.value = ""; o.textContent = vazio;
+      select.appendChild(o);
+    }
+    for (const i of itens) {
+      const o = document.createElement("option"); o.value = i.chave; o.textContent = i.rotulo;
+      select.appendChild(o);
+    }
+  }
+
+  const data = (iso) => (iso ? iso.slice(0, 10).split("-").reverse().join("/") : "");
+  /* O servidor grava em UTC ("...+00:00"); a tela mostra no horário local.
+     Carimbo sem fuso (coleta, gerada no computador do escritório) já é local. */
+  const quando = (iso) => {
+    if (!iso) return "";
+    if (/[+-]\d\d:\d\d$|Z$/.test(iso)) {
+      return new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit",
+        year: "numeric", hour: "2-digit", minute: "2-digit" }).replace(",", "");
+    }
+    return `${data(iso)} ${iso.slice(11, 16)}`;
+  };
+  const rotuloCampo = (valor, situacao) => valor ||
+    (estado.catalogo.situacoes_campo.find((s) => s.chave === situacao)?.rotulo ?? "—");
+
+  function classeFaixa(faixa) {
+    if (faixa === "vencido") return "cli-faixa vencido";
+    if (faixa && faixa.startsWith("ate_")) return "cli-faixa perto";
+    if (faixa === "em_dia") return "cli-faixa em-dia";
+    return "";
+  }
+
+  function chipFaixa(faixa, rotulo) {
+    const td = document.createElement("td");
+    if (!faixa) { td.textContent = "—"; return td; }
+    const s = document.createElement("span");
+    s.className = classeFaixa(faixa);
+    s.textContent = rotulo;
+    td.appendChild(s);
+    return td;
+  }
+
+  // ------------------------------------------------------------------
+  // Subtelas
+
+  const SUBS = ["clientes", "vencimentos", "importar", "acessos"];
+  function abrirSub(nome) {
+    $("cli-subtelas").querySelectorAll("button[data-sub]").forEach((b) =>
+      b.classList.toggle("ativa", b.dataset.sub === nome));
+    SUBS.forEach((s) => $(`cli-sub-${s}`).classList.toggle("oculto", s !== nome));
+    if (nome === "clientes") carregarLista();
+    if (nome === "vencimentos") carregarVencimentos();
+    if (nome === "acessos") carregarAcessos();
+  }
+  $("cli-subtelas").addEventListener("click", (e) => {
+    const b = e.target.closest("button[data-sub]");
+    if (b) abrirSub(b.dataset.sub);
+  });
+  if (!pode.acessos) $("cli-subtelas").querySelector('[data-sub="acessos"]').classList.add("oculto");
+  document.addEventListener("clientes:vencimentos", () => abrirSub("vencimentos"));
+
+  // ------------------------------------------------------------------
+  // Resumo
+
+  function cartao(valor, rotulo, cor) {
+    const caixa = document.createElement("div");
+    caixa.className = cor ? `cartao ${cor}` : "cartao";
+    const v = document.createElement("div"); v.className = "valor"; v.textContent = valor;
+    const r = document.createElement("div"); r.className = "rotulo"; r.textContent = rotulo;
+    caixa.append(v, r);
+    return caixa;
+  }
+
+  async function atualizarResumo() {
+    try {
+      const r = await api("/api/clientes/resumo");
+      const alvo = $("cli-cartoes");
+      alvo.textContent = "";
+      const ps = r.por_situacao;
+      const venc = r.vencimentos.contagem;
+      const perto = Object.entries(venc).filter(([k]) => k.startsWith("ate_"))
+        .reduce((s, [, n]) => s + n, 0);
+      alvo.append(
+        cartao(String(ps.ativo || 0), "Ativos", ""),
+        cartao(String(ps.inativo || 0), "Inativos", ""),
+        cartao(String((ps.baixado || 0) + (ps.nao_cliente || 0)), "Baixados ou ex-clientes", ""),
+        cartao(String(r.com_pendencia), "Com pendência", r.com_pendencia ? "ambar" : ""),
+        cartao(String(venc.vencido || 0), "Certificados vencidos", venc.vencido ? "vermelho" : ""),
+        cartao(String(perto), `Vencem em até ${r.vencimentos.faixas.at(-1)} dias`, perto ? "ambar" : ""));
+      const municipio = $("cli-f-municipio");
+      const atual = municipio.value;
+      opcoes(municipio, r.municipios.map((m) => ({ chave: m, rotulo: m })), "Todos");
+      municipio.value = atual;
+    } catch (erro) { status(erro.message); }
+  }
+
+  // ------------------------------------------------------------------
+  // Lista
+
+  function filtros() {
+    const p = {};
+    const texto = $("cli-f-texto").value.trim();
+    if (texto) p.texto = texto;
+    if ($("cli-f-situacao").value) p.situacao = $("cli-f-situacao").value;
+    if ($("cli-f-municipio").value) p.municipio = $("cli-f-municipio").value;
+    if ($("cli-f-pendencia").checked) p.com_pendencia = "true";
+    return p;
+  }
+
+  async function carregarLista() {
+    try {
+      const pagina = await api("/api/clientes?" + new URLSearchParams({
+        ...filtros(), pagina: estado.pagina }));
+      const corpo = $("cli-lista").querySelector("tbody");
+      corpo.textContent = "";
+      for (const c of pagina.itens) {
+        const tr = document.createElement("tr");
+        tr.className = "conc-clicavel";
+        tr.tabIndex = 0;
+        tr.append(
+          celula(c.nome), celula(c.documento || c.documento_informado || "—"),
+          celula(c.situacao_rotulo, c.situacao === "baixado" ? "conc-erro"
+            : c.situacao === "inativo" ? "conc-alerta" : ""),
+          celula(c.municipio || "—"), celula(data(c.certificado_fim) || "—"),
+          celula(c.pendencias.length ? String(c.pendencias.length) : "",
+                 c.pendencias.length ? "conc-alerta" : ""));
+        tr.addEventListener("click", () => abrirDetalhe(c.id));
+        tr.addEventListener("keydown", (e) => { if (e.key === "Enter") abrirDetalhe(c.id); });
+        corpo.appendChild(tr);
+      }
+      estado.pagina = pagina.pagina;
+      $("cli-pagina").textContent = pagina.total
+        ? `Página ${pagina.pagina} de ${pagina.paginas} — ${pagina.total} cliente(s)`
+        : "Nenhum cliente com esses filtros.";
+      $("cli-anterior").disabled = pagina.pagina <= 1;
+      $("cli-proxima").disabled = pagina.pagina >= pagina.paginas;
+      await atualizarResumo();
+    } catch (erro) { status(erro.message); }
+  }
+
+  let debounce = null;
+  function recarregar() {
+    estado.pagina = 1;
+    clearTimeout(debounce);
+    debounce = setTimeout(carregarLista, 250);
+  }
+  $("cli-f-texto").addEventListener("input", recarregar);
+  for (const id of ["cli-f-situacao", "cli-f-municipio", "cli-f-pendencia"]) {
+    $(id).addEventListener("change", recarregar);
+  }
+  $("cli-limpar").addEventListener("click", () => {
+    $("cli-f-texto").value = ""; $("cli-f-situacao").value = "";
+    $("cli-f-municipio").value = ""; $("cli-f-pendencia").checked = false;
+    recarregar();
+  });
+  $("cli-anterior").addEventListener("click", () => {
+    estado.pagina = Math.max(1, estado.pagina - 1); carregarLista();
+  });
+  $("cli-proxima").addEventListener("click", () => { estado.pagina += 1; carregarLista(); });
+
+  if (pode.exportar) {
+    $("cli-exportar").classList.remove("oculto");
+    $("cli-exportar").addEventListener("click", async () => {
+      try {
+        await apiDownload("/api/clientes/exportar?" + new URLSearchParams(filtros()),
+                          { method: "POST" });
+      } catch (erro) { toast(erro.message, "erro"); }
+    });
+  }
+
+  if (pode.editar) {
+    $("cli-novo").classList.remove("oculto");
+    $("cli-criar").addEventListener("click", async () => {
+      const nome = $("cli-n-nome").value.trim();
+      if (!nome) { toast("Informe o nome do cliente.", "erro"); return; }
+      try {
+        const r = await api("/api/clientes", { json: {
+          nome, documento: $("cli-n-doc").value.trim(),
+          municipio: $("cli-n-municipio").value.trim() } });
+        toast("Cliente cadastrado.");
+        for (const id of ["cli-n-nome", "cli-n-doc", "cli-n-municipio"]) $(id).value = "";
+        await carregarLista();
+        await abrirDetalhe(r.id);
+      } catch (erro) { toast(erro.message, "erro"); }
+    });
+  }
+
+  // ------------------------------------------------------------------
+  // Cofre: desbloqueio e revelação
+
+  function cofreAberto() {
+    return estado.desbloqueadoAte && new Date(estado.desbloqueadoAte) > new Date();
+  }
+
+  const textoCofreAberto = () =>
+    `Cofre aberto até ${new Date(estado.desbloqueadoAte).toLocaleTimeString("pt-BR",
+      { hour: "2-digit", minute: "2-digit" })}. Cada senha vista fica registrada.`;
+
+  async function desbloquear() {
+    const r = await formularioModal("Abrir o cofre de senhas", [
+      { nome: "senha", rotulo: "Sua senha de acesso ao sistema", tipo: "password",
+        obrigatorio: true }],
+      { textoConfirmar: "Abrir cofre",
+        ajuda: `Confirme a sua senha para ver senhas de clientes. O cofre fica
+                aberto por ${estado.catalogo.desbloqueio_minutos} minutos nesta sessão.` });
+    if (!r) return false;
+    try {
+      const resposta = await api("/api/clientes/cofre/desbloquear", { json: { senha: r.senha } });
+      estado.desbloqueadoAte = resposta.desbloqueado_ate;
+      const aviso = $("cli-cofre-aviso");
+      if (aviso) aviso.textContent = textoCofreAberto();
+      return true;
+    } catch (erro) { toast(erro.message, "erro"); return false; }
+  }
+
+  async function revelar(senha, celulaValor) {
+    if (!cofreAberto() && !(await desbloquear())) return;
+    let r;
+    try {
+      r = await api(`/api/clientes/senhas/${senha.id}/revelar`, { method: "POST" });
+    } catch (erro) {
+      if (erro.codigo === "COFRE_BLOQUEADO") {
+        estado.desbloqueadoAte = null;
+        if (await desbloquear()) return revelar(senha, celulaValor);
+        return;
+      }
+      toast(erro.message, "erro");
+      return;
+    }
+    celulaValor.textContent = "";
+    const valor = document.createElement("code");
+    valor.className = "cli-senha";
+    celulaValor.classList.add("cli-acoes");
+    valor.textContent = r.valor;
+    const copiar = botao("Copiar", async () => {
+      try { await navigator.clipboard.writeText(valor.textContent); toast("Senha copiada."); }
+      catch { toast("Não foi possível copiar. Selecione e copie à mão.", "erro"); }
+    });
+    celulaValor.append(valor, copiar);
+    r.valor = "";
+    setTimeout(() => {
+      if (!celulaValor.isConnected) return;
+      celulaValor.textContent = "••••••••";
+      celulaValor.classList.remove("cli-acoes");
+    }, 30000);
+  }
+
+  async function editarSenha(cliente, senha) {
+    const campos = [];
+    if (!senha) {
+      campos.push({ nome: "portal", rotulo: "Portal", obrigatorio: true,
+                    placeholder: "e-CAC, Domínio, ..." });
+      campos.push({ nome: "usuario_portal", rotulo: "Usuário no portal" });
+    }
+    campos.push({ nome: "valor", rotulo: "Senha (deixe em branco para marcar só a situação)",
+                  tipo: "password" });
+    campos.push({ nome: "situacao", rotulo: "Situação, se não houver senha", tipo: "select",
+                  opcoes: [{ valor: "", rotulo: "—" }, ...estado.catalogo.situacoes_senha
+                    .map((s) => ({ valor: s.chave, rotulo: s.rotulo }))] });
+    const r = await formularioModal(senha ? `Trocar: ${senha.rotulo}${senha.portal ? " — " + senha.portal : ""}`
+                                          : "Adicionar outro portal", campos);
+    if (!r) return;
+    try {
+      await api(`/api/clientes/${cliente.id}/senhas`, { method: "PUT", json: {
+        campo: senha ? senha.campo : "outro",
+        portal: senha ? senha.portal : r.portal,
+        usuario_portal: senha ? senha.usuario_portal : r.usuario_portal,
+        segredo_id: senha && senha.campo === "outro" ? senha.id : null,
+        valor: r.valor, situacao: r.situacao } });
+      toast("Senha gravada.");
+      await abrirDetalhe(cliente.id);
+    } catch (erro) { toast(erro.message, "erro"); }
+  }
+
+  // ------------------------------------------------------------------
+  // Detalhe
+
+  async function editarCliente(d) {
+    const situacoes = [{ valor: "", rotulo: "— (usar o valor)" },
+      ...estado.catalogo.situacoes_campo.map((s) => ({ valor: s.chave, rotulo: s.rotulo }))];
+    const r = await formularioModal("Editar cliente", [
+      { nome: "nome", rotulo: "Nome", valor: d.nome, obrigatorio: true },
+      { nome: "documento", rotulo: "CNPJ ou CPF", valor: d.documento_digitos },
+      { nome: "municipio", rotulo: "Município", valor: d.municipio },
+      { nome: "ie", rotulo: "Inscrição estadual", valor: d.ie },
+      { nome: "ie_situacao", rotulo: "Situação da IE", tipo: "select", opcoes: situacoes },
+      { nome: "im", rotulo: "Inscrição municipal", valor: d.im },
+      { nome: "im_situacao", rotulo: "Situação da IM", tipo: "select", opcoes: situacoes },
+      { nome: "iptu", rotulo: "IPTU", valor: d.iptu },
+      { nome: "observacao", rotulo: "Observação", tipo: "textarea", valor: d.observacao },
+    ]);
+    if (!r) return;
+    try {
+      await api(`/api/clientes/${d.id}`, { method: "PUT", json: {
+        ...r, iptu_situacao: r.iptu ? "" : d.iptu_situacao, revision: d.revision } });
+      toast("Cliente atualizado.");
+      await carregarLista();
+      await abrirDetalhe(d.id);
+    } catch (erro) { toast(erro.message, "erro"); }
+  }
+
+  async function mudarSituacao(d) {
+    const r = await formularioModal("Mudar situação", [
+      { nome: "situacao", rotulo: "Nova situação", tipo: "select", valor: d.situacao,
+        opcoes: estado.catalogo.situacoes.map((s) => ({ valor: s.chave, rotulo: s.rotulo })) },
+      { nome: "motivo", rotulo: "Motivo (obrigatório)", obrigatorio: true },
+    ]);
+    if (!r) return;
+    try {
+      await api(`/api/clientes/${d.id}/situacao`, { json: r });
+      toast("Situação alterada.");
+      await carregarLista();
+      await abrirDetalhe(d.id);
+    } catch (erro) { toast(erro.message, "erro"); }
+  }
+
+  async function certificadoPorArquivo(d) {
+    const r = await formularioModal("Ler certificado do arquivo", [
+      { nome: "arquivo", rotulo: "Arquivo (.pfx, .p12, .cer, .crt)", tipo: "file",
+        aceitar: ".pfx,.p12,.cer,.crt", obrigatorio: true },
+      { nome: "senha", rotulo: "Senha do .pfx (não é guardada)", tipo: "password" },
+      { nome: "local_guarda", rotulo: "Onde o certificado está guardado" },
+    ], { textoConfirmar: "Ler e cadastrar",
+         ajuda: "O arquivo e a senha só são usados para ler a validade e o titular. " +
+                "Nenhum dos dois fica no sistema." });
+    if (!r || !r.arquivo) return;
+    const corpo = new FormData();
+    corpo.append("arquivo", r.arquivo);
+    corpo.append("senha", r.senha || "");
+    corpo.append("local_guarda", r.local_guarda || "");
+    try {
+      const resposta = await api(`/api/clientes/${d.id}/certificados/arquivo`,
+                                 { method: "POST", body: corpo });
+      toast(`Certificado de ${resposta.titular_nome || "?"} até ${data(resposta.fim)}.`);
+      await abrirDetalhe(d.id);
+    } catch (erro) { toast(erro.message, "erro"); }
+  }
+
+  async function certificadoManual(d) {
+    const r = await formularioModal("Cadastrar certificado à mão", [
+      { nome: "tipo", rotulo: "Tipo", tipo: "select",
+        opcoes: estado.catalogo.tipos_certificado.map((t) => ({ valor: t, rotulo: t })) },
+      { nome: "titular_nome", rotulo: "Titular" },
+      { nome: "titular_documento", rotulo: "CNPJ/CPF do titular" },
+      { nome: "inicio", rotulo: "Início da validade", tipo: "date" },
+      { nome: "fim", rotulo: "Fim da validade", tipo: "date", obrigatorio: true },
+      { nome: "local_guarda", rotulo: "Onde está (token, pasta...)" },
+    ]);
+    if (!r) return;
+    try {
+      await api(`/api/clientes/${d.id}/certificados`, { json: r });
+      toast("Certificado cadastrado.");
+      await abrirDetalhe(d.id);
+    } catch (erro) { toast(erro.message, "erro"); }
+  }
+
+  function linhaCertificado(d, k) {
+    const acoes = document.createElement("td");
+    acoes.className = "cli-acoes";
+    if (pode.editar && k.situacao === "vigente") {
+      acoes.append(
+        botao(k.renovacao_em_andamento ? "Desmarcar renovação" : "Renovação em andamento",
+              async () => {
+                try {
+                  await api(`/api/clientes/certificados/${k.id}/renovacao`,
+                            { json: { em_andamento: !k.renovacao_em_andamento } });
+                  await abrirDetalhe(d.id); AvisoVencimentos.mostrar();
+                } catch (erro) { toast(erro.message, "erro"); }
+              }),
+        botao("Não renovar", async () => {
+          if (!(await confirmar("Não renovar", "Marcar este certificado para não ser renovado? Ele sai do painel de vencimentos."))) return;
+          try {
+            await api(`/api/clientes/certificados/${k.id}`, { method: "PUT",
+                      json: { situacao: "nao_renovar" } });
+            await abrirDetalhe(d.id);
+          } catch (erro) { toast(erro.message, "erro"); }
+        }));
+    }
+    return [k.tipo || "—", k.titular_nome || "—", k.titular_documento || "—",
+            k.emissor || "—", data(k.fim), chipFaixa(k.faixa, k.faixa_rotulo),
+            k.situacao_rotulo + (k.renovacao_em_andamento ? " · renovando" : ""),
+            k.local_guarda || "—", acoes];
+  }
+
+  async function abrirDetalhe(id) {
+    const alvo = $("cli-detalhe");
+    alvo.classList.remove("oculto");
+    alvo.textContent = "Carregando...";
+    estado.detalheId = id;
+    let d;
+    try { d = await api(`/api/clientes/${id}`); }
+    catch (erro) { alvo.textContent = erro.message; return; }
+    alvo.textContent = "";
+
+    const topo = bloco(d.nome);
+    const linha = document.createElement("p");
+    linha.className = "dica";
+    linha.textContent = [d.documento || d.documento_informado || "sem CNPJ/CPF",
+                         d.situacao_rotulo, d.municipio].filter(Boolean).join(" · ");
+    topo.appendChild(linha);
+    if (pode.editar) {
+      const acoes = document.createElement("div");
+      acoes.className = "linha-form conc-acoes";
+      acoes.append(botao("Editar", () => editarCliente(d)),
+                   botao("Mudar situação", () => mudarSituacao(d)));
+      topo.appendChild(acoes);
+    }
+    topo.appendChild(tabela(["Inscrição estadual", "Inscrição municipal", "IPTU"], [[
+      rotuloCampo(d.ie, d.ie_situacao), rotuloCampo(d.im, d.im_situacao),
+      rotuloCampo(d.iptu, d.iptu_situacao)]]));
+    if (d.observacao) {
+      const obs = document.createElement("p"); obs.textContent = d.observacao;
+      topo.appendChild(obs);
+    }
+    alvo.appendChild(topo);
+
+    if (d.pendencias.length) {
+      const p = bloco("Pendências da importação");
+      const ul = document.createElement("ul");
+      for (const texto of d.pendencias) {
+        const li = document.createElement("li"); li.textContent = texto; ul.appendChild(li);
+      }
+      p.appendChild(ul);
+      alvo.appendChild(p);
+    }
+
+    // Senhas
+    const cofre = bloco("Senhas de portais");
+    const aviso = document.createElement("p");
+    aviso.className = "dica";
+    aviso.id = "cli-cofre-aviso";
+    if (!estado.catalogo.cofre_disponivel) {
+      aviso.className = "conc-erro";
+      aviso.textContent = "Cofre desligado: falta a chave no servidor. As senhas " +
+        "não podem ser vistas nem gravadas até o administrador configurá-la.";
+    } else if (!pode.ver) {
+      aviso.textContent = "Você vê quais senhas existem, mas não o valor. Fale com o " +
+        "administrador se precisar.";
+    } else {
+      aviso.textContent = cofreAberto() ? textoCofreAberto()
+        : "Para ver uma senha, clique em Ver e confirme a sua senha de acesso.";
+    }
+    cofre.appendChild(aviso);
+    const linhasSenha = d.senhas.map((s) => {
+      const valor = celula(s.presente ? "••••••••" : s.situacao_rotulo || "—",
+                           s.presente ? "" : "conc-alerta");
+      const acoes = document.createElement("td");
+      acoes.className = "cli-acoes";
+      if (s.presente && pode.ver && estado.catalogo.cofre_disponivel) {
+        acoes.appendChild(botao("Ver", () => revelar(s, valor)));
+      }
+      if (pode.gravar && estado.catalogo.cofre_disponivel) {
+        acoes.appendChild(botao("Trocar", () => editarSenha(d, s)));
+        if (s.campo === "outro" && s.presente) {
+          acoes.appendChild(botao("Remover", async () => {
+            if (!(await confirmar("Remover senha", "Apagar esta senha do cofre?"))) return;
+            try { await api(`/api/clientes/senhas/${s.id}`, { method: "DELETE" });
+                  await abrirDetalhe(d.id); }
+            catch (erro) { toast(erro.message, "erro"); }
+          }));
+        }
+      }
+      return [s.portal ? `${s.rotulo} — ${s.portal}` : s.rotulo, s.usuario_portal || "—",
+              valor, quando(s.atualizado_em), s.atualizado_por || "—", acoes];
+    });
+    if (linhasSenha.length) {
+      cofre.appendChild(tabela(["Senha", "Usuário", "Valor", "Atualizada em", "Por", ""],
+                               linhasSenha));
+    } else {
+      const p = document.createElement("p"); p.textContent = "Nenhuma senha cadastrada.";
+      cofre.appendChild(p);
+    }
+    if (pode.gravar && estado.catalogo.cofre_disponivel) {
+      const acoes = document.createElement("div");
+      acoes.className = "linha-form conc-acoes";
+      const fixos = ["sefaz", "prefeitura", "codigo_acesso"]
+        .filter((c) => !d.senhas.some((s) => s.campo === c));
+      for (const campo of fixos) {
+        const rotulo = estado.catalogo.campos_senha.find((c) => c.chave === campo).rotulo;
+        acoes.appendChild(botao(`Cadastrar ${rotulo}`, () =>
+          editarSenha(d, { campo, rotulo, portal: "", usuario_portal: "", id: null })));
+      }
+      acoes.appendChild(botao("Adicionar outro portal", () => editarSenha(d, null)));
+      cofre.appendChild(acoes);
+    }
+    if (cofreAberto()) {
+      cofre.appendChild(botao("Fechar o cofre agora", async () => {
+        await api("/api/clientes/cofre/bloquear", { method: "POST" }).catch(() => {});
+        estado.desbloqueadoAte = null;
+        await abrirDetalhe(d.id);
+      }));
+    }
+    alvo.appendChild(cofre);
+
+    // Certificados
+    const certs = bloco("Certificados digitais");
+    if (d.certificados.length) {
+      certs.appendChild(tabela(["Tipo", "Titular", "CNPJ/CPF", "Emissor", "Vence em",
+                                "Faixa", "Situação", "Onde está", ""],
+                               d.certificados.map((k) => linhaCertificado(d, k))));
+    } else {
+      const p = document.createElement("p"); p.textContent = "Nenhum certificado cadastrado.";
+      certs.appendChild(p);
+    }
+    if (pode.editar) {
+      const acoes = document.createElement("div");
+      acoes.className = "linha-form conc-acoes";
+      acoes.append(botao("Ler do arquivo (.pfx / .cer)", () => certificadoPorArquivo(d)),
+                   botao("Cadastrar à mão", () => certificadoManual(d)));
+      certs.appendChild(acoes);
+    }
+    alvo.appendChild(certs);
+
+    if (d.licencas.length) {
+      const lic = bloco("Licenças (da planilha)");
+      lic.appendChild(tabela(["Licença", "Número", "Vencimento", "Situação"],
+        d.licencas.map((l) => [l.rotulo, l.numero || "—", data(l.vencimento) || "—",
+                               l.situacao_rotulo || (l.texto_original || "—")])));
+      alvo.appendChild(lic);
+    }
+
+    const hist = bloco("Histórico");
+    hist.appendChild(tabela(["Quando", "Campo", "Antes", "Depois", "Por"],
+      d.alteracoes.map((a) => [quando(a.criada_em), a.campo, a.antes || "—",
+                               a.depois || "—", a.usuario_login])));
+    alvo.appendChild(hist);
+    alvo.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // ------------------------------------------------------------------
+  // Vencimentos
+
+  async function carregarVencimentos() {
+    try {
+      const params = {};
+      if ($("cli-v-faixa").value) params.faixa = $("cli-v-faixa").value;
+      if ($("cli-v-texto").value.trim()) params.texto = $("cli-v-texto").value.trim();
+      const r = await api("/api/clientes/vencimentos/lista?" + new URLSearchParams(params));
+      const corpo = $("cli-vencimentos").querySelector("tbody");
+      corpo.textContent = "";
+      for (const k of r.itens) {
+        const tr = document.createElement("tr");
+        tr.className = "conc-clicavel";
+        tr.append(celula(k.cliente_nome), celula(k.titular_nome || "—"),
+                  celula(k.tipo || "—"), celula(data(k.fim)),
+                  celula(String(k.dias), "conc-num"), chipFaixa(k.faixa, k.faixa_rotulo),
+                  celula(k.renovacao_em_andamento ? `Em andamento (${k.renovacao_por})` : ""),
+                  celula(k.local_guarda || "—"));
+        tr.addEventListener("click", () => { abrirSub("clientes"); abrirDetalhe(k.cliente_id); });
+        corpo.appendChild(tr);
+      }
+      if (!r.itens.length) {
+        const tr = document.createElement("tr");
+        const td = celula("Nenhum certificado nesta faixa."); td.colSpan = 8;
+        tr.appendChild(td); corpo.appendChild(tr);
+      }
+      $("cli-faixas-valor").value = r.faixas.join(", ");
+    } catch (erro) { status(erro.message); }
+  }
+  $("cli-v-faixa").addEventListener("change", carregarVencimentos);
+  $("cli-v-texto").addEventListener("input", () => {
+    clearTimeout(debounce); debounce = setTimeout(carregarVencimentos, 250);
+  });
+  if (pode.faixas) {
+    $("cli-faixas").classList.remove("oculto");
+    $("cli-faixas-salvar").addEventListener("click", async () => {
+      const faixas = $("cli-faixas-valor").value.split(/[,;\s]+/).filter(Boolean).map(Number);
+      try {
+        await api("/api/clientes/vencimentos/faixas", { method: "PUT", json: { faixas } });
+        toast("Prazos de aviso salvos.");
+        estado.catalogo = await api("/api/clientes/catalogo");
+        montarFaixas();
+        await carregarVencimentos();
+        AvisoVencimentos.mostrar();
+      } catch (erro) { toast(erro.message, "erro"); }
+    });
+  }
+
+  function montarFaixas() {
+    const itens = [{ chave: "vencido", rotulo: "Vencidos" },
+      ...estado.catalogo.faixas.map((f) => ({ chave: `ate_${f}`, rotulo: `Vencem em até ${f} dias` })),
+      { chave: "em_dia", rotulo: "Em dia" }];
+    opcoes($("cli-v-faixa"), itens, "Todas");
+  }
+
+  // ------------------------------------------------------------------
+  // Importação
+
+  function seletorDecisao(linha) {
+    const td = document.createElement("td");
+    const s = document.createElement("select");
+    for (const [v, r] of [["incluir", "Incluir"], ["ignorar", "Ignorar"]]) {
+      const o = document.createElement("option"); o.value = v; o.textContent = r;
+      s.appendChild(o);
+    }
+    s.value = linha.acao;
+    s.dataset.linha = String(linha.linha);
+    s.dataset.sugerida = linha.acao;
+    td.appendChild(s);
+    return td;
+  }
+
+  async function previaPlanilha() {
+    const arquivo = $("cli-imp-planilha").files[0];
+    if (!arquivo) { toast("Escolha a planilha.", "erro"); return; }
+    const alvo = $("cli-imp-planilha-previa");
+    alvo.textContent = "Lendo a planilha...";
+    let p;
+    try { p = await apiUpload("/api/clientes/importar/planilha", arquivo); }
+    catch (erro) { alvo.textContent = ""; toast(erro.message, "erro"); return; }
+    $("cli-imp-planilha").value = "";
+    alvo.textContent = "";
+    const c = p.contagens;
+    const resumo = document.createElement("p");
+    resumo.textContent = `${c.total} linha(s): ${c.incluir} para incluir, ${c.ignorar} para ` +
+      `ignorar, ${c.com_pendencia} com pendência. Colunas sem cabeçalho ignoradas: ` +
+      `${p.colunas_sem_cabecalho.join(", ") || "nenhuma"}. A prévia vale ${p.expira_em_minutos} minutos.`;
+    alvo.appendChild(resumo);
+    const filtro = document.createElement("label");
+    filtro.className = "pat-checkbox";
+    const so = document.createElement("input"); so.type = "checkbox"; so.checked = true;
+    const sp = document.createElement("span"); sp.textContent = "Mostrar só o que precisa de atenção";
+    filtro.append(sp, so);
+    alvo.appendChild(filtro);
+    const linhas = p.linhas.map((l) => {
+      const senhas = Object.values(l.segredos).filter((v) => v === "presente").length;
+      const tr = [String(l.linha), l.nome || "—", l.documento || l.documento_informado || "—",
+        l.situacao_rotulo + (l.municipio ? ` · ${l.municipio}` : ""),
+        l.resultado === "novo" ? "Novo" : l.resultado === "atualiza" ? "Atualiza" : "—",
+        senhas ? `${senhas} senha(s)` : "—",
+        [l.motivo, ...l.pendencias].filter(Boolean).join(" ") || "—", seletorDecisao(l)];
+      return tr;
+    });
+    const t = tabela(["Linha", "Cliente", "CNPJ/CPF", "Situação", "No sistema", "Senhas",
+                      "Atenção", "Decisão"], linhas);
+    alvo.appendChild(t);
+    const corpo = t.querySelector("tbody");
+    const aplicarFiltro = () => {
+      [...corpo.rows].forEach((row, i) => {
+        const l = p.linhas[i];
+        const atencao = l.acao === "ignorar" || l.pendencias.length;
+        row.classList.toggle("oculto", so.checked && !atencao);
+      });
+    };
+    so.addEventListener("change", aplicarFiltro);
+    aplicarFiltro();
+    const acoes = document.createElement("div");
+    acoes.className = "linha-form conc-acoes";
+    acoes.append(
+      botao("Confirmar importação", async () => {
+        const decisoes = {};
+        corpo.querySelectorAll("select[data-linha]").forEach((s) => {
+          if (s.value !== s.dataset.sugerida) decisoes[s.dataset.linha] = s.value;
+        });
+        if (!(await confirmar("Importar planilha",
+              "Gravar os clientes e as senhas desta prévia? As senhas serão criptografadas."))) return;
+        try {
+          const r = await api(`/api/clientes/importar/planilha/${p.token}/confirmar`,
+                              { json: { decisoes } });
+          alvo.textContent = "";
+          toast(`Importado: ${r.criados} novo(s), ${r.atualizados} atualizado(s), ` +
+                `${r.ignorados} ignorado(s).`);
+          status("Importação concluída. Tire a planilha original de circulação: " +
+                 "ela tem as senhas em texto aberto.");
+          await carregarLista();
+        } catch (erro) { toast(erro.message, "erro"); }
+      }, "botao-primario"),
+      botao("Descartar prévia", async () => {
+        await api(`/api/clientes/importar/${p.token}`, { method: "DELETE" }).catch(() => {});
+        alvo.textContent = "";
+      }));
+    alvo.appendChild(acoes);
+  }
+
+  const ROTULO_COLETA = { casou: "Liga ao cliente", sem_cliente: "Sem cliente com este CNPJ",
+                          nao_lido: "Não foi lido" };
+  const ROTULO_PROBLEMA = {
+    SEM_CERTIFICADO: "sem .pfx/.cer", SEM_INFO: "sem _info", SEM_SENHA: "sem senha no _info",
+    SENHA_NAO_ABRE: "senha do _info não abre", CERTIFICADO_INVALIDO: "arquivo inválido",
+    VARIOS_CERTIFICADOS: "mais de um certificado", VALIDADE_DIVERGENTE: "validade do _info diferente",
+    DOCUMENTO_DIVERGENTE: "CNPJ do _info diferente" };
+
+  async function previaColeta() {
+    const arquivo = $("cli-imp-coleta").files[0];
+    if (!arquivo) { toast("Escolha o arquivo de coleta.", "erro"); return; }
+    const alvo = $("cli-imp-coleta-previa");
+    alvo.textContent = "Lendo a coleta...";
+    let p;
+    try { p = await apiUpload("/api/clientes/importar/coleta", arquivo); }
+    catch (erro) { alvo.textContent = ""; toast(erro.message, "erro"); return; }
+    $("cli-imp-coleta").value = "";
+    alvo.textContent = "";
+    const resumo = document.createElement("p");
+    resumo.textContent = `Coleta de ${quando(p.gerada_em)}: ` + Object.entries(p.contagens)
+      .map(([k, n]) => `${n} ${ROTULO_COLETA[k] ? ROTULO_COLETA[k].toLowerCase() : k}`).join(", ") + ".";
+    alvo.appendChild(resumo);
+    alvo.appendChild(tabela(["Pasta", "Titular", "CNPJ/CPF", "Vence em", "Resultado", "Cliente",
+                             "Problemas"],
+      p.itens.map((i) => [i.pasta, i.titular_nome || "—", i.titular_documento || "—",
+        data(i.fim) || "—", ROTULO_COLETA[i.resultado] || i.resultado, i.cliente_nome || "—",
+        i.problemas.map((x) => ROTULO_PROBLEMA[x] || x).join(", ") || "—"])));
+    const acoes = document.createElement("div");
+    acoes.className = "linha-form conc-acoes";
+    acoes.append(
+      botao("Confirmar certificados", async () => {
+        try {
+          const r = await api(`/api/clientes/importar/coleta/${p.token}/confirmar`,
+                              { method: "POST" });
+          alvo.textContent = "";
+          toast(`Certificados: ${r.novos} novo(s), ${r.atualizados} atualizado(s), ` +
+                `${r.sem_cliente} sem cliente, ${r.nao_lidos} não lido(s).`);
+          AvisoVencimentos.mostrar();
+          await atualizarResumo();
+        } catch (erro) { toast(erro.message, "erro"); }
+      }, "botao-primario"),
+      botao("Descartar prévia", async () => {
+        await api(`/api/clientes/importar/${p.token}`, { method: "DELETE" }).catch(() => {});
+        alvo.textContent = "";
+      }));
+    alvo.appendChild(acoes);
+  }
+
+  if (pode.importar) {
+    $("cli-imp-planilha-enviar").addEventListener("click", previaPlanilha);
+    $("cli-imp-coleta-enviar").addEventListener("click", previaColeta);
+  } else {
+    $("cli-imp-area").classList.add("oculto");
+    $("cli-imp-sem").classList.remove("oculto");
+  }
+
+  // ------------------------------------------------------------------
+  // Quem viu senhas
+
+  const ROTULO_RESULTADO = { ok: "Feito", negado: "Negado (sem permissão)",
+                             limite: "Bloqueado pelo limite por hora" };
+  const ROTULO_ACAO = { revelar: "Viu", gravar: "Gravou/trocou", remover: "Removeu" };
+
+  async function carregarAcessos() {
+    if (!pode.acessos) return;
+    const params = {};
+    if ($("cli-a-usuario").value.trim()) params.usuario_filtro = $("cli-a-usuario").value.trim();
+    if ($("cli-a-de").value) params.de = $("cli-a-de").value;
+    if ($("cli-a-ate").value) params.ate = $("cli-a-ate").value;
+    try {
+      const r = await api("/api/clientes/cofre/acessos?" + new URLSearchParams(params));
+      const corpo = $("cli-acessos").querySelector("tbody");
+      corpo.textContent = "";
+      for (const a of r.itens) {
+        const tr = document.createElement("tr");
+        tr.append(celula(quando(a.quando)), celula(a.usuario), celula(a.cliente_nome || "—"),
+                  celula(a.portal ? `${a.campo} — ${a.portal}` : a.campo || "—"),
+                  celula(ROTULO_ACAO[a.acao] || a.acao),
+                  celula(ROTULO_RESULTADO[a.resultado] || a.resultado,
+                         a.resultado === "ok" ? "" : "conc-erro"),
+                  celula(a.ip || "—"));
+        corpo.appendChild(tr);
+      }
+    } catch (erro) { status(erro.message); }
+  }
+  $("cli-a-buscar").addEventListener("click", carregarAcessos);
+
+  // ------------------------------------------------------------------
+  // Início
+
+  (async () => {
+    try {
+      estado.catalogo = await api("/api/clientes/catalogo");
+    } catch (erro) { status(erro.message); return; }
+    estado.desbloqueadoAte = estado.catalogo.desbloqueado_ate || null;
+    opcoes($("cli-f-situacao"), estado.catalogo.situacoes, "Todas");
+    montarFaixas();
+    if (!estado.catalogo.cofre_disponivel) {
+      status("Cofre de senhas desligado: falta a chave no servidor. O cadastro " +
+             "funciona; as senhas não podem ser vistas nem gravadas.");
+    }
+    await carregarLista();
+  })();
+});
