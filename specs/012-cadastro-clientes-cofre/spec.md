@@ -4,7 +4,7 @@
 
 **Created**: 2026-10-22
 
-**Status**: Rascunho — esperando as respostas da seção "Pendências" e a aprovação do dono
+**Status**: Implementada em 26/10/2026 com os valores padrão da seção "Pendências" (o que depende de resposta ficou configurável ou fora); esperando a revisão do dono
 
 **Input**: três áudios da JB Fraga de 22/10/2026 e a planilha de senhas que a
 equipe usa hoje. Pedidos, nas palavras dos áudios: "incluir aquela lista de
@@ -380,6 +380,7 @@ abaixo e importar o resultado, conferindo o relatório e o que foi gravado.
 | `clientes.importar` | Importar planilha de clientes | Prévia e confirmação da importação |
 | `cofre.ver` | Ver senhas de clientes | Revelar uma senha por vez, com registro |
 | `cofre.editar` | Gravar e trocar senhas | Alterar o cofre |
+| `clientes.exportar` | Exportar o cadastro | Baixar o Excel (nunca traz senha) |
 | `vencimentos.configurar` | Configurar prazos de aviso | Mudar as faixas |
 
 Como manda o princípio III, nenhuma dessas é dada automaticamente a usuário
@@ -436,6 +437,17 @@ ciclo de vida, trilha e backup próprios. Schema aditivo e idempotente.
 - **SC-005**: A suíte existente continua passando, mais os testes novos.
 
 ## Pendências (perguntas à JB e ao dono)
+
+**Como ficou enquanto não há resposta (26/10/2026):** P-02 — faixas 15/20/30,
+configuráveis na tela; P-03 — só aviso dentro do sistema; P-04 — administrador
+vê (regra atual), confirmação da própria senha e limite de 30/hora ligados;
+P-06 — cor fora da legenda entra como ativo com pendência; P-07 — licenças
+importadas e visíveis na ficha, fora do painel; P-08 — a primeira linha do
+CNPJ entra e as seguintes vêm para ignorar; P-09/P-10 — documentado no
+README-servidor; P-11 — rótulo "Código de acesso"; P-13 — a coleta não leva
+a senha do certificado; P-14 — só "renovação em andamento" e "não renovar".
+Uma resposta diferente muda configuração ou um trecho pequeno, não a estrutura.
+
 
 - ~~**P-01**: O que são as colunas N e P.~~ Respondida em 23/10/2026: não têm
   nada; a importação ignora.

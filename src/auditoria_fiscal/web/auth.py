@@ -131,6 +131,21 @@ def autenticar(usuario: str, senha: str) -> str | None:
         return token
 
 
+def conferir_senha(usuario_id: int, senha: str) -> bool:
+    """Confere a senha de quem ja esta logado, sem abrir sessao nova.
+
+    Usado antes de revelar senha de cliente (spec 012): a sessao aberta num
+    computador esquecido nao basta para abrir o cofre."""
+    with conexao() as conn:
+        row = conn.execute(
+            "SELECT senha_hash, salt FROM usuario WHERE id=? AND ativo=1",
+            (usuario_id,)).fetchone()
+    if row is None:
+        return False
+    return secrets.compare_digest(row["senha_hash"],
+                                  _hash_senha(senha or "", row["salt"]))
+
+
 def encerrar_sessao(token: str) -> None:
     with conexao() as conn:
         conn.execute("DELETE FROM sessao_login WHERE token=?", (token,))

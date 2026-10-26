@@ -30,3 +30,6 @@ pandas>=2.2
 
 # DANFE (PDF) do Livro de Conferência
 brazilfiscalreport>=1.0
+
+# Cofre de senhas e leitura de certificado (aba 9, spec 012)
+cryptography>=42

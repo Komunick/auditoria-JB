@@ -27,6 +27,8 @@ const RESUMO_FERRAMENTAS = {
   patrimonio: "Controla bens, responsáveis, movimentações e inventário.",
   nfse: "Importa a lista do cliente, confere cada nota e gera a DPS do padrão "
       + "nacional, ainda sem transmitir.",
+  clientes: "Cadastro dos clientes com as senhas de portais no cofre "
+          + "criptografado e o aviso de vencimento dos certificados digitais.",
 };
 
 function saudacao() {

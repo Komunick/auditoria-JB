@@ -394,6 +394,11 @@ const Telas = {
       usuario.admin ? "administrador" : "";
     document.getElementById("avatar-usuario").textContent = iniciais(nome);
     Abas.iniciar();
+    /* Certificados vencidos ou vencendo: aviso no topo para quem alcanca a
+       aba 9 (spec 012). Falhar aqui nao atrapalha a entrada no sistema. */
+    if (typeof AvisoVencimentos !== "undefined") {
+      AvisoVencimentos.mostrar().catch(() => {});
+    }
   },
 };
 

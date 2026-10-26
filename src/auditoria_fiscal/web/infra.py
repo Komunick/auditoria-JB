@@ -84,6 +84,16 @@ def pasta_origens_nfse() -> str:
     return pasta
 
 
+def caminho_db_clientes() -> str:
+    """Banco proprio do cadastro de clientes e do cofre de senhas (spec 012).
+
+    O banco mais sensivel do sistema: guarda as senhas de portais dos
+    clientes, cifradas. A chave do cofre NAO fica aqui nem em nenhum arquivo
+    desta pasta — vem da variavel AUDITORIA_COFRE_CHAVE. Backup deste banco
+    e da chave devem ficar em lugares diferentes."""
+    return os.path.join(pasta_dados_web(), "clientes.db")
+
+
 def caminho_historico_produtos() -> str:
     return os.path.join(pasta_dados_web(), "historico_produtos.csv")
 
