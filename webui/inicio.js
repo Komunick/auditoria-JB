@@ -25,8 +25,8 @@ const RESUMO_FERRAMENTAS = {
   conciliacao: "Importa os relatórios da SEFAZ e concilia receita e DIMP por "
              + "competência.",
   patrimonio: "Controla bens, responsáveis, movimentações e inventário.",
-  nfse: "Importa a lista do cliente, confere cada nota e gera a DPS do padrão "
-      + "nacional, ainda sem transmitir.",
+  nfse: "Importa a lista do cliente, confere cada nota, gera a DPS do padrão "
+      + "nacional e a transmite à produção restrita (sem valor fiscal).",
   clientes: "Cadastro dos clientes com as senhas de portais no cofre "
           + "criptografado e o aviso de vencimento dos certificados digitais.",
 };

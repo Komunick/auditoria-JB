@@ -172,8 +172,9 @@ CATALOGO: tuple[Permissao, ...] = (
     # ------------------------------------------------------------------
     # Emissao de NFS-e (spec 006). Consultar e' rotina; mexer no perfil,
     # importar e aprovar sao passos separados de proposito: quem aprova o lote
-    # gera a DPS, e na Fase 2 o mesmo slug transmite. Nada aqui transmite na
-    # Fase 1.
+    # gera a DPS. Transmitir (spec 008) ganhou slug proprio em vez de herdar o
+    # de aprovar, como a 006 previa: herdar daria a quem ja aprova o poder de
+    # usar o certificado da escola sem ninguem conceder (constituicao, III).
     Permissao("nfse.perfis", "Cadastrar perfis de emissao", GRUPO_NFSE,
               "Criar o perfil do cliente e as versoes dele (codigos, turmas, "
               "regime e modelo da discriminacao)."),
@@ -184,7 +185,11 @@ CATALOGO: tuple[Permissao, ...] = (
               "Aprovar o lote, gerar as DPS (sem transmitir na Fase 1) e "
               "descartar lote aprovado."),
     Permissao("nfse.exportar", "Baixar DPS e resumo", GRUPO_NFSE,
-              "Baixar o XML das DPS, o zip do lote e a planilha-resumo."),
+              "Baixar o XML das DPS, o zip do lote e a planilha-resumo, e a "
+              "NFS-e e o DANFSe de producao restrita."),
+    Permissao("nfse.transmitir", "Transmitir a producao restrita", GRUPO_NFSE,
+              "Enviar as DPS de um lote aprovado a producao restrita da Sefin "
+              "Nacional com o certificado A1 da escola (sem valor fiscal)."),
 
     # ------------------------------------------------------------------
     # Clientes e cofre de senhas (spec 012). Ver senha e gravar senha sao

@@ -17,6 +17,7 @@ from __future__ import annotations
 import hashlib
 import secrets
 import sqlite3
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -69,6 +70,16 @@ def conexao() -> sqlite3.Connection:
         "  criada_em TEXT NOT NULL,"
         "  expira_em TEXT NOT NULL"
         ")")
+    # Limite de tentativas de login (ver autenticar). No banco, e nao em
+    # memoria, para que reiniciar o servidor nao zere um bloqueio.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS tentativa_login ("
+        "  chave TEXT PRIMARY KEY,"      # 'conta:<usuario>' ou 'ip:<endereco>'
+        "  falhas INTEGER NOT NULL DEFAULT 0,"
+        "  primeira_em TEXT NOT NULL,"
+        "  ultima_em TEXT NOT NULL,"
+        "  bloqueado_ate TEXT"
+        ")")
     conn.commit()
     return conn
 
@@ -109,18 +120,129 @@ def criar_usuario(usuario: str, nome: str, senha: str,
         return int(cursor.lastrowid)
 
 
-def autenticar(usuario: str, senha: str) -> str | None:
-    """Retorna um token de sessao ou None (mensagem generica no chamador)."""
+# ----------------------------------------------------------------------
+# Limite de tentativas de login (portado do clone do Cadastro JB, SEC-03 e
+# R2-NEW-01 da auditoria de 23/08/2026)
+#
+# Dois niveis, para que errar a senha de alguem nao tire essa pessoa do
+# sistema:
+#   * BLOQUEIO por IP: 8 falhas em 15 minutos param de ser atendidas por 1
+#     minuto; insistindo, 5 min, 15 min e 1 h. So aquele IP fica de fora.
+#   * ATRASO na conta: a partir da 8a falha recente, cada login daquela
+#     conta espera um pouco mais (ate 2 s), venha de onde vier. Nunca recusa:
+#     quem tem a senha entra de outro lugar, mas o ataque espalhado em muitos
+#     IPs fica caro.
+# Login certo zera os contadores daquele IP e daquela conta.
+MAX_FALHAS = 8
+JANELA_FALHAS = timedelta(minutes=15)
+BLOQUEIOS = (timedelta(minutes=1), timedelta(minutes=5), timedelta(minutes=15),
+             timedelta(hours=1))
+ATRASO_MAXIMO_CONTA = 2.0
+# O usuario digitado vira chave do contador: sem teto, um nome gigante
+# viraria uma linha gigante no banco.
+_TAMANHO_CHAVE_USUARIO = 64
+
+
+class LoginBloqueado(Exception):
+    """Limite atingido; `segundos` diz quanto falta para liberar."""
+
+    def __init__(self, segundos: float) -> None:
+        super().__init__("Muitas tentativas seguidas.")
+        self.segundos = max(1, int(segundos + 0.999))
+
+
+def _chaves_limite(usuario: str, ip: str) -> list[str]:
+    chaves = [f"conta:{usuario[:_TAMANHO_CHAVE_USUARIO]}"] if usuario else []
+    if ip:
+        chaves.append(f"ip:{ip}")
+    return chaves
+
+
+def _conferir_bloqueio(conn: sqlite3.Connection, chaves: list[str]) -> None:
+    """Levanta LoginBloqueado se o IP estiver bloqueado (a conta nunca e)."""
+    agora = datetime.now()
+    for chave in chaves:
+        if not chave.startswith("ip:"):
+            continue
+        linha = conn.execute(
+            "SELECT bloqueado_ate FROM tentativa_login WHERE chave=?",
+            (chave,)).fetchone()
+        if linha and linha["bloqueado_ate"]:
+            ate = datetime.fromisoformat(linha["bloqueado_ate"])
+            if ate > agora:
+                raise LoginBloqueado((ate - agora).total_seconds())
+
+
+def _atraso_da_conta(conn: sqlite3.Connection, usuario: str) -> float:
+    if not usuario:
+        return 0.0
+    linha = conn.execute(
+        "SELECT falhas, primeira_em FROM tentativa_login WHERE chave=?",
+        (_chaves_limite(usuario, "")[0],)).fetchone()
+    if not linha or (datetime.now() - datetime.fromisoformat(
+            linha["primeira_em"])) > JANELA_FALHAS:
+        return 0.0
+    excedente = max(0, int(linha["falhas"]) - MAX_FALHAS + 1)
+    return min(0.25 * excedente, ATRASO_MAXIMO_CONTA)
+
+
+def _registrar_falha(conn: sqlite3.Connection, chaves: list[str]) -> None:
+    """Conta a falha numa UPSERT so (sem ler-e-escrever, que perderia falhas
+    simultaneas) e, se for o caso, bloqueia o IP."""
+    agora = datetime.now()
+    agora_iso = agora.isoformat(timespec="seconds")
+    limite = (agora - JANELA_FALHAS).isoformat(timespec="seconds")
+    # Contadores fora da janela e sem bloqueio vigente nao servem mais para
+    # nada; apagar aqui mantem a tabela do tamanho dos ultimos 15 minutos.
+    conn.execute(
+        "DELETE FROM tentativa_login WHERE primeira_em < ? AND"
+        " (bloqueado_ate IS NULL OR bloqueado_ate < ?)", (limite, agora_iso))
+    for chave in chaves:
+        conn.execute(
+            "INSERT INTO tentativa_login(chave, falhas, primeira_em, ultima_em)"
+            " VALUES(?, 1, ?, ?)"
+            " ON CONFLICT(chave) DO UPDATE SET"
+            "  falhas = CASE WHEN primeira_em < ? THEN 1 ELSE falhas + 1 END,"
+            "  primeira_em = CASE WHEN primeira_em < ?"
+            "    THEN excluded.primeira_em ELSE primeira_em END,"
+            "  ultima_em = excluded.ultima_em",
+            (chave, agora_iso, agora_iso, limite, limite))
+        if not chave.startswith("ip:"):
+            continue
+        falhas = conn.execute(
+            "SELECT falhas FROM tentativa_login WHERE chave=?",
+            (chave,)).fetchone()["falhas"]
+        if falhas >= MAX_FALHAS:
+            passo = min((falhas - MAX_FALHAS) // 4, len(BLOQUEIOS) - 1)
+            conn.execute(
+                "UPDATE tentativa_login SET bloqueado_ate=? WHERE chave=?",
+                ((agora + BLOQUEIOS[passo]).isoformat(timespec="seconds"),
+                 chave))
+
+
+def autenticar(usuario: str, senha: str, ip: str = "") -> str | None:
+    """Retorna um token de sessao ou None (mensagem generica no chamador).
+
+    `ip` vem de seguranca.ip_do_cliente; vazio = so o atraso da conta vale.
+    Levanta LoginBloqueado quando aquele IP passou do limite — antes de
+    calcular a senha, para o bloqueado nao custar PBKDF2 ao servidor."""
     usuario = (usuario or "").strip().lower()
+    chaves = _chaves_limite(usuario, ip)
+    with conexao() as conn:
+        _conferir_bloqueio(conn, chaves)
+        atraso = _atraso_da_conta(conn, usuario)
+    if atraso:
+        time.sleep(atraso)
     with conexao() as conn:
         row = conn.execute(
             "SELECT * FROM usuario WHERE usuario=? AND ativo=1",
             (usuario,)).fetchone()
-        if row is None:
-            return None
-        if not secrets.compare_digest(
+        if row is None or not secrets.compare_digest(
                 row["senha_hash"], _hash_senha(senha or "", row["salt"])):
+            _registrar_falha(conn, chaves)
             return None
+        for chave in chaves:
+            conn.execute("DELETE FROM tentativa_login WHERE chave=?", (chave,))
         token = secrets.token_urlsafe(32)
         agora = datetime.now()
         conn.execute(
