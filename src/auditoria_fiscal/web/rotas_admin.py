@@ -32,12 +32,14 @@ class NovoUsuario(BaseModel):
     senha: str
     admin: bool = False
     permissoes: list[str] = []
+    email: str = ''
 
 
 class EdicaoUsuario(BaseModel):
     nome: str = ""
     admin: bool = False
     ativo: bool = True
+    email: str | None = None
 
 
 class EdicaoPermissoes(BaseModel):
@@ -81,7 +83,7 @@ def criar(entrada: NovoUsuario, request: Request,
     try:
         pedidas = permissoes.validar(entrada.permissoes)
         novo_id = auth.criar_usuario(entrada.usuario, entrada.nome,
-                                     entrada.senha, admin=entrada.admin)
+                                     entrada.senha, admin=entrada.admin, email=entrada.email)
         if not entrada.admin:
             permissoes.definir(novo_id, pedidas, por=usuario.usuario)
     except ValueError as exc:
@@ -107,10 +109,12 @@ def editar(usuario_id: int, entrada: EdicaoUsuario, request: Request,
                    "Peca a outro administrador para fazer essa alteracao.")
     try:
         atualizado = auth.atualizar_usuario(usuario_id, entrada.nome,
-                                            entrada.admin, entrada.ativo)
+                                            entrada.admin, entrada.ativo, email=entrada.email)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     mudancas = []
+    if alvo.get('email') != atualizado.get('email'):
+        mudancas.append('e-mail de alertas atualizado')
     if alvo["nome"] != atualizado["nome"]:
         mudancas.append(f"nome: {alvo['nome']} -> {atualizado['nome']}")
     if alvo["admin"] != atualizado["admin"]:

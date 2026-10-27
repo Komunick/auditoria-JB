@@ -1019,3 +1019,43 @@ label.permissao input { margin-top: 3px; }
 /* Vence o `td:last-child { white-space: normal }` dos blocos de detalhe. */
 .cli-acoes, .conc-bloco table td.cli-acoes { white-space: nowrap; }
 .cli-acoes button + button { margin-left: 6px; }
+
+/* Aba 10 — agenda e tarefas. Estados sempre acompanhados de rótulos. */
+.tar-cabecalho { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.tar-cabecalho h2, .tar-cabecalho h3 { margin: 0; }
+.tar-cabecalho > div:first-child { flex: 1; min-width: 230px; }
+.tar-linha-inteira { flex-basis: 100%; margin: 0; }
+.tar-grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin: 18px 0; }
+.tar-grade > label, #tar-imp-previa label:not(.permissao) { display: flex; flex-direction: column; gap: 5px; color: var(--texto-suave); font-size: 13px; }
+.tar-grade > label.permissao { flex-direction: row-reverse; align-items: center; justify-content: flex-end; gap: 8px; }
+.tar-grade input:not([type="checkbox"]), .tar-grade select, .tar-grade textarea { width: 100%; min-width: 0; box-sizing: border-box; }
+.tar-opcoes { min-width: 0; max-height: 220px; overflow: auto; border: 1px solid var(--borda); border-radius: 8px; padding: 10px 12px; }
+.tar-opcoes legend { padding: 0 6px; font-size: 13px; font-weight: 600; }
+.tar-opcoes .permissao { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
+.tar-opcoes input, #tar-tabela input[type="checkbox"] { flex: 0 0 auto; min-width: 16px; width: 16px; height: 16px; }
+.tar-modal { max-height: calc(100vh - 50px); overflow: auto; }
+.tar-cor { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.tar-cor.verde { background: var(--ok-suave); color: var(--ok); }
+.tar-cor.amarelo { background: var(--alerta-suave); color: var(--alerta); }
+.tar-cor.vermelho { background: var(--erro-suave); color: var(--erro); }
+.tar-cor.neutro { background: var(--papel-2); color: var(--texto-suave); border: 1px solid var(--borda); }
+.tar-legenda { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0; }
+.tar-secundario { display: block; color: var(--texto-suave); font-size: 12px; margin-top: 4px; }
+#tar-tabela td { vertical-align: top; }
+#tar-tabela td:nth-child(2) { min-width: 180px; white-space: normal; }
+#tar-tabela td:last-child { white-space: nowrap; }
+#tar-tabela .tar-vazio { padding: 32px 16px; text-align: center; color: var(--texto-suave); }
+.tar-config-bloco { margin-top: 20px; }
+.tar-config-linha { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--borda); }
+.tar-config-linha:last-child { border-bottom: 0; }
+.tar-config-linha span { overflow-wrap: anywhere; }
+.tar-config-linha button { flex-shrink: 0; }
+.tar-historico { padding-left: 22px; }
+.tar-historico li { padding: 8px 0; border-bottom: 1px solid var(--borda); }
+.tar-historico p { white-space: pre-wrap; overflow-wrap: anywhere; margin: 4px 0; }
+.adm-perfis { margin-bottom: 12px; }
+@media (max-width: 600px) {
+  .tar-grade { grid-template-columns: 1fr; }
+  .tar-modal { width: calc(100vw - 24px); }
+  .tar-config-linha { align-items: flex-start; }
+}

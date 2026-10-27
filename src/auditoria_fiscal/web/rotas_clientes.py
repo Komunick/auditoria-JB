@@ -288,6 +288,8 @@ def _cliente_json(c: dict) -> dict:
         "im": c["im"], "im_situacao": c["im_situacao"],
         "iptu": c["iptu"], "iptu_situacao": c["iptu_situacao"],
         "municipio": c["municipio"], "situacao": c["situacao"],
+        "contato_nome": c.get("contato_nome", ""),
+        "contato_email": c.get("contato_email", ""),
         "situacao_rotulo": cl.SITUACOES_CLIENTE.get(c["situacao"], ""),
         "pendencias": c.get("pendencias") or [],
         "certificado_fim": c.get("certificado_fim") or "",
@@ -370,6 +372,8 @@ class ClienteEntrada(BaseModel):
     iptu_situacao: str = ""
     municipio: str = ""
     observacao: str = ""
+    contato_nome: str = ""
+    contato_email: str = ""
     revision: int | None = None
 
 

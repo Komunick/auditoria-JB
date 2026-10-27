@@ -69,6 +69,15 @@ def _a(slug, descricao, categoria, permissao="", aba="") -> tuple[str, Acao]:
 
 # Registro unico das acoes auditaveis. A chave e o slug usado nas rotas.
 ACOES: dict[str, Acao] = dict((
+    _a("tarefas.executar", "Alterou uma tarefa", CAT_MUTACAO, aba="tarefas"),
+    _a("tarefas.configurar", "Configurou tarefas e carteira", CAT_MUTACAO,
+       "tarefas.configurar", "tarefas"),
+    _a("tarefas.gerir", "Geriu tarefas do setor", CAT_MUTACAO,
+       "tarefas.setor", "tarefas"),
+    _a("tarefas.exportar", "Exportou tarefas", CAT_DOWNLOAD,
+       "tarefas.exportar", "tarefas"),
+    _a("setores.administrar", "Administrou setores e substituições", CAT_ADMIN,
+       "setores.administrar", "tarefas"),
     # ------------------------------------------------------------------
     # Sessao e navegacao
     _a("sessao.login", "Entrou no sistema", CAT_SESSAO),

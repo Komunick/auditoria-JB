@@ -31,6 +31,7 @@ GRUPO_CONCILIACAO = "Conciliacao Fiscal"
 GRUPO_PATRIMONIO = "Patrimonio"
 GRUPO_NFSE = "Emissao de NFS-e"
 GRUPO_CLIENTES = "Clientes e cofre de senhas"
+GRUPO_TAREFAS = "Tarefas e prazos"
 GRUPO_ADMIN = "Administracao"
 
 
@@ -220,6 +221,17 @@ CATALOGO: tuple[Permissao, ...] = (
               "vencimento de certificado."),
 
     # ------------------------------------------------------------------
+    # Tarefas e prazos: nenhuma concessão automática a usuários existentes.
+    Permissao("aba.tarefas", "10. Tarefas e prazos", GRUPO_ABAS,
+              "Consultar a própria carteira e tarefas."),
+    Permissao("tarefas.executar", "Executar as próprias tarefas", GRUPO_TAREFAS),
+    Permissao("tarefas.setor", "Gerir o setor sob sua responsabilidade", GRUPO_TAREFAS,
+              "O setor e a substituição vigente são conferidos a cada pedido."),
+    Permissao("tarefas.todas", "Consultar todos os setores", GRUPO_TAREFAS),
+    Permissao("tarefas.configurar", "Configurar tarefas e carteira", GRUPO_TAREFAS),
+    Permissao("setores.administrar", "Administrar setores e substituições", GRUPO_TAREFAS),
+    Permissao("tarefas.exportar", "Exportar tarefas em Excel", GRUPO_TAREFAS),
+
     # Administracao
     Permissao("admin.usuarios", "Administrar usuarios e permissoes",
               GRUPO_ADMIN,

@@ -266,58 +266,68 @@ def processar(entrada: ProcessarEntrada, request: Request,
                   acesso("conciliacao.processar"))) -> dict:
     """Processa em job tudo que esta no staging da sessao."""
     sessao = obter_sessao(entrada.sessao_id, usuario, FERRAMENTA)
-    manifesto = _arquivos_em_staging(sessao)
-    if not manifesto:
-        raise erro(422, "Envie ao menos um arquivo antes de processar.",
-                   "LOTE_VAZIO")
-
     with _trava_processamento:
         if sessao.id in _processando:
             raise erro(409, "Esta sessao ja tem um processamento em "
                             "andamento. Aguarde o termino.",
                        "PROCESSAMENTO_EM_ANDAMENTO")
+        # O job pode estar removendo a pasta. Antes de consultar/criar o
+        # staging, conferir a reserva; leitura e reivindicacao sao atomicas.
+        manifesto = _arquivos_em_staging(sessao)
+        if not manifesto:
+            raise erro(422, "Envie ao menos um arquivo antes de processar.",
+                       "LOTE_VAZIO")
         _processando.add(sessao.id)
 
-    # Identidade capturada AQUI, da sessao autenticada, e levada ao job como
-    # snapshot primitivo. O corpo da requisicao nunca informa ator.
-    ator = {"usuario_id": usuario.id, "usuario_login": usuario.usuario}
-    pasta = _staging(sessao)
-    teto = max_upload_bytes()
-
-    store = _store()
     try:
-        lote_id = store.abrir_lote(sessao_id=sessao.id,
-                                   total_arquivos=len(manifesto), **ator)
-    finally:
-        store.fechar()
+        # Identidade capturada AQUI, da sessao autenticada, e levada ao job
+        # como snapshot primitivo. O corpo da requisicao nunca informa ator.
+        ator = {"usuario_id": usuario.id, "usuario_login": usuario.usuario}
+        pasta = _staging(sessao)
+        teto = max_upload_bytes()
 
-    detalhar(request, f"lote {lote_id}: {len(manifesto)} arquivo(s)")
-
-    def _executar() -> dict:
-        # Store proprio da thread do job.
-        interno = _store()
+        store = _store()
         try:
-            interno.marcar_processando(lote_id)
-            for ordem, (upload_id, nome) in enumerate(manifesto, start=1):
-                caminho = os.path.join(pasta, upload_id, "arquivo.xlsx")
-                interno.importar_arquivo(
-                    lote_id, caminho_staging=caminho, nome_recebido=nome,
-                    ordem=ordem, max_bytes=teto, **ator)
-            resumo_lote = interno.concluir_lote(lote_id)
-            # O staging ja cumpriu o papel: toda fonte aceita foi preservada
-            # em origens/<sha>.xlsx. A limpeza acontece AQUI, ainda sob a
-            # trava da sessao: solta-la antes deixaria uma janela em que um
-            # segundo pedido encontraria a trava livre e o staging ainda de
-            # pe, abrindo um lote duplicado sobre arquivos prestes a sumir.
-            # Se o processamento falhar, o staging fica para nova tentativa.
-            shutil.rmtree(pasta, ignore_errors=True)
-            return {**resumo_lote, "lote_id": lote_id}
+            lote_id = store.abrir_lote(sessao_id=sessao.id,
+                                       total_arquivos=len(manifesto), **ator)
         finally:
-            interno.fechar()
-            with _trava_processamento:
-                _processando.discard(sessao.id)
+            store.fechar()
 
-    job = iniciar_job(sessao, "Processando relatorios da SEFAZ", _executar)
+        detalhar(request, f"lote {lote_id}: {len(manifesto)} arquivo(s)")
+
+        def _executar() -> dict:
+            # Store proprio da thread; ate falha ao abri-lo libera a sessao.
+            interno = None
+            try:
+                interno = _store()
+                interno.marcar_processando(lote_id)
+                for ordem, (upload_id, nome) in enumerate(manifesto, start=1):
+                    caminho = os.path.join(pasta, upload_id, "arquivo.xlsx")
+                    interno.importar_arquivo(
+                        lote_id, caminho_staging=caminho, nome_recebido=nome,
+                        ordem=ordem, max_bytes=teto, **ator)
+                resumo_lote = interno.concluir_lote(lote_id)
+                # Toda fonte aceita foi preservada em origens/<sha>.xlsx.
+                # Limpar antes de soltar a reserva impede outro lote de ler
+                # os arquivos consumidos enquanto eles estao sendo removidos.
+                # Se o processamento falhar, ficam para nova tentativa.
+                shutil.rmtree(pasta, ignore_errors=True)
+                return {**resumo_lote, "lote_id": lote_id}
+            finally:
+                try:
+                    if interno is not None:
+                        interno.fechar()
+                finally:
+                    with _trava_processamento:
+                        _processando.discard(sessao.id)
+
+        job = iniciar_job(sessao, "Processando relatorios da SEFAZ", _executar)
+    except Exception:
+        # Nenhum job assumiu a reserva se a preparacao/partida falhou.
+        # O erro original permanece explicito e o upload pode ser tentado de novo.
+        with _trava_processamento:
+            _processando.discard(sessao.id)
+        raise
     return {"job_id": job.id, "lote_id": lote_id}
 
 

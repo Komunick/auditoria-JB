@@ -234,7 +234,7 @@ END;
 
 _CAMPOS_EDITAVEIS = ("nome", "documento", "ie", "ie_situacao", "im",
                      "im_situacao", "iptu", "iptu_situacao", "municipio",
-                     "observacao")
+                     "observacao", "contato_nome", "contato_email")
 
 
 def _aad(cliente_id: int, campo: str, uid: str) -> str:
@@ -266,7 +266,21 @@ class ClientesStore:
         conn.executescript(_TABELAS)
         conn.executescript(_INDICES)
         conn.executescript(_TRIGGERS)
-        conn.execute(f"PRAGMA user_version={VERSAO_SCHEMA}")
+        # Contatos sao aditivos; a spec 013 compartilha este banco. Nunca
+        # rebaixar a versao ao abrir o cadastro depois do modulo de tarefas.
+        conn.execute("BEGIN IMMEDIATE")
+        try:
+            colunas = {r["name"] for r in conn.execute("PRAGMA table_info(cliente)")}
+            for campo in ("contato_nome", "contato_email"):
+                if campo not in colunas:
+                    conn.execute(f"ALTER TABLE cliente ADD COLUMN {campo} TEXT NOT NULL DEFAULT ''")
+            versao = conn.execute("PRAGMA user_version").fetchone()[0]
+            if versao < VERSAO_SCHEMA:
+                conn.execute(f"PRAGMA user_version={VERSAO_SCHEMA}")
+            conn.execute("COMMIT")
+        except Exception:
+            conn.execute("ROLLBACK")
+            raise
 
     def fechar(self) -> None:
         try:
@@ -322,6 +336,8 @@ class ClientesStore:
             limpo[f"{campo}_situacao"] = situacao
         limpo["municipio"] = " ".join(str(dados.get("municipio") or "").split())[:80]
         limpo["observacao"] = str(dados.get("observacao") or "").strip()[:2000]
+        limpo["contato_nome"] = " ".join(str(dados.get("contato_nome") or "").split())[:160]
+        limpo["contato_email"] = cl.validar_email(dados.get("contato_email"))
         return limpo
 
     def _registrar(self, conn, entidade: str, entidade_id: int, campo: str,
@@ -353,6 +369,8 @@ class ClientesStore:
                 DOCUMENTO_DUPLICADO,
                 "Já existe um cliente com este CNPJ/CPF.") from exc
         cliente_id = int(cur.lastrowid)
+        conn.execute("UPDATE cliente SET contato_nome=?, contato_email=? WHERE id=?",
+                     (limpo.get("contato_nome", ""), limpo.get("contato_email", ""), cliente_id))
         self._registrar(conn, "cliente", cliente_id, "criado", "",
                         limpo["nome"], usuario_id, usuario_login)
         return cliente_id
@@ -366,6 +384,7 @@ class ClientesStore:
 
     def _aplicar_edicao(self, conn, atual, limpo: dict, *, usuario_id: int,
                         usuario_login: str) -> int:
+        limpo = {**dict(atual), **limpo}
         mudou = [c for c in _CAMPOS_EDITAVEIS
                  if (atual[c] if atual[c] is not None else None) != limpo[c]]
         if not mudou:
@@ -387,8 +406,6 @@ class ClientesStore:
     def editar_cliente(self, cliente_id: int, dados: dict, *,
                        revision: int | None = None, usuario_id: int = 0,
                        usuario_login: str = "") -> dict:
-        limpo = self._validar_cliente(dados)
-
         def _editar(conn):
             atual = conn.execute("SELECT * FROM cliente WHERE id=?",
                                  (cliente_id,)).fetchone()
@@ -396,6 +413,11 @@ class ClientesStore:
                 raise LookupError("Cliente não encontrado.")
             if revision is not None and int(revision) != int(atual["revision"]):
                 raise ConcorrenciaError(int(atual["revision"]))
+            # Clientes antigos da interface nao enviam os campos novos.
+            # Campos de contato omitidos mantem seu valor, inclusive importado.
+            # A semantica anterior de valor/situacao de IE/IM/IPTU e preservada.
+            contatos = {c: atual[c] for c in ("contato_nome", "contato_email")}
+            limpo = self._validar_cliente({**contatos, **dados})
             return self._aplicar_edicao(conn, atual, limpo,
                                         usuario_id=usuario_id,
                                         usuario_login=usuario_login)

@@ -222,6 +222,8 @@ Tudo em `dados_web\` (fora do git):
 - `clientes.db` — Clientes: cadastro, licenças, certificados, a trilha de
   alterações e a de **quem viu cada senha** (append-only, por trigger) e as
   senhas **cifradas**. A chave fica fora desta pasta (`AUDITORIA_COFRE_CHAVE`)
+  Também guarda setores, carteira, obrigações, tarefas, eventos, gerações e
+  registros dos resumos por e-mail (spec 013, schema 2).
 - `conciliacao\origens\<sha256>.xlsx` — os relatórios da SEFAZ **originais**,
   imutáveis, nomeados pelo hash do conteúdo. São a evidência de cada número
   exibido: sem eles, a proveniência aponta para o vazio
@@ -264,6 +266,84 @@ simples do diretório dá um snapshot consistente.
 Sessões de trabalho e jobs vivem **em memória do processo**. Rodar o uvicorn
 com mais de um worker faria um pedido cair num processo que não conhece a
 sessão do outro. Mantenha um worker até que a fila seja externalizada.
+
+## Tarefas e prazos (aba 10)
+
+A primeira inicialização migra `clientes.db` para o schema 2, de forma
+aditiva, preservando clientes, certificados, cofre e trilhas existentes.
+`auditoria_web.db` ganha o e-mail opcional dos usuários. Faça backup dos
+dois bancos antes de atualizar. Instale os requisitos atualizados: `xlrd>=2.0`
+permite ler as carteiras antigas em `.xls`; `.xlsx` continua usando openpyxl.
+
+Primeiro uso, pela administração e pela configuração da aba 10:
+
+1. Cadastre **setores**, seus membros e responsáveis. Os membros precisam ser
+   usuários ativos. Cadastre substituições com início, fim e motivo.
+2. Cadastre **características**, escolhendo grupos exclusivos ou múltiplos,
+   e marque os clientes. A marcação em lote substitui a seleção anterior.
+3. Cadastre **obrigações** com as regras e os prazos fornecidos pelo escritório.
+   O catálogo começa vazio: nenhum prazo fiscal é presumido pelo sistema.
+4. Monte a **carteira**, manualmente ou importando `.xls`/`.xlsx`. Na prévia,
+   confirme o cliente de cada linha, os contatos e as características sugeridas.
+   Colunas de checklist não são importadas. O upload é apagado depois da leitura.
+5. Confira os **feriados** e os ajustes por cliente. A validade dos ajustes é
+   comparada ao primeiro dia da competência; início e fim são inclusivos.
+6. Gere a competência pela **prévia**. Após a primeira configuração ou após
+   mudanças de cadastro, use a geração manual para completar o mês corrente:
+   tarefas já existentes não serão duplicadas nem alteradas.
+
+As sete permissões da ferramenta não entram no padrão de novos usuários.
+Os atalhos de perfil na administração ajudam a selecionar colaborador,
+responsável e diretoria; revise as caixas antes de salvar. `tarefas.todas`
+permite consulta geral. Para agir sobre um setor, o responsável precisa de
+`tarefas.setor` e deve ser seu titular efetivo ou substituto vigente.
+Administradores mantêm o acesso implícito. Atribuições, configurações, estados
+e comentários ficam na trilha do domínio; eventos de tarefas não podem ser
+alterados nem excluídos.
+
+### Agendador e resumos internos
+
+Uma thread começa com o FastAPI e verifica a geração do mês e os alertas a
+cada 15 minutos. Usa a data de Salvador (UTC−3), grava carimbos em UTC e
+retoma na próxima inicialização se o servidor estava desligado. Não requer
+novo serviço nem nova porta. A geração automática é única por setor e
+competência; o resumo é reservado no banco por pessoa e dia antes de enviar.
+O reinício diário não repete operações já registradas.
+
+Padrões: resumo a partir das **07:00**, aviso **3 dias** antes do vencimento
+e inclusão de tarefas aguardando cliente há **mais de 5 dias**. Os valores
+ficam na configuração da aba 10. A substituição resolve os destinatários e
+as conferências de cada setor, sem reescrever a autoria das tarefas.
+
+Cadastre o e-mail de cada pessoa em **Administração → Usuários**. Esta fase
+envia somente para usuários internos ativos com acesso à aba 10; o e-mail
+do cliente é cadastrado, mas não recebe resumo.
+
+| Variável | Uso |
+|---|---|
+| `AUDITORIA_SMTP_HOST` | Servidor SMTP |
+| `AUDITORIA_SMTP_PORTA` | Padrão 587 com STARTTLS ou 465 com SSL |
+| `AUDITORIA_SMTP_USUARIO` | Usuário de autenticação, quando exigido |
+| `AUDITORIA_SMTP_SENHA` | Senha, somente em variável de ambiente |
+| `AUDITORIA_SMTP_REMETENTE` | Endereço de e-mail do remetente |
+| `AUDITORIA_SMTP_TLS` | `starttls` (padrão) ou `ssl`; envio sem TLS não é aceito |
+
+Na VM, guarde a configuração num `EnvironmentFile` fora do repositório, com
+permissão `600`, como a configuração do cofre. A senha nunca vai para banco,
+resposta HTTP ou log. Sem configuração válida, a tela informa **e-mail
+desligado**, e os alertas no sistema continuam funcionando.
+
+`envio_alerta` registra destino, contagens, resultado e um código de erro
+sem credenciais. Reservas impedem reenvio automático no mesmo dia, inclusive
+após falha ou desligamento do SMTP. Se houver queda entre a reserva e a
+confirmação do envio, o registro permanece `em_envio`; confira a entrega antes de
+qualquer ação operacional. SMTP não oferece confirmação transacional com
+SQLite, por isso o sistema prioriza não duplicar mensagens. O próximo dia
+tem uma nova tentativa. O resumo não confirma que a pessoa leu o e-mail.
+
+Prévia de importação ou geração expira após 30 minutos, pertence a quem a
+criou e é de uso único. Se a confirmação falhar ou a agenda mudar, gere uma
+nova prévia. Apenas dados sintéticos devem entrar nos testes e no Git.
 
 ## Rodar como serviço (opcional)
 
