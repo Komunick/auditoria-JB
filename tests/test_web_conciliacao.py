@@ -18,6 +18,7 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
 import time
 
 RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -971,6 +972,8 @@ def importacao(app, adm, ana, sessao: str) -> None:
                f"{segundo.status_code} {segundo.text[:120]}")
         esperar_job(ana, primeiro.json()["job_id"])
 
+        regressao_reserva_e_limpeza(ana, lote["quadro_50_5"])
+
         # Trilha geral: ok, negado e erro, SEM valores fiscais no detalhe.
         itens = eventos(adm, usuario_filtro="ana", limite=300)
         uploads = [e for e in itens if e["acao"] == "conciliacao.upload"]
@@ -995,6 +998,68 @@ def importacao(app, adm, ana, sessao: str) -> None:
 def _contar_staging(sessao: str) -> int:
     pasta = os.path.join(_TMP, "sessoes", sessao, "conciliacao")
     return len(os.listdir(pasta)) if os.path.isdir(pasta) else 0
+
+
+def regressao_reserva_e_limpeza(ana, arquivo):
+    """A limpeza pertence ao job: pedido concorrente nao pode tocar no staging."""
+    from auditoria_fiscal.web import rotas_conciliacao as rotas
+    sessao = ana.post('/api/sessoes', json={'ferramenta':'conciliacao'}).json()['sessao_id']
+    checar(enviar(ana, sessao, arquivo).status_code == 200, 'Upload da regressao')
+    pasta = os.path.join(_TMP, 'sessoes', sessao, 'conciliacao')
+    entrou = threading.Event()
+    liberar = threading.Event()
+    remover_original = rotas.shutil.rmtree
+    manifesto_original = rotas._arquivos_em_staging
+    def remover_controlado(caminho, *args, **kwargs):
+        if os.path.normcase(os.path.abspath(caminho)) == os.path.normcase(os.path.abspath(pasta)):
+            entrou.set()
+            if not liberar.wait(timeout=10):
+                raise AssertionError('Teste nao liberou a limpeza do staging')
+        return remover_original(caminho, *args, **kwargs)
+    def manifesto_protegido(trabalho):
+        if trabalho.id == sessao and entrou.is_set() and not liberar.is_set():
+            raise AssertionError('Pedido concorrente tocou no staging durante a limpeza')
+        return manifesto_original(trabalho)
+    rotas.shutil.rmtree = remover_controlado
+    rotas._arquivos_em_staging = manifesto_protegido
+    job_id = None
+    try:
+        primeiro = ana.post('/api/conciliacao/processar', json={'sessao_id':sessao})
+        checar(primeiro.status_code == 200, primeiro.text)
+        job_id = primeiro.json()['job_id']
+        checar(entrou.wait(timeout=10), 'Job deveria chegar a limpeza')
+        segundo = ana.post('/api/conciliacao/processar', json={'sessao_id':sessao})
+        checar(segundo.status_code == 409, 'Reserva deve ser conferida antes de ler o staging')
+    finally:
+        liberar.set()
+        if job_id:
+            esperar_job(ana, job_id)
+        rotas.shutil.rmtree = remover_original
+        rotas._arquivos_em_staging = manifesto_original
+    checar(ana.post('/api/conciliacao/processar', json={'sessao_id':sessao}).status_code == 422,
+           'Depois de limpar, staging vazio responde 422')
+
+    # Falhas antes de entregar o trabalho a thread liberam a reserva e preservam
+    # o upload. A excecao continua visivel; nao e' convertida em sucesso vazio.
+    for ponto in ('_store', 'iniciar_job'):
+        nova = ana.post('/api/sessoes', json={'ferramenta':'conciliacao'}).json()['sessao_id']
+        checar(enviar(ana, nova, arquivo).status_code == 200, 'Upload para falha de preparacao')
+        original = getattr(rotas, ponto)
+        def falhar(*args, **kwargs):
+            raise RuntimeError('Falha sintetica na preparacao')
+        setattr(rotas, ponto, falhar)
+        try:
+            try:
+                ana.post('/api/conciliacao/processar', json={'sessao_id':nova})
+            except RuntimeError as exc:
+                checar(str(exc) == 'Falha sintetica na preparacao', 'Excecao original preservada')
+            else:
+                raise AssertionError('Falha de preparacao deveria continuar explicita')
+        finally:
+            setattr(rotas, ponto, original)
+        with rotas._trava_processamento:
+            checar(nova not in rotas._processando, 'Falha na preparacao deixou a sessao reservada')
+        checar(_contar_staging(nova) == 1, 'Falha de preparacao nao deve consumir o upload')
 
 
 if __name__ == "__main__":
