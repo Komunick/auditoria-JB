@@ -7,6 +7,9 @@ lxml>=5.0
 # Leitura/escrita de planilhas Excel (.xlsx)
 openpyxl>=3.1
 
+# Leitura das carteiras legadas .xls (spec 013)
+xlrd>=2.0
+
 # Manipulacao tabular e exportacao (relacao SEFAZ, planilhas de auditoria)
 pandas>=2.2
 

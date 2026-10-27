@@ -199,6 +199,15 @@ def texto_obrigatorio(valor, rotulo: str, *, maximo: int) -> str:
     return texto
 
 
+def validar_email(valor) -> str:
+    """Contato opcional; recusa quebras de linha e enderecos incompletos."""
+    from .tarefas import ErroTarefas, validar_email as validar_email_contato
+    try:
+        return validar_email_contato(valor)
+    except ErroTarefas as exc:
+        raise ErroClientes(VALOR_INVALIDO, "Informe um e-mail válido para o contato.") from exc
+
+
 # ----------------------------------------------------------------------
 # Datas e vencimentos
 

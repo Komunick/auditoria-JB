@@ -180,6 +180,7 @@ Abas.registrar("admin", (container) => {
         <div class="linha-form">
           <label>Usuario (login) <input id="ed-usuario"></label>
           <label>Nome <input id="ed-nome"></label>
+          <label>E-mail para alertas <input id="ed-email" type="email" autocomplete="off"></label>
           <label class="oculto" id="ed-senha-campo">Senha (min. 6)
             <input id="ed-senha" type="password" autocomplete="new-password">
           </label>
@@ -209,6 +210,7 @@ Abas.registrar("admin", (container) => {
     q("ed-usuario").value = novo ? "" : usuario.usuario;
     q("ed-usuario").disabled = !novo;          // login e a identidade: nao muda
     q("ed-nome").value = novo ? "" : usuario.nome;
+    q("ed-email").value = novo ? "" : usuario.email || "";
     q("ed-admin").checked = novo ? false : usuario.admin;
     q("ed-ativo").checked = novo ? true : usuario.ativo;
     q("ed-senha-campo").classList.toggle("oculto", !novo);
@@ -218,6 +220,28 @@ Abas.registrar("admin", (container) => {
     const marcadas = novo ? estado.padrao
                           : (usuario.admin ? [] : usuario.permissoes);
     const painel = q("ed-permissoes");
+    const atalhos = document.createElement("div");
+    atalhos.className = "linha-form adm-perfis";
+    const ajudaPerfis = document.createElement("p");
+    ajudaPerfis.className = "dica";
+    ajudaPerfis.textContent = "Perfil de tarefas: aplica as permissões sugeridas abaixo. Você pode ajustar cada caixa antes de salvar.";
+    painel.appendChild(ajudaPerfis);
+    const perfis = {
+      Colaborador: ["aba.tarefas", "tarefas.executar"],
+      "Responsável de setor": ["aba.tarefas", "tarefas.executar", "tarefas.setor", "tarefas.configurar", "tarefas.exportar"],
+      Diretoria: ["aba.tarefas", "tarefas.executar", "tarefas.setor", "tarefas.todas", "tarefas.configurar", "setores.administrar", "tarefas.exportar"],
+    };
+    for (const [nome, slugs] of Object.entries(perfis)) {
+      const botao = document.createElement("button");
+      botao.type = "button"; botao.textContent = nome;
+      botao.addEventListener("click", () => {
+        painel.querySelectorAll('.permissoes input[type="checkbox"]').forEach(c => {
+          if (c.value === "aba.tarefas" || c.value.startsWith("tarefas.") || c.value === "setores.administrar") c.checked = slugs.includes(c.value);
+        });
+      });
+      atalhos.appendChild(botao);
+    }
+    painel.appendChild(atalhos);
     painel.appendChild(montarPermissoes(marcadas));
 
     /* Administrador tem tudo por definicao: as caixas somem para nao dar a
@@ -246,16 +270,17 @@ Abas.registrar("admin", (container) => {
       q("ed-erro").textContent = "";
       const admin = q("ed-admin").checked;
       const permissoes = slugsMarcados(painel);
+      if (!q("ed-email").reportValidity()) return;
       try {
         if (novo) {
           await api("/api/admin/usuarios", { json: {
-            usuario: q("ed-usuario").value, nome: q("ed-nome").value,
+            usuario: q("ed-usuario").value, nome: q("ed-nome").value, email: q("ed-email").value,
             senha: q("ed-senha").value, admin, permissoes } });
           toast(`Usuario ${q("ed-usuario").value.trim().toLowerCase()} criado.`);
         } else {
           await api(`/api/admin/usuarios/${usuario.id}`, {
             method: "PUT",
-            json: { nome: q("ed-nome").value, admin,
+            json: { nome: q("ed-nome").value, email: q("ed-email").value, admin,
                     ativo: q("ed-ativo").checked } });
           if (!admin) {
             await api(`/api/admin/usuarios/${usuario.id}/permissoes`,

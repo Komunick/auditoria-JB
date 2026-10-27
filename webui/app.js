@@ -399,6 +399,9 @@ const Telas = {
     if (typeof AvisoVencimentos !== "undefined") {
       AvisoVencimentos.mostrar().catch(() => {});
     }
+    if (typeof AvisoTarefas !== "undefined") {
+      AvisoTarefas.mostrar().catch(() => {});
+    }
   },
 };
 

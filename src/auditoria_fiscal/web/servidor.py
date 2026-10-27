@@ -11,6 +11,7 @@ depois da resposta, com o status real.
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
@@ -31,6 +32,34 @@ from .rotas_patrimonio import router as rotas_patrimonio
 from .rotas_nfse import router as rotas_nfse
 from .rotas_extracao import router as rotas_extracao
 from .rotas_produtos import router as rotas_produtos
+from .rotas_tarefas import router as rotas_tarefas, criar_store as criar_store_tarefas
+from .agendador import Agendador
+
+
+def _usuarios_alertas():
+    resultado=[]
+    for pessoa in auth.listar_usuarios():
+        if not pessoa['ativo']:
+            continue
+        usuario=Usuario(pessoa['id'],pessoa['nome'],pessoa['usuario'],pessoa['admin'])
+        if not permissoes.tem_permissao(usuario,'aba.tarefas'):
+            continue
+        resultado.append(dict(pessoa,pode_setor=permissoes.tem_permissao(usuario,'tarefas.setor')))
+    return resultado
+
+
+@asynccontextmanager
+async def _ciclo_de_vida(app):
+    # Migração antes de atender; a thread tem suas próprias conexões SQLite.
+    store=criar_store_tarefas()
+    store.fechar()
+    agendador=Agendador(criar_store_tarefas,_usuarios_alertas)
+    app.state.tarefas_agendador=agendador
+    agendador.iniciar()
+    try:
+        yield
+    finally:
+        agendador.parar()
 
 
 # Modelos no nivel do modulo: com `from __future__ import annotations`, o
@@ -83,7 +112,7 @@ def _gravar_cookie_sessao(response: Response, request: Request,
 
 
 def criar_app() -> FastAPI:
-    app = FastAPI(title="Auditoria Fiscal Web", docs_url=None, redoc_url=None)
+    app = FastAPI(title="Auditoria Fiscal Web", docs_url=None, redoc_url=None, lifespan=_ciclo_de_vida)
     app.middleware("http")(auditoria.middleware_historico)
     # Registrado por ultimo = a camada mais externa: Host e Origin sao
     # conferidos antes de qualquer rota (requisicao recusada nao vira linha
@@ -245,6 +274,7 @@ def criar_app() -> FastAPI:
     app.include_router(rotas_patrimonio)
     app.include_router(rotas_nfse)
     app.include_router(rotas_clientes)
+    app.include_router(rotas_tarefas)
 
     # O mount estatico e' curinga em "/": tem de ser o ULTIMO. Registrado
     # antes, engoliria /api/conciliacao/** e a ferramenta responderia 404 do
