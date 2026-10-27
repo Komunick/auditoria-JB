@@ -355,6 +355,23 @@ auditoria-fiscal/
 
 ## Rodar os testes
 
+A agenda de tarefas suporta início fixo no mês seguinte, várias ocorrências
+mensais e rotinas sem vencimento. Os contratos e critérios estão na
+[extensão 014 da spec 013](specs/014-agenda-periodos-sem-vencimento/spec.md).
+O `clientes.db` passa ao schema 3 por migração aditiva e transacional; tarefas
+existentes recebem ocorrência 1, preservando IDs e eventos. Antes de implantar,
+faça backup consistente do diretório de dados. Não execute a versão anterior
+sobre o schema 3: seu migrador não conhece a nova chave de ocorrências e ela não
+compreende as regras novas. Para recuperação, priorize corrigir para frente ou
+use o procedimento de restauração autorizado, preservando uma cópia dos dados
+posteriores ao backup.
+
+Validação específica: `test_regras_vencimento.py`, `test_tarefas.py`,
+`test_tarefas_store.py`, `test_alertas_email.py`, `test_relatorio_tarefas.py`,
+`test_web_agenda_periodos.py`, `test_web_tarefas.py` e `test_tarefas_ui.py`.
+O catálogo fiscal real continua fora do Git; cadastros sem aplicabilidade
+definida devem permanecer inativos até a configuração pelo escritório.
+
 ```powershell
 # nucleo e ferramentas (dados sinteticos)
 .\.venv\Scripts\python.exe tests\test_nucleo.py       # leitor SPED

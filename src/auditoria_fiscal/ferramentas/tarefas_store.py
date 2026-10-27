@@ -1,4 +1,4 @@
-"""Tarefas e prazos: schema aditivo 2 no clientes.db, sem dependencia web.
+"""Tarefas e prazos: schema aditivo 3 no clientes.db, sem dependencia web.
 
 Uma conexao por operacao/thread. Mutacoes e seus eventos usam BEGIN IMMEDIATE;
 as identidades e a verificacao de escopo chegam da interface autenticada.
@@ -15,7 +15,7 @@ from ..core import tarefas as regras
 from ..core import clientes as cl
 from .clientes_store import ClientesStore, ConcorrenciaError
 
-VERSAO_SCHEMA = 2
+VERSAO_SCHEMA = 3
 ABERTAS = ("a_fazer", "em_andamento", "aguardando_cliente", "devolvida")
 
 _SCHEMA = """
@@ -72,8 +72,6 @@ CREATE TABLE IF NOT EXISTS tarefa (
  conferida_substituindo INTEGER, fora_do_prazo INTEGER NOT NULL DEFAULT 0,
  origem TEXT NOT NULL, revision INTEGER NOT NULL DEFAULT 1,
  criada_em TEXT NOT NULL, atualizada_em TEXT NOT NULL, situacao_em TEXT NOT NULL);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_tarefa_competencia
- ON tarefa(cliente_id,obrigacao_id,competencia) WHERE obrigacao_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_tarefa_setor ON tarefa(setor_id,situacao,vencimento);
 CREATE INDEX IF NOT EXISTS idx_tarefa_responsavel ON tarefa(responsavel_usuario_id,situacao,vencimento);
 CREATE INDEX IF NOT EXISTS idx_tarefa_cliente ON tarefa(cliente_id,competencia);
@@ -162,6 +160,16 @@ class TarefasStore(ClientesStore):
             colunas = {r["name"] for r in conn.execute("PRAGMA table_info(ajuste_cliente)")}
             if "revision" not in colunas:
                 conn.execute("ALTER TABLE ajuste_cliente ADD COLUMN revision INTEGER NOT NULL DEFAULT 1")
+            colunas_tarefa = {r["name"] for r in conn.execute("PRAGMA table_info(tarefa)")}
+            if "ocorrencia" not in colunas_tarefa:
+                conn.execute("ALTER TABLE tarefa ADD COLUMN ocorrencia INTEGER NOT NULL DEFAULT 1")
+            # Coluna e troca da chave unica pertencem a uma unica transacao.
+            # Nenhuma tabela/evento e reconstruido; IDs antigos sao a posicao 1.
+            indice = [r["name"] for r in conn.execute("PRAGMA index_info(idx_tarefa_competencia)")]
+            esperado = ["cliente_id", "obrigacao_id", "competencia", "ocorrencia"]
+            if indice != esperado:
+                conn.execute("DROP INDEX IF EXISTS idx_tarefa_competencia")
+                conn.execute("CREATE UNIQUE INDEX idx_tarefa_competencia ON tarefa(cliente_id,obrigacao_id,competencia,ocorrencia) WHERE obrigacao_id IS NOT NULL")
             versao = conn.execute("PRAGMA user_version").fetchone()[0]
             if versao < VERSAO_SCHEMA:
                 conn.execute(f"PRAGMA user_version={VERSAO_SCHEMA}")
@@ -442,6 +450,11 @@ class TarefasStore(ClientesStore):
             antecedencia = novo.get("inicio_antecedencia_dias")
             if antecedencia is not None and (isinstance(antecedencia, bool) or not isinstance(antecedencia, int) or not 0 <= antecedencia <= 366):
                 raise regras.ErroTarefas("VALOR_INVALIDO", "Antecedência deve ser um número entre 0 e 366 dias.")
+            self._validar_regra_agenda(regra, periodicidade, antecedencia)
+            if id:
+                for ajuste in self.listar_ajustes():
+                    if ajuste["obrigacao_id"] == id and ajuste["tipo"] == "vencimento":
+                        self._validar_regra_agenda(ajuste["regra_vencimento"], periodicidade, antecedencia)
             valores = (sid, nome, periodicidade, _json(competencias), _json(regra), _json(condicao), antecedencia,
                        _bool(novo.get("exige_conferencia", False)), _bool(novo.get("ativa", True)))
             if id:
@@ -454,6 +467,13 @@ class TarefasStore(ClientesStore):
             return resultado
         return self._transacao(gravar)
 
+    @staticmethod
+    def _validar_regra_agenda(regra, periodicidade, antecedencia):
+        if regra["tipo"] == "periodos_mes_seguinte" and periodicidade != "mensal":
+            raise regras.ErroTarefas("REGRA_INVALIDA", "Períodos do mês seguinte exigem periodicidade mensal.")
+        if antecedencia is not None and ("inicio_dia" in regra or regra["tipo"] in ("periodos_mes_seguinte", "sem_vencimento")):
+            raise regras.ErroTarefas("REGRA_INVALIDA", "Não combine início definido pela regra com antecedência em dias.")
+
     def salvar_ajuste(self, dados, id=None, revision=None, *, usuario_id=0, usuario_login=""):
         def gravar(conn):
             antes = self._um("ajuste_cliente", id) if id is not None else {}
@@ -465,11 +485,13 @@ class TarefasStore(ClientesStore):
             if antes and (cid != antes["cliente_id"] or oid != antes["obrigacao_id"]):
                 raise regras.ErroTarefas("AJUSTE_INVALIDO", "Cliente e obrigação do ajuste não podem ser alterados.")
             self._um("cliente", cid)
-            self._um("obrigacao", oid)
+            obrigacao = self._obrigacao_dict(self._um("obrigacao", oid))
             tipo = novo.get("tipo")
             if tipo not in ("incluir", "excluir", "vencimento"):
                 raise regras.ErroTarefas("AJUSTE_INVALIDO", "Tipo de ajuste inválido.")
             regra = rv.validar_regra(novo.get("regra_vencimento")) if tipo == "vencimento" else {}
+            if tipo == "vencimento":
+                self._validar_regra_agenda(regra, obrigacao["periodicidade"], obrigacao["inicio_antecedencia_dias"])
             inicio, fim = _data(novo.get("valido_de"), opcional=True), _data(novo.get("valido_ate"), opcional=True)
             if inicio and fim and inicio > fim:
                 raise regras.ErroTarefas("AJUSTE_INVALIDO", "A validade inicial deve preceder a final.")
@@ -550,7 +572,7 @@ class TarefasStore(ClientesStore):
         for a in self.listar_ajustes(cliente_id):
             if (not a["valido_de"] or a["valido_de"] <= referencia) and (not a["valido_ate"] or a["valido_ate"] >= referencia):
                 ajustes.setdefault((a["cliente_id"], a["obrigacao_id"]), []).append(a)
-        existentes = {(r[0], r[1]) for r in self._conn.execute("SELECT cliente_id,obrigacao_id FROM tarefa WHERE competencia=?", (competencia,))}
+        existentes = {(r[0], r[1], r[2]) for r in self._conn.execute("SELECT cliente_id,obrigacao_id,ocorrencia FROM tarefa WHERE competencia=?", (competencia,))}
         candidatas, repetidas = [], 0
         for o in self.listar_obrigacoes(setor_id):
             if o["setor_id"] not in setores or not o["ativa"] or not rv.competencia_aplicavel(competencia, o["periodicidade"], o["competencias"]):
@@ -565,13 +587,9 @@ class TarefasStore(ClientesStore):
                     continue
                 if not incluido and not regras.aplica(o["condicao"], caracteristicas.get(c["id"], set())):
                     continue
-                if (c["id"], o["id"]) in existentes:
-                    repetidas += 1
-                    continue
                 regra = next((a["regra_vencimento"] for a in ajustes_c if a["tipo"] == "vencimento"), o["regra_vencimento"])
-                vencimento = rv.calcular_vencimento(competencia, regra, feriados)
                 antecedencia = o["inicio_antecedencia_dias"]
-                inicio = hoje if antecedencia is None else vencimento - timedelta(days=antecedencia)
+                self._validar_regra_agenda(regra, o["periodicidade"], antecedencia)
                 titular = carteira.get((c["id"], o["setor_id"]))
                 if titular and (not self.usuario_ativo(titular) or (o["setor_id"], titular) not in membros):
                     titular = None
@@ -580,15 +598,24 @@ class TarefasStore(ClientesStore):
                     # O titular continua na carteira/historico; a distribuicao
                     # nova vai para a fila se seu substituto foi desativado.
                     titular, efetivo = None, None
-                candidatas.append({"cliente_id": c["id"], "cliente_nome": c["nome"], "setor_id": o["setor_id"],
-                                   "obrigacao_id": o["id"], "competencia": competencia, "titulo": o["nome"],
-                                   "responsavel_usuario_id": titular,
-                                   "responsavel_efetivo_id": efetivo,
-                                   "inicio": inicio.isoformat(), "vencimento": vencimento.isoformat(),
-                                   "exige_conferencia": o["exige_conferencia"],
-                                   "origem": {"regra": regra, "obrigacao_revision": o["revision"], "condicao": o["condicao"],
-                                              "caracteristicas": sorted(caracteristicas.get(c["id"], set())),
-                                              "ajustes": ajustes_c}})
+                for ocorrencia in rv.calcular_ocorrencias(competencia, regra, feriados):
+                    posicao = ocorrencia["ocorrencia"]
+                    if (c["id"], o["id"], posicao) in existentes:
+                        repetidas += 1
+                        continue
+                    vencimento = ocorrencia["vencimento"]
+                    inicio = ocorrencia["inicio"]
+                    if inicio is None:
+                        inicio = hoje if antecedencia is None else vencimento - timedelta(days=antecedencia)
+                    candidatas.append({"cliente_id": c["id"], "cliente_nome": c["nome"], "setor_id": o["setor_id"],
+                                       "obrigacao_id": o["id"], "competencia": competencia, "titulo": o["nome"],
+                                       "ocorrencia": posicao, "responsavel_usuario_id": titular,
+                                       "responsavel_efetivo_id": efetivo,
+                                       "inicio": inicio.isoformat(), "vencimento": vencimento.isoformat() if vencimento else "",
+                                       "exige_conferencia": o["exige_conferencia"],
+                                       "origem": {"regra": regra, "obrigacao_revision": o["revision"], "condicao": o["condicao"],
+                                                  "caracteristicas": sorted(caracteristicas.get(c["id"], set())),
+                                                  "ocorrencia": posicao, "intervalo": ocorrencia["rotulo"], "ajustes": ajustes_c}})
         return candidatas, repetidas, list(setores)
 
     def previa_geracao(self, competencia, setor_id=None, cliente_id=None, hoje=None):
@@ -598,10 +625,10 @@ class TarefasStore(ClientesStore):
 
     def _inserir_tarefa(self, dados, usuario_id, usuario_login):
         agora = self._agora()
-        rid = self._conn.execute("INSERT INTO tarefa(cliente_id,setor_id,obrigacao_id,competencia,titulo,responsavel_usuario_id,inicio,vencimento,exige_conferencia,origem,criada_em,atualizada_em,situacao_em) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        rid = self._conn.execute("INSERT INTO tarefa(cliente_id,setor_id,obrigacao_id,competencia,titulo,responsavel_usuario_id,inicio,vencimento,exige_conferencia,origem,criada_em,atualizada_em,situacao_em,ocorrencia) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                                 (dados["cliente_id"], dados["setor_id"], dados.get("obrigacao_id"), dados.get("competencia", ""),
                                  dados["titulo"], dados.get("responsavel_usuario_id"), dados["inicio"], dados["vencimento"],
-                                 dados.get("exige_conferencia", 0), _json(dados.get("origem", {})), agora, agora, agora)).lastrowid
+                                 dados.get("exige_conferencia", 0), _json(dados.get("origem", {})), agora, agora, agora, dados.get("ocorrencia", 1))).lastrowid
         tarefa = self._um("tarefa", rid)
         self._evento(tarefa, "criada", "", "a_fazer", "", usuario_id, usuario_login)
         return rid
@@ -704,6 +731,7 @@ class TarefasStore(ClientesStore):
             valores.append(situacao)
         for campo, operador in (("vencimento_de", ">="), ("vencimento_ate", "<=")):
             if filtros.get(campo):
+                onde.append("t.vencimento<>''")
                 onde.append(f"t.vencimento{operador}?")
                 valores.append(_data(filtros[campo]))
         if filtros.get("sem_responsavel"):
@@ -722,7 +750,7 @@ class TarefasStore(ClientesStore):
         total = self._conn.execute("SELECT COUNT(*)" + consulta, valores).fetchone()[0]
         limite, offset = max(1, min(2000, int(limite))), max(0, int(offset))
         itens = [self._tarefa_dict(r, hoje) for r in self._conn.execute(
-            "SELECT t.*,c.nome AS cliente_nome,s.nome AS setor_nome" + consulta + " ORDER BY t.vencimento,c.nome,t.id LIMIT ? OFFSET ?", (*valores, limite, offset))]
+            "SELECT t.*,c.nome AS cliente_nome,s.nome AS setor_nome" + consulta + " ORDER BY (t.vencimento=''),t.vencimento,c.nome,t.id LIMIT ? OFFSET ?", (*valores, limite, offset))]
         return {"itens": itens, "total": total, "offset": offset, "limite": limite}
 
     def criar_avulsa(self, dados, *, usuario_id=0, usuario_login=""):
@@ -763,7 +791,7 @@ class TarefasStore(ClientesStore):
         substituindo = None
         if nova == "concluida":
             campos.update(concluida_em=agora, concluida_por=usuario_id,
-                          fora_do_prazo=int(bool(tarefa["fora_do_prazo"]) or self._hoje(hoje).isoformat() > tarefa["vencimento"]))
+                          fora_do_prazo=int(bool(tarefa["vencimento"]) and (bool(tarefa["fora_do_prazo"]) or self._hoje(hoje).isoformat() > tarefa["vencimento"])))
         if nova == "conferida":
             setor = self._um("setor", tarefa["setor_id"])
             titular = setor["responsavel_usuario_id"]

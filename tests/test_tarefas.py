@@ -63,6 +63,14 @@ def main():
     assert t.validar_email("") == ""
     for email in ("sem-arroba", "a@", "a@host", "a\r\nBcc: x@example.test", "a b@example.test"):
         recusa(t.validar_email, email)
+    # A ausencia explicita de prazo nao pode virar atraso ou entrega pontual.
+    for prazo in ("", None):
+        for situacao, cor in (("a_fazer", "neutro"), ("em_andamento", "amarelo"),
+                             ("aguardando_cliente", "amarelo"), ("devolvida", "vermelho"),
+                             ("concluida", "neutro"), ("conferida", "neutro"), ("dispensada", "neutro")):
+            resultado = t.classificar(dict(situacao=situacao, vencimento=prazo, fora_do_prazo=1), date(2030, 1, 1))
+            assert resultado == {"cor": cor, "atrasada": False, "fora_do_prazo": False}, resultado
+    recusa(t.classificar, dict(situacao="a_fazer", vencimento="data-invalida"), hoje)
     print("OK - aplicabilidade, transicoes, cores, atraso permanente, email e Salvador")
     return 0
 
