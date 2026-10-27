@@ -156,6 +156,8 @@ Abas.registrar("clientes", (container) => {
             <label>Nome do cliente <input id="cli-n-nome" type="text"></label>
             <label>CNPJ ou CPF <input id="cli-n-doc" type="text" maxlength="18"></label>
             <label>Município <input id="cli-n-municipio" type="text"></label>
+            <label>Contato <input id="cli-n-contato" type="text"></label>
+            <label>E-mail <input id="cli-n-email" type="email"></label>
             <button id="cli-criar" class="botao-primario" type="button">Cadastrar cliente</button>
           </div>
           <hr class="conc-divisor">
@@ -485,9 +487,10 @@ Abas.registrar("clientes", (container) => {
       try {
         const r = await api("/api/clientes", { json: {
           nome, documento: $("cli-n-doc").value.trim(),
-          municipio: $("cli-n-municipio").value.trim() } });
+          municipio: $("cli-n-municipio").value.trim(),
+          contato_nome: $("cli-n-contato").value.trim(), contato_email: $("cli-n-email").value.trim() } });
         toast("Cliente cadastrado.");
-        for (const id of ["cli-n-nome", "cli-n-doc", "cli-n-municipio"]) $(id).value = "";
+        for (const id of ["cli-n-nome", "cli-n-doc", "cli-n-municipio", "cli-n-contato", "cli-n-email"]) $(id).value = "";
         await carregarLista();
         await abrirDetalhe(r.id);
       } catch (erro) { toast(erro.message, "erro"); }
@@ -591,6 +594,8 @@ Abas.registrar("clientes", (container) => {
       { nome: "nome", rotulo: "Nome", valor: d.nome, obrigatorio: true },
       { nome: "documento", rotulo: "CNPJ ou CPF", valor: d.documento_digitos },
       { nome: "municipio", rotulo: "Município", valor: d.municipio },
+      { nome: "contato_nome", rotulo: "Contato", valor: d.contato_nome },
+      { nome: "contato_email", rotulo: "E-mail do contato", tipo: "email", valor: d.contato_email },
       { nome: "ie", rotulo: "Inscrição estadual", valor: d.ie },
       { nome: "ie_situacao", rotulo: "Situação da IE", tipo: "select", opcoes: situacoes },
       { nome: "im", rotulo: "Inscrição municipal", valor: d.im },
@@ -717,11 +722,17 @@ Abas.registrar("clientes", (container) => {
     topo.appendChild(tabela(["Inscrição estadual", "Inscrição municipal", "IPTU"], [[
       rotuloCampo(d.ie, d.ie_situacao), rotuloCampo(d.im, d.im_situacao),
       rotuloCampo(d.iptu, d.iptu_situacao)]]));
+    const contato = document.createElement("p");
+    contato.textContent = `Contato: ${d.contato_nome || "não informado"} · E-mail: ${d.contato_email || "não informado"}`;
+    topo.appendChild(contato);
     if (d.observacao) {
       const obs = document.createElement("p"); obs.textContent = d.observacao;
       topo.appendChild(obs);
     }
     alvo.appendChild(topo);
+    if (typeof TarefasCliente !== "undefined") {
+      TarefasCliente.montar(alvo, d, () => abrirDetalhe(d.id)).catch(erro => toast(erro.message, "erro"));
+    }
 
     if (d.pendencias.length) {
       const p = bloco("Pendências da importação");

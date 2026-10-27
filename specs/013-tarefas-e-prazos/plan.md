@@ -66,6 +66,24 @@ cadastro da aba 9.
 10. **Importação de carteira reaproveita o padrão da aba 9**: prévia em memória, uma transação, arquivo
     apagado. O casamento por nome usa a chave sem acento de `core/clientes.chave_texto` e sugere os 3 mais
     parecidos (`difflib`, biblioteca padrão); quem decide é a pessoa.
+11. **E-mail dos usuários**: coluna opcional `usuario.email` em `auditoria_web.db`,
+    adicionada sem perda e editada pela administração. O login não é presumido
+    como endereço. Usuários inativos ou sem acesso à aba não recebem resumos.
+12. **Validade dos ajustes**: início/fim inclusivos comparados ao primeiro dia
+    da competência. Alterar uma regra não reescreve as tarefas existentes.
+13. **Entrega SMTP**: reserva persistente antes da conexão evita duplicação
+    entre threads, processos e reinícios. Uma interrupção após a reserva pode
+    deixar entrega indeterminada; não há reenvio automático nesse dia. A
+    configuração desligada e falhas ficam registradas com códigos sem segredos.
+14. **Espera do cliente**: `tarefa.situacao_em` preserva o início do estado;
+    comentar ou redistribuir não reinicia o contador de dias de espera.
+15. **Prévia de geração**: a confirmação revalida os candidatos dentro da
+    transação de escrita e recusa a prévia se a agenda mudou desde a leitura.
+16. **Autorização e escrita**: rotas que alteram o domínio adquirem
+    `BEGIN IMMEDIATE` antes de verificar setor/carteira. As operações internas
+    usam savepoints; uma troca concorrente de responsável não atravessa a
+    conferência de permissão. Ajustes aceitam edição auditada com `revision`,
+    inclusive para corrigir exceções permanentes.
 
 ## Project Structure
 

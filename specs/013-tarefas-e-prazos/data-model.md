@@ -56,7 +56,9 @@ Mudanças em obrigação ficam em `alteracao` (entidade `obrigacao`).
 ## ajuste_cliente
 
 `cliente_id`, `obrigacao_id`, `tipo` (`incluir`, `excluir`, `vencimento`), `regra_vencimento` (só para
-`vencimento`), `valido_de`, `valido_ate`, `motivo` (obrigatório), `criado_por`, `criado_em`.
+`vencimento`), `valido_de`, `valido_ate`, `motivo` (obrigatório), `criado_por`, `criado_em`,
+`revision` (começa em 1). Edição preserva cliente e obrigação, exige a revisão
+atual e registra antes/depois em `alteracao`; não muda tarefas já geradas.
 
 ## feriado
 
@@ -81,6 +83,7 @@ Mudanças em obrigação ficam em `alteracao` (entidade `obrigacao`).
 | fora_do_prazo | 0/1, gravado na conclusão |
 | origem | JSON: regra/ajuste que gerou, geração_id |
 | revision, criada_em, atualizada_em | |
+| situacao_em | início do estado atual; comentários e redistribuição não o alteram |
 
 Único (cliente_id, obrigacao_id, competencia) quando `obrigacao_id` não é NULL. Índices: (setor_id,
 situacao, vencimento), (responsavel_usuario_id, situacao, vencimento), (cliente_id, competencia).
@@ -99,7 +102,14 @@ pode rodar várias, porque a tarefa já é única.
 ## envio_alerta
 
 `usuario_id`, `dia`, `canal` (`email`), `destino` (endereço), `quantidades` (JSON), `resultado` (`ok`,
-`falha`, `desligado`), `erro` (texto curto, sem credencial), `criado_em`. Único (usuario_id, dia, canal).
+`falha`, `desligado`, `em_envio`), `erro` (código curto, sem credencial), `criado_em`. Único (usuario_id, dia, canal).
+`em_envio` é a reserva feita antes da conexão SMTP; se o processo parar nesse
+intervalo, ela evita um reenvio automático de resultado indeterminado.
+
+## usuario (auditoria_web.db, aditivo)
+
+`email`: texto opcional, validado na administração, padrão vazio. O endereço
+recebe apenas o resumo interno; não muda autenticação nem permissões.
 
 ## configuracao (chaves novas)
 

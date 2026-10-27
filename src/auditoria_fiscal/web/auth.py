@@ -70,6 +70,18 @@ def conexao() -> sqlite3.Connection:
         "  criada_em TEXT NOT NULL,"
         "  expira_em TEXT NOT NULL"
         ")")
+    # Dois primeiros acessos ao banco legado podem migrar ao mesmo tempo.
+    # O lock precede a leitura do schema, para que o segundo veja a coluna
+    # adicionada pelo primeiro em vez de repetir o ALTER TABLE.
+    conn.execute('BEGIN IMMEDIATE')
+    try:
+        if 'email' not in {r['name'] for r in conn.execute('PRAGMA table_info(usuario)')}:
+            conn.execute("ALTER TABLE usuario ADD COLUMN email TEXT NOT NULL DEFAULT ''")
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        conn.close()
+        raise
     # Limite de tentativas de login (ver autenticar). No banco, e nao em
     # memoria, para que reiniciar o servidor nao zere um bloqueio.
     conn.execute(
@@ -101,20 +113,21 @@ def existe_usuario() -> bool:
 
 
 def criar_usuario(usuario: str, nome: str, senha: str,
-                  admin: bool = False) -> int:
+                  admin: bool = False, email: str = '') -> int:
     """Cria e devolve o id (o chamador usa para gravar as permissoes)."""
     usuario = usuario.strip().lower()
     if not usuario:
         raise ValueError("Informe usuario e senha (minimo 6 caracteres).")
     _validar_senha(senha)
+    email = _validar_email(email)
     salt = secrets.token_hex(16)
     with conexao() as conn:
         try:
             cursor = conn.execute(
                 "INSERT INTO usuario(usuario, nome, senha_hash, salt, admin,"
-                " ativo, criado_em) VALUES(?,?,?,?,?,1,?)",
+                " ativo, criado_em, email) VALUES(?,?,?,?,?,1,?,?)",
                 (usuario, nome.strip() or usuario, _hash_senha(senha, salt),
-                 salt, 1 if admin else 0, agora_br()))
+                 salt, 1 if admin else 0, agora_br(), email))
         except sqlite3.IntegrityError as exc:
             raise ValueError("Usuario ja existe.") from exc
         return int(cursor.lastrowid)
@@ -324,7 +337,15 @@ def exigir_usuario(request: Request) -> Usuario:
 def _linha_usuario(row: sqlite3.Row) -> dict:
     return {"id": row["id"], "usuario": row["usuario"], "nome": row["nome"],
             "admin": bool(row["admin"]), "ativo": bool(row["ativo"]),
-            "criado_em": row["criado_em"]}
+            "criado_em": row["criado_em"], "email": row["email"]}
+
+
+def _validar_email(email: str) -> str:
+    from ..ferramentas.alertas_email import email_valido
+    email = email.strip()
+    if email and not email_valido(email):
+        raise ValueError('Informe um e-mail válido para os alertas.')
+    return email
 
 
 def listar_usuarios() -> list[dict]:
@@ -348,7 +369,7 @@ def _total_admins_ativos(conn: sqlite3.Connection, exceto: int = 0) -> int:
 
 
 def atualizar_usuario(usuario_id: int, nome: str, admin: bool,
-                      ativo: bool) -> dict:
+                      ativo: bool, email: str | None = None) -> dict:
     """Guarda o sistema de ficar sem dono: o ULTIMO administrador ativo nao
     pode ser rebaixado nem desativado (ninguem mais criaria usuarios).
 
@@ -356,6 +377,8 @@ def atualizar_usuario(usuario_id: int, nome: str, admin: bool,
     (os dois administradores um contra o outro) leem "ainda sobra 1 admin" ao
     mesmo tempo e zeram os administradores. O lock de escrita forca a segunda
     a esperar e a ver o estado ja atualizado."""
+    if email is not None:
+        email = _validar_email(email)
     with conexao() as conn:
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT * FROM usuario WHERE id=?",
@@ -368,9 +391,9 @@ def atualizar_usuario(usuario_id: int, nome: str, admin: bool,
                 "Este e o ultimo administrador ativo. Promova outro usuario a "
                 "administrador antes de alterar este.")
         conn.execute(
-            "UPDATE usuario SET nome=?, admin=?, ativo=? WHERE id=?",
+            "UPDATE usuario SET nome=?, admin=?, ativo=?, email=? WHERE id=?",
             (nome.strip() or row["usuario"], 1 if admin else 0,
-             1 if ativo else 0, usuario_id))
+             1 if ativo else 0, row['email'] if email is None else email, usuario_id))
         if not ativo:
             conn.execute("DELETE FROM sessao_login WHERE usuario_id=?",
                          (usuario_id,))

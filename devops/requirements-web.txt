@@ -25,6 +25,9 @@ lxml>=5.0
 # Planilhas .xlsx
 openpyxl>=3.1
 
+# Carteiras legadas .xls (spec 013)
+xlrd>=2.0
+
 # Manipulação tabular e exportação
 pandas>=2.2
 

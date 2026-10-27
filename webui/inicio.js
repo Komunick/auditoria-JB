@@ -29,6 +29,7 @@ const RESUMO_FERRAMENTAS = {
       + "nacional e a transmite à produção restrita (sem valor fiscal).",
   clientes: "Cadastro dos clientes com as senhas de portais no cofre "
           + "criptografado e o aviso de vencimento dos certificados digitais.",
+  tarefas: "Organiza a carteira, gera a agenda de obrigações e acompanha os prazos e as conferências.",
 };
 
 function saudacao() {

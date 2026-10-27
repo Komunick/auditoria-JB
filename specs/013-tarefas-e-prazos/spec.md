@@ -4,8 +4,9 @@
 
 **Created**: 2026-10-27
 
-**Status**: Rascunho para implementação. Pendências marcadas em "Pendências"; o que depende delas fica
-configurável ou com padrão anotado.
+**Status**: Implementação T001–T018 concluída e validada localmente em 27/10/2026;
+T019 aguarda a lista fiscal da P-01. Pendências marcadas em "Pendências"; o que
+depende delas fica configurável ou com padrão anotado. Evidências em [validation.md](validation.md).
 
 **Input**: a solicitação "Módulo de Gestão da Qualidade e Acompanhamento Operacional", da diretoria da
 JB Fraga (PDF de 27/10/2026), e as respostas recebidas no mesmo dia. O PDF e as respostas ficam na pasta
