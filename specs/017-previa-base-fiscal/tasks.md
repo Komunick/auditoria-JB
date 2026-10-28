@@ -1,0 +1,13 @@
+# Tarefas
+
+- [x] T001 Definir escopo e contrato a partir das decisões confirmadas.
+- [x] T002 Revisar checklist de requisitos antes do código.
+- [x] T003 Escrever RED e implementar parser independente com origem e limites.
+- [x] T004 Escrever RED HTTP e implementar prévia protegida sem escrita cadastral.
+- [x] T005 Testar e implementar revisão visual com busca, filtros e origem.
+- [x] T006 Verificar sessão, conteúdo não confiável e importadores anteriores.
+- [x] T007 Conferir estrutura real somente em área privada e navegador sintético.
+- [ ] T008 Regressão, revisão independente, evidências e PR para dev.
+
+Evidências em [validacao.md](validacao.md). Regressão e revisão aprovadas;
+T008 aguarda a abertura do PR.

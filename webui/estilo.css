@@ -1020,6 +1020,44 @@ label.permissao input { margin-top: 3px; }
 .cli-acoes, .conc-bloco table td.cli-acoes { white-space: nowrap; }
 .cli-acoes button + button { margin-left: 6px; }
 
+/* Conferência da base Fiscal: cores do tema e origem expandida na própria lista. */
+.base-fiscal { min-width: 0; }
+.base-fiscal-arquivo { margin: 18px 0 12px; overflow-wrap: anywhere; }
+.base-fiscal-contadores { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.base-fiscal-contadores > div { display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; border: 1px solid var(--borda); border-radius: 9px; background: var(--papel-2); }
+.base-fiscal-contadores strong { font-size: 24px; color: var(--texto); }
+.base-fiscal-contadores span { color: var(--texto-suave); font-size: 12px; }
+.base-fiscal-avisos { margin: 12px 0; padding-left: 22px; color: var(--alerta); overflow-wrap: anywhere; }
+.base-fiscal-arquivo-detalhes { margin: 14px 0; padding: 10px 12px; background: var(--papel-2); border-radius: 8px; }
+.base-fiscal summary { cursor: pointer; font-weight: 600; }
+.base-fiscal-hash { font-size: 12px; overflow-wrap: anywhere; }
+.base-fiscal-filtros { margin-top: 18px; }
+.base-fiscal-filtros > label:first-child { flex: 2 1 250px; }
+.base-fiscal-filtros input, .base-fiscal-filtros select { min-width: 0; max-width: 100%; }
+.base-fiscal-rolagem { max-height: 66vh; border: 1px solid var(--borda); border-radius: 8px; }
+.base-fiscal-tabela { table-layout: fixed; }
+.base-fiscal-tabela th, .base-fiscal-tabela td { white-space: normal; overflow-wrap: anywhere; vertical-align: top; }
+.base-fiscal-tabela th:first-child { width: 24%; }
+.base-fiscal-tabela th:last-child { width: 26%; }
+.base-fiscal-tabela td { font-family: inherit; font-size: 13px; }
+.base-fiscal-secundario { display: block; color: var(--texto-suave); font-size: 12px; margin-top: 5px; }
+.base-fiscal-marcador { display: inline-block; margin: 0 4px 5px 0; padding: 3px 6px; color: var(--alerta); background: var(--alerta-suave); border-radius: 5px; font-size: 11px; }
+.base-fiscal-pendencias { margin: 2px 0 7px; font-size: 12px; }
+.base-fiscal-origem-botao { margin-top: 7px; padding: 5px 7px; text-align: left; white-space: normal; font-size: 11px; }
+.base-fiscal-origem-linha > td { background: var(--papel-2); padding: 14px; }
+.base-fiscal-origem-grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-top: 12px; }
+.base-fiscal-origem-grade p { margin: 5px 0; font-size: 12px; }
+.base-fiscal-vazio { text-align: center; padding: 26px 16px; color: var(--texto-suave); }
+.base-fiscal-paginacao { flex-wrap: wrap; }
+.base-fiscal-paginacao span { text-align: center; }
+@media (max-width: 700px) {
+  .base-fiscal-contadores { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .base-fiscal-tabela { min-width: 720px; }
+  .base-fiscal .linha-form > label { min-width: 0; flex-basis: 100%; }
+  .base-fiscal input[type="file"] { width: 100%; }
+  .base-fiscal-paginacao span { flex-basis: 100%; order: -1; }
+}
+
 /* Aba 10 — agenda e tarefas. Estados sempre acompanhados de rótulos. */
 .tar-cabecalho { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .tar-cabecalho h2, .tar-cabecalho h3 { margin: 0; }
