@@ -30,6 +30,20 @@ separado de aprovação e de pulo. Os testes do runner e instalador foram
 reexecutados e passaram após esse ajuste; nenhuma falha web é convertida em
 pulo. O smoke desktop continuou coberto pela suíte local completa acima.
 
+## Ensaio completo no Linux
+
+O candidato `0d23882463266afb078f6fe475957238aa38b870` foi testado na VM pelo
+executor instalado fora do checkout, usando a conta isolada e suas restrições
+reais. Resultado: **75 aprovados, 2 pulados por Firebird, 1 não aplicável
+(desktop/PySide6)**. A verificação Node de todos os JavaScripts também passou.
+HEAD e PID da aplicação permaneceram iguais durante o ensaio; não houve parada,
+backup de produção, migração ou atualização do checkout nessa verificação.
+
+O instalador preparou arquivos root, conta isolada e drop-in de manutenção;
+o timer permaneceu desabilitado durante o ensaio. Seu pacote foi transferido
+com SHA-256 conferido e validado contra o OID da árvore Git antes da instalação.
+Resultados operacionais e logs ficam em área privada da VM.
+
 As regressões específicas incluem criação exclusiva de baseline em diretório
 controlado pelo usuário de teste, transporte sem seguir links, rejeição por SHA,
 preservação do diagnóstico original e último deploy, schema esperado obtido do
