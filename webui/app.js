@@ -299,20 +299,18 @@ const Abas = {
       const numerada = rotulo.match(/^(\d+)\.\s*(.+)$/);
       titulo.textContent = numerada ? numerada[2] : rotulo;
       if (chapeu) {
-        chapeu.textContent = numerada ? `Ferramenta ${numerada[1]}`
-          : nome === "admin" ? "Sistema" : "Painel";
+        const grupo = botao.closest("[data-grupo]")?.dataset.grupo;
+        chapeu.textContent = grupo === "gestao" ? "Gestão" : grupo === "sistema" ? "Sistema"
+          : numerada ? `Ferramenta ${numerada[1]}` : "Ferramentas";
       }
     }
-    /* O Inicio remonta sempre: ele mostra a saudacao e a data do dia, e num
-       escritorio o navegador fica aberto da manha a noite — montado uma vez
-       so, ele diria "Bom dia" as sete da noite. Remontar e barato (ele so le
-       o que ja esta na lateral); as ferramentas seguem montando uma vez, que
-       e o que preserva o trabalho em andamento nelas. */
-    if (nome === "inicio") this._montadas.delete("inicio");
+    const jaMontada = this._montadas.has(nome);
     if (!this._montadas.has(nome) && this._registro[nome]) {
       this._montadas.add(nome);
       this._registro[nome](document.getElementById(`aba-${nome}`));
     }
+    // Atualiza dados e saudação sem perder os filtros da Central.
+    if (nome === "inicio" && jaMontada) document.dispatchEvent(new CustomEvent("inicio:abrir"));
     /* Se o clique veio de dentro da secao que acabou de sumir (os atalhos do
        Inicio), o foco cairia no <body> em silencio. Ele vai para a aba que
        abriu — que e' onde a pessoa esta agora. */
@@ -343,25 +341,29 @@ const Abas = {
       botao.title = botao.textContent.trim();
       if (this.permitida(nome)) {
         if (nome !== "inicio") primeira = primeira || nome;
-      } else {
-        botao.classList.add("oculto");
       }
+      botao.classList.toggle("oculto", !this.permitida(nome));
     });
     /* O rotulo "Ferramentas" encabeca so as sete. Sem nenhuma visivel — nao
        so no caso de zero permissoes, mas tambem para quem so administra — ele
        ficaria pairando sobre uma lista vazia. */
-    if (!this.disponiveis().length) {
-      document.querySelector(".abas-grupo")?.classList.add("oculto");
-    }
+    this.atualizarGrupos();
     if (primeira) { this.abrir("inicio"); return; }
     /* Nada liberado, nem administracao: nao ha painel para mostrar, entao some
        tambem o Inicio e a tela inteira vira o aviso de "sem acesso liberado". */
     document.querySelector('.abas button[data-aba="inicio"]')
       ?.classList.add("oculto");
+    this.atualizarGrupos();
     document.querySelectorAll("main .aba").forEach((s) => s.classList.add("oculto"));
     document.getElementById("sem-acesso").classList.remove("oculto");
     document.getElementById("titulo-tela").textContent = "Sem acesso";
     document.getElementById("eyebrow-tela").textContent = "Painel";
+  },
+  atualizarGrupos() {
+    document.querySelectorAll(".nav-grupo").forEach(grupo => {
+      const temAcesso = [...grupo.querySelectorAll("button[data-aba]")].some(b => !b.classList.contains("oculto"));
+      grupo.classList.toggle("oculto", !temAcesso);
+    });
   },
   /* Lista das ferramentas que a pessoa alcanca, na ordem da lateral, para o
      painel de Inicio montar os atalhos sem duplicar a regra de permissao. */
@@ -378,6 +380,8 @@ const Abas = {
 
 const Telas = {
   mostrarLogin() {
+    Sessao.definir(null);
+    document.dispatchEvent(new CustomEvent("sessao:encerrada"));
     // Fecha qualquer modal aberto: um editor/confirmacao por cima do cartao de
     // login (sessao que caiu com o modal aberto) deixaria o login inalcancavel.
     document.querySelectorAll(".modal-fundo").forEach((m) => m.remove());
@@ -441,7 +445,9 @@ async function iniciar() {
         usuario: document.getElementById("login-usuario").value,
         senha: document.getElementById("login-senha").value } });
       const novo = await api("/api/estado");
-      Telas.mostrarApp(novo.usuario);
+      // Recomeçar o documento impede reaproveitar DOM/consultas de outro usuário.
+      if (!novo.logado) throw new Error("Não foi possível confirmar a sessão.");
+      location.reload();
     } catch (erro) {
       document.getElementById("login-erro").textContent = erro.message;
     }
@@ -456,7 +462,8 @@ async function iniciar() {
         nome: document.getElementById("boot-nome").value,
         senha: document.getElementById("boot-senha").value } });
       const novo = await api("/api/estado");
-      Telas.mostrarApp(novo.usuario);
+      if (!novo.logado) throw new Error("Não foi possível confirmar a sessão.");
+      location.reload();
     } catch (erro) {
       document.getElementById("boot-erro").textContent = erro.message;
     }

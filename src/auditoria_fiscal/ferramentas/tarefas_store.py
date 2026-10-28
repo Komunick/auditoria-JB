@@ -692,21 +692,53 @@ class TarefasStore(ClientesStore):
             raise LookupError("Tarefa não encontrada.")
         return self._tarefa_dict(r, hoje)
 
-    def listar_tarefas(self, filtros=None, hoje=None, offset=0, limite=100,
-                      escopo_usuario_id=None, escopo_setores=None, todas=False):
-        filtros = filtros or {}
+    @staticmethod
+    def _normalizar_filtros_tarefas(filtros):
+        filtros = dict(filtros or {})
         validos = {"cliente_id", "setor_id", "responsavel_usuario_id", "competencia", "situacao",
-                   "vencimento_de", "vencimento_ate", "sem_responsavel", "abertas", "texto", "pendente_conferencia"}
+                   "vencimento_de", "vencimento_ate", "sem_responsavel", "abertas", "texto", "pendente_conferencia", "fila"}
         if set(filtros) - validos:
             raise regras.ErroTarefas("FILTRO_INVALIDO", "Filtro de tarefas desconhecido.")
-        hoje = self._hoje(hoje)
+        if "texto" in filtros:
+            if not isinstance(filtros["texto"], str) or len(filtros["texto"].strip()) > 200:
+                raise regras.ErroTarefas("FILTRO_INVALIDO", "A busca deve ter até 200 caracteres.")
+            filtros["texto"] = filtros["texto"].strip()
+            if not filtros["texto"]:
+                filtros.pop("texto")
+        fila = filtros.get("fila")
+        if fila not in (None, "") and (not isinstance(fila, str) or fila not in TarefasStore._condicoes_fila()):
+            raise regras.ErroTarefas("FILTRO_INVALIDO", "Fila de tarefas desconhecida.")
+        return filtros
+
+    @staticmethod
+    def _condicoes_fila():
+        abertas = "t.situacao IN ('a_fazer','em_andamento','aguardando_cliente','devolvida')"
+        conferencia = "(t.situacao='concluida' AND t.exige_conferencia=1)"
+        pendentes = f"({abertas} OR {conferencia})"
+        return {
+            "todas": "1=1", "pendentes": pendentes,
+            "atrasadas": f"({abertas} AND t.vencimento<>'' AND t.vencimento<contexto.hoje)",
+            "hoje": f"({abertas} AND t.vencimento=contexto.hoje)",
+            "proximas": f"({abertas} AND t.vencimento>contexto.hoje AND t.vencimento<=contexto.limite)",
+            "aguardando_cliente": "t.situacao='aguardando_cliente'", "conferencia": conferencia,
+            "sem_vencimento": f"({pendentes} AND t.vencimento='')",
+            "sem_responsavel": f"({pendentes} AND t.responsavel_usuario_id IS NULL)",
+        }
+
+    def _consulta_tarefas(self, filtros, hoje, escopo_usuario_id, escopo_setores, todas, alerta_dias):
+        """Um predicado parametrizado para lista, exportacao e totais autorizados."""
         onde, valores = [], []
         efetivo = "COALESCE((SELECT sub.substituto_usuario_id FROM substituicao sub WHERE sub.titular_usuario_id=t.responsavel_usuario_id AND (sub.setor_id=t.setor_id OR sub.setor_id IS NULL) AND sub.inicio<=? AND sub.fim>=? ORDER BY sub.id DESC LIMIT 1),t.responsavel_usuario_id)"
+        consulta = (" FROM (SELECT t.*,c.nome AS cliente_nome,s.nome AS setor_nome," + efetivo
+                    + " AS responsavel_efetivo_id FROM tarefa t JOIN cliente c ON c.id=t.cliente_id"
+                    " JOIN setor s ON s.id=t.setor_id) t CROSS JOIN (SELECT ? AS hoje,? AS limite) contexto")
+        valores.extend((hoje.isoformat(), hoje.isoformat(), hoje.isoformat(),
+                        (hoje + timedelta(days=alerta_dias)).isoformat()))
         if not todas:
             escopos = []
             if escopo_usuario_id is not None:
-                escopos.append(efetivo + "=?")
-                valores.extend((hoje.isoformat(), hoje.isoformat(), _id(escopo_usuario_id)))
+                escopos.append("t.responsavel_efetivo_id=?")
+                valores.append(_id(escopo_usuario_id))
             if escopo_setores:
                 setores = sorted({_id(i) for i in escopo_setores})
                 escopos.append("t.setor_id IN (" + ",".join("?" for _ in setores) + ")")
@@ -717,8 +749,8 @@ class TarefasStore(ClientesStore):
                 onde.append(f"t.{campo}=?")
                 valores.append(_id(filtros[campo]))
         if filtros.get("responsavel_usuario_id") not in (None, ""):
-            onde.append(efetivo + "=?")
-            valores.extend((hoje.isoformat(), hoje.isoformat(), _id(filtros["responsavel_usuario_id"])))
+            onde.append("t.responsavel_efetivo_id=?")
+            valores.append(_id(filtros["responsavel_usuario_id"]))
         if filtros.get("competencia"):
             rv.validar_competencia(filtros["competencia"])
             onde.append("t.competencia=?")
@@ -737,21 +769,77 @@ class TarefasStore(ClientesStore):
         if filtros.get("sem_responsavel"):
             onde.append("t.responsavel_usuario_id IS NULL")
         if filtros.get("abertas"):
-            onde.append("(t.situacao IN ('a_fazer','em_andamento','aguardando_cliente','devolvida') OR (t.situacao='concluida' AND t.exige_conferencia=1))")
+            onde.append(self._condicoes_fila()["pendentes"])
         if filtros.get("pendente_conferencia"):
-            onde.append("t.situacao='concluida' AND t.exige_conferencia=1")
+            onde.append(self._condicoes_fila()["conferencia"])
         if filtros.get("texto"):
             termo = str(filtros["texto"]).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            onde.append("(t.titulo LIKE ? ESCAPE '\\' OR c.nome LIKE ? ESCAPE '\\')")
+            onde.append("(t.titulo LIKE ? ESCAPE '\\' OR t.cliente_nome LIKE ? ESCAPE '\\')")
             valores.extend(("%" + termo + "%", "%" + termo + "%"))
-        consulta = " FROM tarefa t JOIN cliente c ON c.id=t.cliente_id JOIN setor s ON s.id=t.setor_id"
+        if filtros.get("fila"):
+            onde.append(self._condicoes_fila()[filtros["fila"]])
         if onde:
             consulta += " WHERE " + " AND ".join(onde)
+        return consulta, valores
+
+    def listar_tarefas(self, filtros=None, hoje=None, offset=0, limite=100,
+                      escopo_usuario_id=None, escopo_setores=None, todas=False):
+        filtros = self._normalizar_filtros_tarefas(filtros)
+        hoje = self._hoje(hoje)
+        consulta, valores = self._consulta_tarefas(filtros, hoje, escopo_usuario_id, escopo_setores,
+                                                  todas, self.configuracao()["tarefas_alerta_dias"])
         total = self._conn.execute("SELECT COUNT(*)" + consulta, valores).fetchone()[0]
         limite, offset = max(1, min(2000, int(limite))), max(0, int(offset))
+        ordem = "(t.vencimento=''),t.vencimento,t.cliente_nome,t.id"
+        if filtros.get("fila"):
+            categorias = self._condicoes_fila()
+            prioridade = "CASE " + " ".join(f"WHEN {categorias[chave]} THEN {i}" for i, chave in
+                                             enumerate(("atrasadas", "hoje", "proximas", "conferencia", "aguardando_cliente"))) + " ELSE 5 END,"
+            ordem = prioridade + ordem
         itens = [self._tarefa_dict(r, hoje) for r in self._conn.execute(
-            "SELECT t.*,c.nome AS cliente_nome,s.nome AS setor_nome" + consulta + " ORDER BY (t.vencimento=''),t.vencimento,c.nome,t.id LIMIT ? OFFSET ?", (*valores, limite, offset))]
+            "SELECT t.*" + consulta + " ORDER BY " + ordem + " LIMIT ? OFFSET ?", (*valores, limite, offset))]
         return {"itens": itens, "total": total, "offset": offset, "limite": limite}
+
+    def painel_tarefas(self, filtros=None, hoje=None, pagina=1, limite=10, fila="pendentes",
+                       escopo_usuario_id=None, escopo_setores=None, todas=False):
+        if type(pagina) is not int or pagina < 1 or type(limite) is not int or not 1 <= limite <= 200:
+            raise regras.ErroTarefas("FILTRO_INVALIDO", "Paginação inválida.")
+        base = self._normalizar_filtros_tarefas(filtros)
+        base.pop("fila", None)
+        if not isinstance(fila, str) or fila not in self._condicoes_fila():
+            raise regras.ErroTarefas("FILTRO_INVALIDO", "Fila de tarefas desconhecida.")
+        hoje = self._hoje(hoje)
+        propria = not self._conn.in_transaction
+        if propria:
+            self._conn.execute("BEGIN")
+        try:
+            alerta = self.configuracao()["tarefas_alerta_dias"]
+            consulta, valores = self._consulta_tarefas(base, hoje, escopo_usuario_id, escopo_setores, todas, alerta)
+            categorias = self._condicoes_fila()
+            medidas = {"abertas": "t.situacao IN ('a_fazer','em_andamento','aguardando_cliente','devolvida')",
+                       **{chave: categorias[chave] for chave in ("pendentes", "atrasadas", "proximas",
+                          "aguardando_cliente", "sem_vencimento", "sem_responsavel")},
+                       "vencendo_hoje": categorias["hoje"], "pendentes_conferencia": categorias["conferencia"]}
+            def somas(expressoes):
+                return ",".join(f"COALESCE(SUM(CASE WHEN {expr} THEN 1 ELSE 0 END),0) AS {nome}"
+                                for nome, expr in expressoes.items())
+            estados = {"estado_" + estado: f"t.situacao='{estado}'" for estado in regras.SITUACOES}
+            resumo = dict(self._conn.execute("SELECT COUNT(*) AS total," + somas({**medidas, **estados})
+                                             + consulta, valores).fetchone())
+            resumo["por_situacao"] = {estado: resumo.pop("estado_" + estado) for estado in regras.SITUACOES}
+            grupo = {chave: medidas[chave] for chave in ("abertas", "pendentes", "atrasadas", "pendentes_conferencia")}
+            responsaveis = [dict(r) for r in self._conn.execute(
+                "SELECT t.responsavel_efetivo_id AS id,COUNT(*) AS total," + somas(grupo) + consulta
+                + " GROUP BY t.responsavel_efetivo_id ORDER BY (id IS NULL),id", valores)]
+            itens = self.listar_tarefas({**base, "fila": fila}, hoje, (pagina-1)*limite, limite,
+                                       escopo_usuario_id, escopo_setores, todas)
+            return {"hoje": hoje.isoformat(), "fuso": "America/Bahia", "alerta_dias": alerta,
+                    "filtros": base, "resumo": resumo, "por_responsavel": responsaveis,
+                    "fila": {"itens": itens["itens"], "total": itens["total"], "pagina": pagina,
+                             "limite": limite, "paginas": max(1, (itens["total"] + limite - 1)//limite)}}
+        finally:
+            if propria:
+                self._conn.rollback()
 
     def criar_avulsa(self, dados, *, usuario_id=0, usuario_login=""):
         def gravar(conn):

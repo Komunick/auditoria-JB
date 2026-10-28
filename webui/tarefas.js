@@ -3,6 +3,33 @@
 "use strict";
 
 const TarefasUI = {
+  filas: {todas: "Todas as tarefas", pendentes: "Pendentes", atrasadas: "Atrasadas", hoje: "Vencendo hoje",
+    proximas: "Próximos vencimentos", aguardando_cliente: "Aguardando cliente", conferencia: "Para conferir",
+    sem_vencimento: "Pendentes sem vencimento", sem_responsavel: "Pendentes sem responsável"},
+  contexto(valor = {}) {
+    const origem = valor.filtros || {}, filtros = {visao: this.visaoConsulta(origem.visao || "cliente")};
+    for (const chave of ["cliente_id", "setor_id", "responsavel_usuario_id", "competencia", "texto", "situacao",
+      "vencimento_de", "vencimento_ate", "sem_responsavel", "abertas", "pendente_conferencia"])
+      if (origem[chave] !== undefined && origem[chave] !== null && origem[chave] !== "" && origem[chave] !== false)
+        filtros[chave] = origem[chave];
+    const fila = valor.fila || "todas";
+    if (!Object.hasOwn(this.filas, fila)) throw new Error("Escolha uma fila de tarefas válida.");
+    const contexto = {filtros, fila};
+    if (valor.tarefa_id !== undefined) {
+      const id = Number(valor.tarefa_id);
+      if (!Number.isSafeInteger(id) || id < 1) throw new Error("Tarefa inválida.");
+      contexto.tarefa_id = id;
+    }
+    return contexto;
+  },
+  /* Entrada comum da Central e da ficha: só filtros/id, nunca permissões ou autor. */
+  abrirContexto(valor) {
+    if (!Sessao.pode("aba.tarefas")) return;
+    const contexto = this.contexto(valor);
+    Abas.abrir("tarefas");
+    document.dispatchEvent(new CustomEvent("tarefas:abrir", {detail: contexto}));
+  },
+  async confirmarCarteira(enviar, etapa) { const resultado = await enviar(); etapa("concluido"); return resultado; },
   situacoes: {a_fazer: "A fazer", em_andamento: "Em andamento",
     aguardando_cliente: "Aguardando cliente", concluida: "Concluída",
     conferida: "Conferida", devolvida: "Devolvida", dispensada: "Dispensada"},
@@ -336,14 +363,18 @@ Abas.registrar("tarefas", container => {
       </nav>
       <section id="tar-listagem">
         <form id="tar-filtros" class="linha-form">
+          <label>Buscar tarefa ou cliente<input id="tar-texto" type="search" maxlength="200" placeholder="Digite um nome ou tarefa"></label>
           <label>Cliente<select id="tar-cliente"></select></label>
           <label>Setor<select id="tar-setor"></select></label>
           <label>Responsável<select id="tar-responsavel"></select></label>
           <label>Competência<input id="tar-competencia" type="month"></label>
           <label>Situação<select id="tar-situacao"></select></label>
+          <label>Fila<select id="tar-fila"></select></label>
           <label>Vence de<input id="tar-de" type="date"></label>
           <label>Vence até<input id="tar-ate" type="date"></label>
           <label class="permissao"><input type="checkbox" id="tar-sem-responsavel">Sem responsável</label>
+          <label class="permissao"><input type="checkbox" id="tar-abertas">Só pendentes</label>
+          <label class="permissao"><input type="checkbox" id="tar-pendente-conferencia">Só para conferir</label>
           <button type="submit" class="botao-primario">Filtrar</button>
           <button type="button" id="tar-limpar">Limpar</button>
         </form>
@@ -360,6 +391,12 @@ Abas.registrar("tarefas", container => {
       <section id="tar-configuracao" class="oculto"></section>
       <section id="tar-importar" class="oculto">
         <h3>Importar a carteira de um colaborador</h3>
+        <ol id="tar-imp-etapas" class="tar-etapas" aria-label="Etapas da importação">
+          <li data-etapa="arquivo" aria-current="step"><span>1</span>Escolher arquivo</li>
+          <li data-etapa="previa"><span>2</span>Conferir prévia</li>
+          <li data-etapa="concluido"><span>3</span>Concluído</li>
+        </ol>
+        <p id="tar-imp-status" role="status" aria-live="polite"></p>
         <p class="dica">Confira o cliente de cada linha e escolha as características sugeridas. Contato e e-mail serão atualizados apenas nas linhas confirmadas. As marcas de checklist não são importadas.</p>
         <form id="tar-importar-form" class="linha-form">
           <label>Setor<select id="tar-imp-setor" required></select></label>
@@ -370,7 +407,9 @@ Abas.registrar("tarefas", container => {
       </section>
     </div>`;
   const $ = id => container.querySelector(`#${id}`);
-  const s = {visao: "minhas", pagina: 1, catalogo: null, itens: [], selecionadas: new Set(), consulta: 0};
+  const s = {visao: "minhas", pagina: 1, catalogo: null, itens: [], selecionadas: new Set(), consulta: 0,
+    detalheConsulta: 0, contextoConsulta: 0, importacaoConsulta: 0, usuarioId: Sessao.usuario?.id};
+  const sessaoValida = () => Sessao.usuario?.id === s.usuarioId && Sessao.pode("aba.tarefas");
   const pode = slug => Sessao.pode(slug), gerencia = pode("tarefas.setor") || Sessao.ehAdmin();
   const status = (texto, erro = false) => { $("tar-status").textContent = texto; $("tar-status").classList.toggle("erro", erro); };
   const pessoas = () => (s.catalogo.usuarios || []).filter(x => x.ativo !== false && x.ativo !== 0);
@@ -385,20 +424,25 @@ Abas.registrar("tarefas", container => {
   function filtros() {
     const p = {visao: u.visaoConsulta(s.visao)};
     for (const [id, chave] of [["cliente", "cliente_id"], ["setor", "setor_id"], ["responsavel", "responsavel_usuario_id"],
-      ["competencia", "competencia"], ["situacao", "situacao"], ["de", "vencimento_de"], ["ate", "vencimento_ate"]]) {
+      ["competencia", "competencia"], ["situacao", "situacao"], ["texto", "texto"], ["fila", "fila"], ["de", "vencimento_de"], ["ate", "vencimento_ate"]]) {
       if ($(`tar-${id}`).value) p[chave] = $(`tar-${id}`).value;
     }
     if ($("tar-sem-responsavel").checked) p.sem_responsavel = "true";
+    if ($("tar-abertas").checked) p.abertas = "true";
+    if ($("tar-pendente-conferencia").checked) p.pendente_conferencia = "true";
     return p;
   }
   async function catalogo() {
-    s.catalogo = await api("/api/tarefas/catalogo");
+    const resposta = await api("/api/tarefas/catalogo");
+    if (!sessaoValida()) return;
+    s.catalogo = resposta;
     for (const [id, itens, vazio] of [["tar-cliente", s.catalogo.clientes, "Todos os clientes"],
       ["tar-setor", s.catalogo.setores, "Todos os setores"], ["tar-responsavel", pessoas(), "Todos"],
       ["tar-imp-setor", setoresGeridos(), "Escolha o setor"], ["tar-imp-responsavel", u.usuariosSetor(s.catalogo, $("tar-imp-setor").value), "Escolha o responsável"]]) {
       const atual = $(id).value; u.opcoes($(id), itens || [], vazio, atual);
     }
     u.opcoes($("tar-situacao"), Object.entries(u.situacoes).map(([valor, rotulo]) => ({valor, rotulo})), "Todas", $("tar-situacao").value);
+    u.opcoes($("tar-fila"), Object.entries(u.filas).map(([valor, rotulo]) => ({valor, rotulo})), undefined, $("tar-fila").value || "todas");
     $("tar-email").textContent = s.catalogo.email_ativo ? "Resumo diário por e-mail ativado."
       : "E-mail desligado. Os avisos continuam disponíveis aqui; o administrador pode configurar o envio no servidor.";
   }
@@ -410,11 +454,14 @@ Abas.registrar("tarefas", container => {
     $("tar-todas").indeterminate = s.selecionadas.size > 0 && !$("tar-todas").checked;
   }
   async function carregar() {
+    if (!sessaoValida()) return false;
     const chamada = ++s.consulta;
+    ++s.detalheConsulta; $("tar-detalhe").classList.add("oculto");
+    s.selecionadas.clear(); atualizarSelecao();
     status("Carregando tarefas…");
     try {
       const r = await api("/api/tarefas?" + new URLSearchParams({...filtros(), pagina: s.pagina}));
-      if (chamada !== s.consulta) return;
+      if (chamada !== s.consulta || !sessaoValida()) return false;
       s.itens = r.itens; s.pagina = r.pagina; s.selecionadas.clear();
       const tbody = $("tar-tabela").querySelector("tbody"); tbody.textContent = "";
       for (const t of r.itens) {
@@ -436,12 +483,18 @@ Abas.registrar("tarefas", container => {
       if (!r.itens.length) { const tr = u.el("tr"), td = u.el("td", "Nenhuma tarefa encontrada com estes filtros.", "tar-vazio"); td.colSpan = 8; tr.append(td); tbody.append(tr); }
       $("tar-pagina").textContent = `${r.total} tarefa(s) · Página ${r.pagina} de ${Math.max(1, r.paginas)}`;
       $("tar-anterior").disabled = r.pagina <= 1; $("tar-proxima").disabled = r.pagina >= r.paginas;
-      atualizarSelecao(); status(""); await AvisoTarefas.mostrar();
-    } catch (e) { if (chamada === s.consulta) status(e.message, true); }
+      atualizarSelecao(); status("");
+      AvisoTarefas.mostrar().catch(e => { if (chamada === s.consulta && sessaoValida()) status("Tarefas carregadas. Não foi possível atualizar o aviso: " + e.message, true); }); return true;
+    } catch (e) { if (chamada === s.consulta && sessaoValida()) status(e.message, true); return false; }
   }
   async function detalhe(id) {
-    const t = await api(`/api/tarefas/${id}`), alvo = $("tar-detalhe"); alvo.textContent = ""; alvo.classList.remove("oculto");
-    const topo = u.el("div", undefined, "tar-cabecalho"); topo.append(u.el("h3", t.titulo), u.botao("Fechar detalhe", () => alvo.classList.add("oculto"))); alvo.append(topo);
+    const consulta = ++s.detalheConsulta;
+    let t;
+    try { t = await api(`/api/tarefas/${id}`); }
+    catch (erro) { if (consulta === s.detalheConsulta && sessaoValida()) throw erro; return; }
+    if (consulta !== s.detalheConsulta || !sessaoValida()) return;
+    const alvo = $("tar-detalhe"); alvo.textContent = ""; alvo.classList.remove("oculto");
+    const topo = u.el("div", undefined, "tar-cabecalho"); topo.append(u.el("h3", t.titulo), u.botao("Fechar detalhe", () => { ++s.detalheConsulta; alvo.classList.add("oculto"); })); alvo.append(topo);
     alvo.append(u.el("p", `${t.cliente_nome || "Cliente"} · ${t.setor_nome || "Setor"} · ${u.rotuloSituacao(t.situacao)}`),
       u.el("p", `Vencimento: ${u.vencimento(t.vencimento)} · Responsável: ${t.responsavel_efetivo_nome || nomePessoa(t.responsavel_efetivo_id ?? t.responsavel_usuario_id)}`));
     if (u.ocorrencia(t)) alvo.append(u.el("p", u.ocorrencia(t), "dica"));
@@ -481,7 +534,7 @@ Abas.registrar("tarefas", container => {
       li.append(u.el("p", dePara)); if (e.comentario) li.append(u.el("p", e.comentario));
       if (e.substituindo_usuario_id) li.append(u.el("small", `Substituindo ${nomePessoa(e.substituindo_usuario_id)}`)); lista.append(li);
     }
-    alvo.append(lista); alvo.scrollIntoView({behavior: "smooth", block: "start"});
+    alvo.append(lista); alvo.tabIndex = -1; alvo.focus({preventScroll: true}); alvo.scrollIntoView({behavior: "smooth", block: "start"});
   }
   function avulsa() {
     u.form("Nova tarefa avulsa", [
@@ -653,13 +706,26 @@ Abas.registrar("tarefas", container => {
         }))); $("tar-configuracao").append(bloco);
     }
   }
+  function etapaImportacao(etapa, mensagem = "") {
+    const etapas = ["arquivo", "previa", "concluido"], atual = etapas.indexOf(etapa);
+    $("tar-imp-etapas").querySelectorAll("li").forEach((li, i) => {
+      li.classList.toggle("completa", i < atual);
+      if (i === atual) li.setAttribute("aria-current", "step"); else li.removeAttribute("aria-current");
+    });
+    $("tar-imp-status").textContent = mensagem || ({arquivo: "Escolha a planilha e o responsável para ver a prévia.",
+      previa: "Revise os vínculos, contatos e características. Nada foi importado ainda.",
+      concluido: "Importação confirmada pelo servidor."}[etapa]);
+  }
   async function importar(e) {
     e.preventDefault(); const botao = $("tar-importar-form").querySelector("button"); botao.disabled = true;
+    const consulta = ++s.importacaoConsulta; etapaImportacao("arquivo", "Preparando a prévia…");
     const alvo = $("tar-imp-previa"); alvo.textContent = "";
     try {
       const fd = new FormData(); fd.append("arquivo", $("tar-imp-arquivo").files[0]);
       fd.append("setor_id", $("tar-imp-setor").value); fd.append("responsavel_usuario_id", $("tar-imp-responsavel").value);
       const r = await api("/api/tarefas/importacao/previa", {method: "POST", body: fd});
+      if (consulta !== s.importacaoConsulta || !sessaoValida()) return;
+      etapaImportacao("previa");
       alvo.append(u.el("h3", "Confira antes de importar"), u.el("p", "Linhas sem cliente escolhido serão ignoradas. As sugestões de características precisam ser marcadas por você.", "dica"));
       const form = u.el("form"), linhas = [];
       for (const l of r.linhas) {
@@ -700,19 +766,27 @@ Abas.registrar("tarefas", container => {
           if (!decisoes.length) throw new Error("Escolha ao menos um cliente para importar.");
           if (new Set(decisoes.map(x => x.cliente_id)).size !== decisoes.length) throw new Error("Escolha apenas uma linha para cada cliente.");
           enviada = true;
-          await api("/api/tarefas/importacao/confirmar", {json: {token: r.token, decisoes}});
+          $("tar-importar-form").querySelectorAll("input,select,button").forEach(c => { c.disabled = true; });
+          await u.confirmarCarteira(() => api("/api/tarefas/importacao/confirmar", {json: {token: r.token, decisoes}}), etapa => {
+            if (consulta === s.importacaoConsulta && sessaoValida()) etapaImportacao(etapa);
+          });
+          if (consulta !== s.importacaoConsulta || !sessaoValida()) return;
           alvo.textContent = ""; alvo.append(u.el("p", "Carteira importada. Contatos, características e responsáveis confirmados foram gravados juntos.", "status"));
-          $("tar-imp-arquivo").value = ""; await catalogo();
+          $("tar-imp-arquivo").value = "";
+          try { await catalogo(); } catch (falha) { alvo.append(u.el("p", "A importação foi concluída, mas os filtros não puderam ser atualizados: " + falha.message, "aviso")); }
         } catch (e2) {
+          if (consulta !== s.importacaoConsulta || !sessaoValida()) return;
+          etapaImportacao("previa", enviada ? "A confirmação não foi concluída. Gere uma nova prévia antes de tentar novamente." : "Revise as escolhas antes de confirmar.");
           erro.textContent = e2.message + (enviada ? " Gere uma nova prévia para tentar novamente." : "");
           if (enviada) confirmar.textContent = "Gere uma nova prévia acima";
           else confirmar.disabled = false;
-        }
+        } finally { if (consulta === s.importacaoConsulta && sessaoValida()) $("tar-importar-form").querySelectorAll("input,select,button").forEach(c => { c.disabled = false; }); }
       });
-    } catch (e2) { alvo.append(u.el("p", e2.message, "erro")); }
-    finally { botao.disabled = false; }
+    } catch (e2) { if (consulta === s.importacaoConsulta) { etapaImportacao("arquivo", "Não foi possível preparar a prévia. Confira o arquivo e tente novamente."); alvo.append(u.el("p", e2.message, "erro")); } }
+    finally { if (consulta === s.importacaoConsulta) botao.disabled = false; }
   }
   function abrirVisao(visao) {
+    if (!sessaoValida()) return false;
     s.visao = visao; s.pagina = 1; s.selecionadas.clear();
     $("tar-nav").querySelectorAll("button").forEach(b => { b.classList.toggle("ativa", b.dataset.visao === visao); b.setAttribute("aria-pressed", b.dataset.visao === visao ? "true" : "false"); });
     $("tar-listagem").classList.toggle("oculto", ["configuracao", "importar"].includes(visao));
@@ -721,7 +795,9 @@ Abas.registrar("tarefas", container => {
     $("tar-sem-responsavel").disabled = visao === "minhas";
     if (visao === "minhas") { $("tar-responsavel").value = ""; $("tar-sem-responsavel").checked = false; }
     $("tar-detalhe").classList.add("oculto");
-    if (visao === "configuracao") configurar(); else if (visao !== "importar") carregar();
+    ++s.detalheConsulta;
+    if (["configuracao", "importar"].includes(visao)) ++s.consulta;
+    if (visao === "configuracao") configurar(); else if (visao !== "importar") return carregar();
   }
   $("tar-nav").addEventListener("click", e => { const b = e.target.closest("button[data-visao]"); if (b) abrirVisao(b.dataset.visao); });
   if (!(gerencia || pode("tarefas.todas"))) $("tar-nav").querySelector('[data-visao="setor"]').classList.add("oculto");
@@ -738,11 +814,36 @@ Abas.registrar("tarefas", container => {
   $("tar-proxima").addEventListener("click", () => { s.pagina += 1; carregar(); });
   $("tar-atualizar").addEventListener("click", async () => { try { await catalogo(); abrirVisao(s.visao); } catch (e) { status(e.message, true); } });
   $("tar-importar-form").addEventListener("submit", importar);
+  $("tar-importar-form").addEventListener("change", () => {
+    ++s.importacaoConsulta; $("tar-imp-previa").textContent = ""; etapaImportacao("arquivo");
+    $("tar-importar-form").querySelector("button").disabled = false;
+  });
   $("tar-imp-setor").addEventListener("change", () => u.opcoes($("tar-imp-responsavel"), u.usuariosSetor(s.catalogo, $("tar-imp-setor").value), "Escolha o responsável"));
   const pronto = catalogo();
   pronto.then(() => abrirVisao("minhas")).catch(e => status(e.message, true));
+  // tarefas:abrir recebe {filtros, fila, tarefa_id?}; não transporta privilégios.
+  async function abrirContexto(valor) {
+    const chamada = ++s.contextoConsulta;
+    try {
+      const c = u.contexto(valor); await pronto;
+      if (chamada !== s.contextoConsulta || !sessaoValida()) return;
+      $("tar-filtros").reset();
+      for (const [id, chave] of [["cliente", "cliente_id"], ["setor", "setor_id"], ["responsavel", "responsavel_usuario_id"],
+        ["competencia", "competencia"], ["situacao", "situacao"], ["texto", "texto"], ["de", "vencimento_de"], ["ate", "vencimento_ate"]])
+        $(`tar-${id}`).value = c.filtros[chave] ?? "";
+      for (const [id, chave] of [["sem-responsavel", "sem_responsavel"], ["abertas", "abertas"], ["pendente-conferencia", "pendente_conferencia"]])
+        $(`tar-${id}`).checked = [true, "true", 1, "1"].includes(c.filtros[chave]);
+      $("tar-fila").value = c.fila;
+      const carregou = await abrirVisao(c.filtros.visao);
+      if (carregou && chamada === s.contextoConsulta && c.tarefa_id) await detalhe(c.tarefa_id);
+    } catch (erro) { if (chamada === s.contextoConsulta) status(erro.message, true); }
+  }
+  document.addEventListener("tarefas:abrir", e => abrirContexto(e.detail));
   document.addEventListener("tarefas:cliente", async e => {
-    try { await pronto; $("tar-filtros").reset(); $("tar-cliente").value = e.detail; abrirVisao("cliente"); }
-    catch (erro) { status(erro.message, true); }
+    await abrirContexto({filtros: {visao: "cliente", cliente_id: e.detail}});
+  });
+  document.addEventListener("sessao:encerrada", () => {
+    ++s.consulta; ++s.detalheConsulta; ++s.contextoConsulta; ++s.importacaoConsulta;
+    s.selecionadas.clear(); $("tar-detalhe").classList.add("oculto");
   });
 });

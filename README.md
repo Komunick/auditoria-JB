@@ -439,3 +439,26 @@ ela tem prioridade sobre a versão embutida. (O `.exe` e as pastas
 
 `0000` (identificação) · `0150` (participantes) · `0200` (produtos/NCM) ·
 `C100` (nota) · `C170` (itens). Demais registros são ignorados com segurança.
+
+## Central operacional (spec 016)
+
+O início da plataforma web reúne prioridades, fila de tarefas e distribuição de
+pendências por responsável. Os filtros permitem consultar cliente, setor,
+responsável efetivo, competência e texto. A competência começa vazia para incluir
+também pendências antigas. Os números consideram todo o conjunto autorizado e
+filtrado; escolher um cartão altera somente a fila exibida, sem recalcular os
+indicadores para essa categoria.
+
+"Abrir tarefa" usa o detalhe e as permissões existentes. A lista completa e a
+exportação Excel mantêm os filtros selecionados. Sem vencimento não significa
+atraso, e conclusão com conferência exigida continua como pendência operacional.
+A distribuição por responsável mostra a carga atual, incluindo substituições,
+sem avaliar produtividade histórica.
+
+A navegação agrupa Gestão, ferramentas e Sistema. Quem não acessa Tarefas mantém
+seus atalhos permitidos. A importação de carteira mostra as etapas de escolha do
+arquivo, conferência e conclusão, preservando a prévia e a confirmação existentes.
+
+Esta versão não altera schema, não importa a carteira real e não configura
+integrações externas. Contratos e critérios estão em
+[`specs/016-central-operacional/`](specs/016-central-operacional/).
