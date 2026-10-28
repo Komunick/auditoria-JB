@@ -1,7 +1,8 @@
 # Validação — spec 018
 
-Em preparação em 28/10/2026. Resultados finais de publicação e ativação serão
-registrados após observação; este documento não presume ativação.
+Validação encerrada em 28/10/2026, incluindo o primeiro deploy automático e
+um ciclo posterior sem mudanças. Evidências operacionais detalhadas ficam em
+área privada; este registro não publica dados de negócio ou segredos.
 
 | Critério | Verificação | Resultado atual |
 |---|---|---|
@@ -43,6 +44,40 @@ O instalador preparou arquivos root, conta isolada e drop-in de manutenção;
 o timer permaneceu desabilitado durante o ensaio. Seu pacote foi transferido
 com SHA-256 conferido e validado contra o OID da árvore Git antes da instalação.
 Resultados operacionais e logs ficam em área privada da VM.
+
+## Publicação e primeiro ciclo automático
+
+- [PR #20](https://github.com/Komunick/auditoria-JB/pull/20) integrado à dev por
+  merge commit `606caaee7ff112592a17465f50591c9d24aacd3c`.
+- [PR #21](https://github.com/Komunick/auditoria-JB/pull/21) promoveu a main por
+  merge commit `a23d123aaa95d3ae67593a7880fa48a74d0d8f87`.
+- Preflight aprovado e timer habilitado às 19:16 UTC. A própria automação
+  atualizou o checkout produtivo anterior; não houve fast-forward manual para
+  simular sucesso do primeiro ciclo.
+- O ciclo executou novamente a suíte em sandbox: 75 aprovados, 2 pulados,
+  1 desktop não aplicável, Node aprovado. Backups completos anterior/posterior,
+  ensaio da migração e verificações dos seis bancos concluídos.
+- Deploy registrado como `success/deployed` às 19:21:03 UTC. Serviço ativo,
+  novo processo iniciado às 19:21:01 UTC, checkout limpo no SHA promovido,
+  HTTP local saudável e HTTPS `/api/estado` 200 sem necessidade de bootstrap.
+- Auditoria independente do resultado conferiu hashes e metadados dos
+  manifestos de dados, venv, bundle e configuração, e o manifesto separado de
+  segredos/cron. Nenhum banco original de backup foi aberto nessa auditoria.
+  Integridade/FK e preservação de identidades/imutáveis já haviam sido
+  verificadas pelo executor em cópias de trabalho. `clientes.db` permaneceu
+  no schema 3; os outros bancos conservaram suas versões próprias.
+- Chave do cofre e cron preservados, SMTP desligado, nenhum processo filho do
+  servidor e marcador de manutenção ausente ao final.
+- Ciclo seguinte às 19:23:11 UTC: `success/noop`, sem novo backup ou reinício,
+  preservando último deploy, suas evidências e o PID da aplicação. Timer
+  `enabled/active`, executor oneshot sem falha e aguardando a próxima execução.
+
+O SHA é comprovado no checkout e correlacionado ao processo reiniciado pelo
+executor. Isso não constitui atestação criptográfica dos módulos Python em
+memória. As specs 015/016 não fazem parte desta implantação. Teste autenticado
+manual com usuário de produção não foi executado; fluxos foram cobertos pela
+suíte sintética. Nenhuma carteira, obrigação, usuário ou credencial foi
+cadastrada por esta execução.
 
 As regressões específicas incluem criação exclusiva de baseline em diretório
 controlado pelo usuário de teste, transporte sem seguir links, rejeição por SHA,
