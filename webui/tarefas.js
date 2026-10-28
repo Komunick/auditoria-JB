@@ -10,6 +10,13 @@ const TarefasUI = {
     const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(valor || "");
     return m ? `${m[3]}/${m[2]}/${m[1]}` : "—";
   },
+  vencimento(valor) { return valor ? this.data(valor) : "Sem vencimento"; },
+  resultadoPrazo(t) { return !t.vencimento ? "Sem vencimento" : t.fora_do_prazo ? "Fora do prazo" : "Dentro do prazo"; },
+  ocorrencia(t) {
+    if (!t.obrigacao_id) return "";
+    const intervalo = t.origem?.intervalo;
+    return `Ocorrência ${t.ocorrencia || 1}${intervalo ? " · período " + intervalo : ""}`;
+  },
   rotuloSituacao(valor) { return this.situacoes[valor] || "Situação desconhecida"; },
   meses(valor) {
     const meses = String(valor || "").split(",").map(s => s.trim()).filter(Boolean).map(Number);
@@ -17,11 +24,45 @@ const TarefasUI = {
       throw new Error("Escolha competências entre janeiro e dezembro, sem repetir.");
     return meses;
   },
+  periodos(valor) {
+    const entradas = String(valor || "").split(/[;\n]/).map(p => p.trim()).filter(Boolean);
+    if (!entradas.length) throw new Error("Informe ao menos um período, como 01-15; 16-30.");
+    const periodos = entradas.map(texto => {
+      const m = /^(\d{1,2})\s*-\s*(\d{1,2})$/.exec(texto);
+      if (!m) throw new Error("Escreva cada período como 01-15, separado por ponto e vírgula ou nova linha.");
+      const inicio = Number(m[1]), fim = Number(m[2]);
+      if (inicio < 1 || fim > 31 || inicio > fim)
+        throw new Error("Use dias de 1 a 31, com início anterior ou igual ao fim.");
+      return {inicio, fim};
+    });
+    if (periodos.some((p, i) => i > 0 && p.inicio <= periodos[i - 1].fim))
+      throw new Error("Informe os períodos em ordem, sem dias repetidos entre eles.");
+    return periodos;
+  },
   regra(v) {
+    if (v.tipo === "sem_vencimento") return {tipo: v.tipo};
     const r = {tipo: v.tipo, sem_expediente: v.sem_expediente};
-    if (v.tipo !== "ultimo_dia_util_mes_seguinte") r.dia = Number(v.dia);
+    if (v.tipo === "periodos_mes_seguinte") { r.periodos = this.periodos(v.periodos); return r; }
+    if (["dia_mes_seguinte", "dia_mes_fixo"].includes(v.tipo)) r.dia = Number(v.dia);
     if (v.tipo === "dia_mes_fixo") r.mes = Number(v.mes);
+    if (v.tipo === "dia_mes_seguinte" && v.inicio_dia !== undefined && v.inicio_dia !== null && v.inicio_dia !== "") {
+      r.inicio_dia = Number(v.inicio_dia);
+      if (!Number.isInteger(r.inicio_dia) || r.inicio_dia < 1 || r.inicio_dia > 31 || r.inicio_dia > r.dia)
+        throw new Error("O dia de início deve ficar entre 1 e o dia de vencimento.");
+    }
     return r;
+  },
+  antecedencia(v) {
+    if (["periodos_mes_seguinte", "sem_vencimento"].includes(v.tipo)) return null;
+    const preenchida = v.inicio_antecedencia_dias !== undefined && v.inicio_antecedencia_dias !== null && v.inicio_antecedencia_dias !== "";
+    if (v.tipo === "dia_mes_seguinte" && v.inicio_dia !== undefined && v.inicio_dia !== null && v.inicio_dia !== "" && preenchida)
+      throw new Error("Escolha dia fixo de início ou antecedência em dias. Deixe o outro campo vazio.");
+    return preenchida ? Number(v.inicio_antecedencia_dias) : null;
+  },
+  validarPeriodicidade(tipo, periodicidade) {
+    if (tipo === "periodos_mes_seguinte" && periodicidade !== "mensal")
+      throw new Error("Períodos no mês seguinte exigem periodicidade mensal.");
+    return true;
   },
   selecao(itens, ids) { return itens.filter(t => ids.has(t.id)).map(t => ({id: t.id, revision: t.revision})); },
   podeLote(t) { return !!t.pode_gerir && ["a_fazer", "em_andamento", "aguardando_cliente", "devolvida"].includes(t.situacao); },
@@ -34,9 +75,12 @@ const TarefasUI = {
     return dados;
   },
   descreverRegra(r = {}) {
+    if (r.tipo === "sem_vencimento") return "Sem vencimento";
     if (r.tipo === "ultimo_dia_util_mes_seguinte") return "Último dia útil do mês seguinte à competência";
-    const texto = r.tipo === "dia_mes_seguinte" ? `Dia ${r.dia} do mês seguinte à competência`
-      : r.tipo === "dia_mes_fixo" ? `Dia ${r.dia} do mês ${r.mes}` : "Regra não disponível";
+    const intervalos = (r.periodos || []).map(p => `${String(p.inicio).padStart(2, "0")}–${String(p.fim).padStart(2, "0")}`);
+    const texto = r.tipo === "dia_mes_seguinte" ? `${r.inicio_dia ? "Início no dia " + r.inicio_dia + "; vencimento no dia " : "Dia "}${r.dia} do mês seguinte à competência`
+      : r.tipo === "dia_mes_fixo" ? `Dia ${r.dia} do mês ${r.mes}`
+      : r.tipo === "periodos_mes_seguinte" ? `Períodos ${intervalos.join(" e ")} do mês seguinte à competência` : "Regra não disponível";
     const ajuste = {antecipar: "antecipar para dia útil", adiar: "adiar para dia útil", manter: "manter a data"}[r.sem_expediente || "manter"];
     return `${texto}; ${ajuste}`;
   },
@@ -137,22 +181,74 @@ const TarefasUI = {
     document.addEventListener("keydown", teclado, true);
     acoes.append(u.botao("Cancelar", fechar), ok); form.append(grade, erro, acoes); fundo.append(form);
     form.addEventListener("submit", async e => { e.preventDefault(); ok.disabled = true; erro.textContent = "";
-      try { await salvar(valores()); fechar(); } catch (e2) { erro.textContent = e2.message; }
+      try { if (await salvar(valores()) !== false) fechar(); } catch (e2) { erro.textContent = e2.message; }
       finally { ok.disabled = false; } });
     document.body.append(fundo);
     form.querySelector("input:not(:disabled),select:not(:disabled),textarea:not(:disabled),button:not(:disabled)")?.focus();
+  },
+  confirmarGeracao(previa, competencia) {
+    const u = this;
+    return new Promise(resolve => {
+      const gatilho = document.activeElement, fundo = u.el("div", undefined, "modal-fundo");
+      const modal = u.el("div", undefined, "modal largo tar-modal");
+      modal.setAttribute("role", "dialog"); modal.setAttribute("aria-modal", "true");
+      modal.setAttribute("aria-label", "Prévia de geração");
+      modal.append(u.el("h3", "Prévia de geração"),
+        u.el("p", `${previa.total} tarefa(s) para a competência ${competencia}. Confira os períodos e as datas antes de gerar.`));
+      const rolagem = u.el("div", undefined, "rolagem"), tabela = u.el("table", undefined, "tar-previa-geracao");
+      const cabecalho = u.el("thead"), linha = u.el("tr"), corpo = u.el("tbody");
+      for (const titulo of ["Cliente", "Tarefa", "Ocorrência", "Início", "Vencimento"]) {
+        const th = u.el("th", titulo); th.setAttribute("scope", "col"); linha.append(th);
+      }
+      cabecalho.append(linha);
+      for (const t of previa.itens || previa.tarefas || []) {
+        const tr = u.el("tr");
+        for (const texto of [t.cliente_nome, t.titulo, u.ocorrencia(t), u.data(t.inicio), u.vencimento(t.vencimento)])
+          tr.append(u.el("td", texto));
+        corpo.append(tr);
+      }
+      tabela.append(cabecalho, corpo); rolagem.append(tabela); modal.append(rolagem,
+        u.el("p", "As tarefas já existentes serão preservadas. Cada período listado gera uma ocorrência independente.", "dica"));
+      const fechar = resposta => {
+        document.removeEventListener("keydown", teclado, true); fundo.remove();
+        if (gatilho?.isConnected) {
+          const foco = gatilho.disabled ? gatilho.closest("form")?.querySelector("input:not(:disabled),select:not(:disabled),button:not(:disabled)") : gatilho;
+          foco?.focus();
+        }
+        resolve(resposta);
+      };
+      const cancelar = u.botao("Voltar", () => fechar(false));
+      const confirmar = u.botao("Confirmar geração", () => fechar(true), "botao-primario");
+      const teclado = e => {
+        if (e.key === "Escape") { e.preventDefault(); fechar(false); }
+        if (e.key === "Tab" && e.shiftKey && document.activeElement === cancelar) { e.preventDefault(); confirmar.focus(); }
+        else if (e.key === "Tab" && !e.shiftKey && document.activeElement === confirmar) { e.preventDefault(); cancelar.focus(); }
+      };
+      const acoes = u.el("div", undefined, "acoes"); acoes.append(cancelar, confirmar); modal.append(acoes); fundo.append(modal);
+      document.addEventListener("keydown", teclado, true); document.body.append(fundo); cancelar.focus();
+    });
   },
   camposRegra(regra = {}) {
     return [
       {nome: "tipo", rotulo: "Vencimento", tipo: "select", valor: regra.tipo || "dia_mes_seguinte", opcoes: [
         {valor: "dia_mes_seguinte", rotulo: "Dia do mês seguinte à competência"},
         {valor: "ultimo_dia_util_mes_seguinte", rotulo: "Último dia útil do mês seguinte"},
-        {valor: "dia_mes_fixo", rotulo: "Dia e mês fixos (anual)"}]},
+        {valor: "dia_mes_fixo", rotulo: "Dia e mês fixos (anual)"},
+        {valor: "periodos_mes_seguinte", rotulo: "Períodos no mês seguinte (mensal)"},
+        {valor: "sem_vencimento", rotulo: "Sem vencimento"}],
+        ajuda: "Sem vencimento: a tarefa começa no primeiro dia do mês seguinte e não recebe alertas de prazo."},
       {nome: "dia", rotulo: "Dia", tipo: "number", min: 1, max: 31, valor: regra.dia || 20,
-        quando: v => v.tipo !== "ultimo_dia_util_mes_seguinte", obrigatorio: true},
+        quando: v => ["dia_mes_seguinte", "dia_mes_fixo"].includes(v.tipo), obrigatorio: true},
+      {nome: "inicio_dia", rotulo: "Dia fixo de início (opcional)", tipo: "number", min: 1, max: 31, valor: regra.inicio_dia,
+        quando: v => v.tipo === "dia_mes_seguinte", ajuda: "No mês seguinte à competência, até o dia do vencimento. Use este campo ou a antecedência em dias."},
+      {nome: "periodos", rotulo: "Períodos do mês seguinte", tipo: "textarea", obrigatorio: true,
+        valor: (regra.periodos || []).map(p => `${String(p.inicio).padStart(2, "0")}-${String(p.fim).padStart(2, "0")}`).join("; "),
+        placeholder: "01-10; 11-20; 21-30", quando: v => v.tipo === "periodos_mes_seguinte",
+        ajuda: "Uma tarefa por período, em ordem e sem sobreposição. O dia 30 continua sendo 30 em meses com 31 dias. Em fevereiro, dias inexistentes passam para o último dia do mês."},
       {nome: "mes", rotulo: "Mês do vencimento", tipo: "select", valor: regra.mes || 1,
         opcoes: this.opcoesMeses(), quando: v => v.tipo === "dia_mes_fixo"},
       {nome: "sem_expediente", rotulo: "Se não houver expediente", tipo: "select", valor: regra.sem_expediente || "manter",
+        quando: v => v.tipo !== "sem_vencimento",
         opcoes: [{valor: "manter", rotulo: "Manter a data"}, {valor: "antecipar", rotulo: "Antecipar para dia útil"},
           {valor: "adiar", rotulo: "Adiar para dia útil"}]}];
   },
@@ -326,9 +422,10 @@ Abas.registrar("tarefas", container => {
         escolher.setAttribute("aria-label", `Selecionar ${t.titulo}`); escolher.disabled = !u.podeLote(t);
         escolher.addEventListener("change", () => { if (escolher.checked) s.selecionadas.add(t.id); else s.selecionadas.delete(t.id); atualizarSelecao(); });
         const tdEscolher = u.el("td"); tdEscolher.append(escolher); tr.append(tdEscolher);
-        const titulo = u.el("td"); titulo.append(u.el("strong", t.titulo), u.el("small", t.cliente_nome || "", "tar-secundario")); tr.append(titulo);
+        const titulo = u.el("td"); titulo.append(u.el("strong", t.titulo), u.el("small", t.cliente_nome || "", "tar-secundario"));
+        if (u.ocorrencia(t)) titulo.append(u.el("small", u.ocorrencia(t), "tar-secundario")); tr.append(titulo);
         for (const texto of [t.setor_nome || "—", t.responsavel_efetivo_nome || t.responsavel_nome || nomePessoa(t.responsavel_efetivo_id ?? t.responsavel_usuario_id),
-          t.competencia || "Avulsa", u.data(t.vencimento)]) tr.append(u.el("td", texto));
+          t.competencia || "Avulsa", u.vencimento(t.vencimento)]) tr.append(u.el("td", texto));
         const estado = u.el("td"); const cor = ["verde", "amarelo", "vermelho"].includes(t.cor) ? t.cor : "neutro";
         estado.append(u.el("span", u.rotuloSituacao(t.situacao), `tar-cor ${cor}`));
         if (t.atrasada) estado.append(u.el("small", "Prazo vencido", "tar-secundario"));
@@ -346,9 +443,10 @@ Abas.registrar("tarefas", container => {
     const t = await api(`/api/tarefas/${id}`), alvo = $("tar-detalhe"); alvo.textContent = ""; alvo.classList.remove("oculto");
     const topo = u.el("div", undefined, "tar-cabecalho"); topo.append(u.el("h3", t.titulo), u.botao("Fechar detalhe", () => alvo.classList.add("oculto"))); alvo.append(topo);
     alvo.append(u.el("p", `${t.cliente_nome || "Cliente"} · ${t.setor_nome || "Setor"} · ${u.rotuloSituacao(t.situacao)}`),
-      u.el("p", `Vencimento: ${u.data(t.vencimento)} · Responsável: ${t.responsavel_efetivo_nome || nomePessoa(t.responsavel_efetivo_id ?? t.responsavel_usuario_id)}`));
+      u.el("p", `Vencimento: ${u.vencimento(t.vencimento)} · Responsável: ${t.responsavel_efetivo_nome || nomePessoa(t.responsavel_efetivo_id ?? t.responsavel_usuario_id)}`));
+    if (u.ocorrencia(t)) alvo.append(u.el("p", u.ocorrencia(t), "dica"));
     if (t.inicio) alvo.append(u.el("p", `Início previsto: ${u.data(t.inicio)}`, "dica"));
-    if (t.concluida_em) alvo.append(u.el("p", `Concluída por ${nomePessoa(t.concluida_por)} em ${new Date(t.concluida_em).toLocaleString("pt-BR")}${t.fora_do_prazo ? " · Fora do prazo" : " · Dentro do prazo"}`));
+    if (t.concluida_em) alvo.append(u.el("p", `Concluída por ${nomePessoa(t.concluida_por)} em ${new Date(t.concluida_em).toLocaleString("pt-BR")} · ${u.resultadoPrazo(t)}`));
     if (t.conferida_em) alvo.append(u.el("p", `Conferida por ${nomePessoa(t.conferida_por)} em ${new Date(t.conferida_em).toLocaleString("pt-BR")}${t.conferida_substituindo ? ", substituindo " + nomePessoa(t.conferida_substituindo) : ""}`));
     if (t.obrigacao_id) {
       alvo.append(u.el("p", `Origem: obrigação cadastrada · ${u.descreverRegra(t.origem?.regra)}`, "dica"));
@@ -418,11 +516,11 @@ Abas.registrar("tarefas", container => {
       {nome: "cliente_id", rotulo: "Cliente", tipo: "select", opcoes: s.catalogo.clientes, vazio: "Todos do setor"}], async v => {
         const previa = await api("/api/tarefas/geracao/previa", {json: {competencia: v.competencia, setor_id: Number(v.setor_id), cliente_id: v.cliente_id ? Number(v.cliente_id) : null}});
         if (!previa.total) { toast("Nenhuma tarefa nova a gerar. Confira o catálogo, a carteira e os filtros."); return; }
-        if (!await confirmar("Confirmar geração", `Serão criadas ${previa.total} tarefa(s) para ${v.competencia}. As já existentes serão preservadas. Confirma?`)) return;
+        if (!await u.confirmarGeracao(previa, v.competencia)) return false;
         await api("/api/tarefas/geracao/confirmar", {json: {token: previa.token}});
         $("tar-competencia").value = v.competencia; $("tar-setor").value = v.setor_id; $("tar-cliente").value = v.cliente_id;
         abrirVisao("setor"); toast("Geração concluída.");
-      }, "Você verá a contagem antes de confirmar. Nenhuma obrigação é criada automaticamente no catálogo.");
+      }, "Você verá as ocorrências e suas datas antes de confirmar. Nenhuma obrigação é criada automaticamente no catálogo.");
   }
   function secao(titulo, ajuda, novo, itens, texto, editar) {
     const bloco = u.el("div", undefined, "conc-bloco tar-config-bloco"), topo = u.el("div", undefined, "tar-cabecalho");
@@ -466,7 +564,9 @@ Abas.registrar("tarefas", container => {
       {nome: "competencias", rotulo: "Meses de competência", tipo: "multi", opcoes: u.opcoesMeses(), valor: d.competencias || [3, 6, 9, 12],
         quando: v => ["trimestral", "anual"].includes(v.periodicidade), ajuda: "Anual: escolha um mês. Trimestral: escolha os meses de fechamento."},
       ...u.camposRegra(regra),
-      {nome: "inicio_antecedencia_dias", rotulo: "Iniciar quantos dias antes do prazo (opcional)", tipo: "number", min: 0, max: 365, valor: d.inicio_antecedencia_dias},
+      {nome: "inicio_antecedencia_dias", rotulo: "Iniciar quantos dias antes do prazo (opcional)", tipo: "number", min: 0, max: 365, valor: d.inicio_antecedencia_dias,
+        quando: v => !["periodos_mes_seguinte", "sem_vencimento"].includes(v.tipo),
+        ajuda: "Deixe vazio se informar um dia fixo de início. Os períodos já definem seus próprios dias de início."},
       {nome: "todas", rotulo: "O cliente deve ter todas estas características", tipo: "multi", opcoes: caracteristicas(), valor: condicao.todas || []},
       {nome: "alguma", rotulo: "Deve ter pelo menos uma destas", tipo: "multi", opcoes: caracteristicas(), valor: condicao.alguma || []},
       {nome: "nenhuma", rotulo: "Não pode ter nenhuma destas", tipo: "multi", opcoes: caracteristicas(), valor: condicao.nenhuma || []},
@@ -475,9 +575,10 @@ Abas.registrar("tarefas", container => {
         const competencias = ["anual", "trimestral"].includes(v.periodicidade) ? v.competencias : [];
         if (v.periodicidade === "anual" && competencias.length !== 1) throw new Error("Escolha uma competência para a obrigação anual.");
         if (v.periodicidade === "trimestral" && !competencias.length) throw new Error("Escolha as competências trimestrais.");
+        u.validarPeriodicidade(v.tipo, v.periodicidade);
         await salvar("obrigacoes", {nome: v.nome, setor_id: Number(v.setor_id), periodicidade: v.periodicidade, competencias,
           regra_vencimento: u.regra(v), condicao: {todas: v.todas, alguma: v.alguma, nenhuma: v.nenhuma},
-          inicio_antecedencia_dias: v.inicio_antecedencia_dias === "" ? null : Number(v.inicio_antecedencia_dias),
+          inicio_antecedencia_dias: u.antecedencia(v),
           exige_conferencia: v.exige_conferencia, ativa: v.ativa, revision: d.revision}, d.id);
       }, "A alteração valerá para as próximas gerações. Tarefas já geradas preservam o prazo e a regra de origem.");
   }
@@ -491,8 +592,12 @@ Abas.registrar("tarefas", container => {
       {nome: "valido_de", rotulo: "Válido a partir de (opcional)", tipo: "date", valor: d.valido_de},
       {nome: "valido_ate", rotulo: "Válido até (opcional)", tipo: "date", valor: d.valido_ate},
       {nome: "motivo", rotulo: "Motivo", tipo: "textarea", obrigatorio: true, valor: d.motivo}],
-      v => salvar("ajustes", u.ajuste(v, d.revision), d.id),
-      d.id ? "A alteração preserva o histórico e vale para as próximas gerações. Para encerrar o ajuste, informe o último dia de validade." : "");
+      v => {
+        if (v.ajuste_tipo === "vencimento") u.validarPeriodicidade(v.tipo,
+          s.catalogo.obrigacoes.find(o => o.id === Number(v.obrigacao_id))?.periodicidade);
+        return salvar("ajustes", u.ajuste(v, d.revision), d.id);
+      },
+      `${d.id ? "A alteração preserva o histórico e vale para as próximas gerações. Para encerrar o ajuste, informe o último dia de validade. " : ""}Para usar início fixo, períodos ou uma rotina sem vencimento, deixe vazia a antecedência em dias no cadastro da obrigação.`);
   }
   function editarFeriado(d = {}) {
     u.form("Feriado e expediente", [

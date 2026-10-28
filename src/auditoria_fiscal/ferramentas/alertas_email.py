@@ -64,9 +64,9 @@ def montar_resumos(store, usuarios: list[dict], hoje: date) -> dict:
             conferencia = situacao == 'concluida' and tarefa.get('exige_conferencia')
             if situacao == 'concluida' and not conferencia:
                 continue
-            vencimento = date.fromisoformat(tarefa['vencimento'])
-            atrasada = situacao != 'concluida' and vencimento < hoje
-            vencendo = situacao != 'concluida' and hoje <= vencimento <= limite
+            vencimento = date.fromisoformat(tarefa['vencimento']) if tarefa.get('vencimento') else None
+            atrasada = vencimento is not None and situacao != 'concluida' and vencimento < hoje
+            vencendo = vencimento is not None and situacao != 'concluida' and hoje <= vencimento <= limite
             carimbo = tarefa.get('aguardando_desde') or tarefa.get('atualizada_em') or hoje.isoformat()
             dia_espera = data_salvador(carimbo)
             aguardando = situacao == 'aguardando_cliente' and (hoje - dia_espera).days > espera
@@ -103,8 +103,11 @@ def _mensagem(resumo, cfg, hoje):
     linhas = ['Resumo interno de tarefas e prazos', f'Data: {hoje:%d/%m/%Y}', '']
     for tarefa in resumo['tarefas']:
         indicacao = 'aguarda conferência' if tarefa['alerta_conferencia'] else tarefa['situacao'].replace('_', ' ')
+        intervalo = tarefa.get('origem', {}).get('intervalo', '')
+        ocorrencia = f" | ocorrência {tarefa.get('ocorrencia', 1)} ({intervalo})" if intervalo else ''
+        prazo = f"prazo {tarefa['vencimento']}" if tarefa.get('vencimento') else 'Sem vencimento'
         linhas.append(f"• {tarefa.get('cliente_nome', '')} — {tarefa['titulo']} | "
-                      f"prazo {tarefa['vencimento']} | {indicacao}")
+                      f"{prazo}{ocorrencia} | {indicacao}")
     linhas.extend(['', 'Consulte a aba Tarefas e prazos no sistema para registrar o andamento.'])
     mensagem.set_content('\n'.join(linhas))
     return mensagem

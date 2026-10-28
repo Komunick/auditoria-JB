@@ -11,6 +11,7 @@ CAMPOS = (
     ('concluida_em', 'Concluída em'), ('concluida_nome', 'Concluída por'),
     ('conferida_em', 'Conferida em'), ('conferida_nome', 'Conferida por'),
     ('conferida_substituindo', 'Substituindo usuário'), ('fora_do_prazo', 'Fora do prazo'),
+    ('ocorrencia', 'Ocorrência'), ('intervalo', 'Intervalo'),
 )
 
 
@@ -25,7 +26,13 @@ def gerar_relatorio(tarefas):
             if chave in ('concluida_nome', 'conferida_nome') and not valor:
                 valor = tarefa.get(chave.replace('_nome', '_por'), '')
             if chave == 'fora_do_prazo':
-                valor = 'Sim' if valor else 'Não'
+                valor = ('Sim' if valor else 'Não') if tarefa.get('vencimento') else 'Não se aplica'
+            elif chave == 'vencimento' and not valor:
+                valor = 'Sem vencimento'
+            elif chave == 'ocorrencia':
+                valor = tarefa.get('ocorrencia', 1)
+            elif chave == 'intervalo':
+                valor = tarefa.get('origem', {}).get('intervalo', '')
             escrever_texto(aba, linha, coluna, valor)
     aba.auto_filter.ref = aba.dimensions
     saida = io.BytesIO()
