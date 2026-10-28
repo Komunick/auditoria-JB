@@ -7,7 +7,7 @@
 - [x] T005 Testar e implementar revisão visual com busca, filtros e origem.
 - [x] T006 Verificar sessão, conteúdo não confiável e importadores anteriores.
 - [x] T007 Conferir estrutura real somente em área privada e navegador sintético.
-- [ ] T008 Regressão, revisão independente, evidências e PR para dev.
+- [x] T008 Regressão, revisão independente, evidências e PR para dev.
 
 Evidências em [validacao.md](validacao.md). Regressão e revisão aprovadas;
-T008 aguarda a abertura do PR.
+[PR #18](https://github.com/Komunick/auditoria-JB/pull/18) aberto para dev.

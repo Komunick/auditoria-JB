@@ -57,5 +57,10 @@ spec 016/PR #17 para impedir reaproveitamento de DOM entre sessões. O restante
 da Central não faz parte deste branch. A suíte acima cobre esta feature sobre
 `dev@7207040`, sem incorporar as specs 015/016.
 
+A simulação de integração por `git merge-tree --write-tree`, entre o commit
+`cc93761` da spec 016 e o commit `2d98dc7` desta implementação, terminou sem
+conflitos. Isso verifica compatibilidade textual; a combinação não foi
+executada nem usada para substituir a suíte deste branch.
+
 Firebird e produção não foram verificados nesta etapa. A publicação é por PR
 para `dev`; merge e deploy seguem o fluxo do projeto.
