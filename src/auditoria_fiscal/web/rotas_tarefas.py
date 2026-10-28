@@ -374,7 +374,8 @@ def avisos(request:Request,usuario:Usuario=Depends(exigir_aba('tarefas'))):
             for t in p['itens']:
                 c=regras.classificar(t,_hoje(),int(s.configuracao()['tarefas_alerta_dias']))
                 contagem['atrasadas']+=int(bool(c['atrasada']))
-                if t['situacao'] in regras.ABERTAS and 0 <= (date.fromisoformat(t['vencimento'])-_hoje()).days <= int(s.configuracao()['tarefas_alerta_dias']):
+                if (t.get('vencimento') and t['situacao'] in regras.ABERTAS
+                        and 0 <= (date.fromisoformat(t['vencimento'])-_hoje()).days <= int(s.configuracao()['tarefas_alerta_dias'])):
                     contagem['vencendo']+=1
             offset+=len(p['itens'])
             if not p['itens'] or offset>=p['total']:

@@ -31,6 +31,7 @@ def recusa(tipo, fn, *args, **kwargs):
 
 
 def main():
+    agenda_periodos_sem_vencimento()
     with tempfile.TemporaryDirectory(prefix="tarefas_sintetico_") as pasta, ExitStack() as recursos:
         original = os.path.join(pasta, "schema1.db")
         with sqlite3.connect(original) as conn:
@@ -46,7 +47,7 @@ def main():
         assert migrado.conn.execute('SELECT cifra FROM segredo').fetchone()[0] == bytes([1, 2, 3])
         assert migrado.conn.execute('SELECT fim FROM certificado').fetchone()[0] == '2027-01-01'
         assert migrado.conn.execute('SELECT contato_email FROM cliente').fetchone()[0] == ''
-        assert migrado.conn.execute('PRAGMA user_version').fetchone()[0] == 2
+        assert migrado.conn.execute('PRAGMA user_version').fetchone()[0] == 3
         # Fixture descartavel de um banco schema 2 anterior ao campo revision.
         # Apenas a montagem desta fixture remove a coluna; a migracao e aditiva.
         migrado.conn.execute('ALTER TABLE ajuste_cliente DROP COLUMN revision')
@@ -70,12 +71,12 @@ def main():
         s = TarefasStore(db, usuario_ativo=lambda uid: uid in ativos,
                         agora_fn=lambda: datetime(2026, 10, 27, 12, tzinfo=timezone.utc))
         recursos.callback(s.fechar)
-        assert s._conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert s._conn.execute("PRAGMA user_version").fetchone()[0] == 3
         assert s._conn.execute("SELECT count(*) FROM cliente").fetchone()[0] == 4
         assert s._conn.execute("SELECT count(*) FROM alteracao").fetchone()[0] == antes
         c = ClientesStore(db)
         recursos.callback(c.fechar)
-        assert c._conn.execute("PRAGMA user_version").fetchone()[0] == 2
+        assert c._conn.execute("PRAGMA user_version").fetchone()[0] == 3
         c.editar_cliente(ids[0], {**c.obter(ids[0]), "contato_nome": "Contato sintetico",
                                 "contato_email": "teste@example.invalid"}, revision=1, **U)
         assert c.obter(ids[0])["contato_email"] == "teste@example.invalid"
@@ -270,6 +271,105 @@ def main():
         s.fechar()
     print("OK - tarefas_store: migracao, escopos, regras, substituicoes, trilha, importacao e concorrencia")
     return 0
+
+
+def agenda_periodos_sem_vencimento():
+    """Schema 2 real, identidades por posicao e ausencia de prazo sem data ficticia."""
+    with tempfile.TemporaryDirectory(prefix="agenda_014_sintetica_") as pasta:
+        db = os.path.join(pasta, "clientes.db")
+        relogio = lambda: datetime(2027, 2, 20, 12, tzinfo=timezone.utc)
+        s = TarefasStore(db, agora_fn=relogio)
+        cid = s.criar_cliente({"nome": "Empresa Sintetica Periodos"}, **U)
+        sid = s.salvar_setor({"nome": "Setor Sintetico Periodos", "responsavel_usuario_id": 1, "membros": [1]}, **U)["id"]
+        s.definir_carteira(cid, sid, 1, **U)
+        dados = dict(nome="Obrigacao Sintetica", setor_id=sid, periodicidade="mensal",
+                     regra_vencimento={"tipo": "dia_mes_seguinte", "dia": 10})
+        obrig = s.salvar_obrigacao(dados, **U)
+        oid = obrig["id"]
+        t = s.gerar("2027-01", setor_id=sid, hoje=HOJE, **U)["tarefas"][0]
+        tid = t["id"]
+        eventos = s.eventos(tid)
+        tarefa_antes = dict(s.conn.execute("SELECT * FROM tarefa WHERE id=?", (tid,)).fetchone())
+        tarefa_antes.pop("ocorrencia", None)
+        # Somente a fixture descartavel reverte a coluna/indice para schema 2.
+        if "ocorrencia" in {r["name"] for r in s.conn.execute("PRAGMA table_info(tarefa)")}:
+            s.conn.execute("DROP INDEX idx_tarefa_competencia")
+            s.conn.execute("ALTER TABLE tarefa DROP COLUMN ocorrencia")
+            s.conn.execute("CREATE UNIQUE INDEX idx_tarefa_competencia ON tarefa(cliente_id,obrigacao_id,competencia) WHERE obrigacao_id IS NOT NULL")
+        s.conn.execute("PRAGMA user_version=2")
+        paginas = dict(s.conn.execute("SELECT name,rootpage FROM sqlite_master WHERE type='table'"))
+        s.fechar()
+        s = TarefasStore(db, agora_fn=relogio)
+        try:
+            assert s.conn.execute("PRAGMA user_version").fetchone()[0] == 3
+            migrada = dict(s.conn.execute("SELECT * FROM tarefa WHERE id=?", (tid,)).fetchone())
+            assert migrada.pop("ocorrencia") == 1 and migrada == tarefa_antes
+            assert dict(s.conn.execute("SELECT name,rootpage FROM sqlite_master WHERE type='table'")) == paginas
+            assert s.eventos(tid) == eventos
+            assert not s.conn.execute("PRAGMA foreign_key_check").fetchall()
+            recusa(sqlite3.IntegrityError, s.conn.execute, "DELETE FROM tarefa_evento")
+            recusa(sqlite3.IntegrityError, s.conn.execute, "UPDATE tarefa_evento SET comentario='indevido'")
+            # A posicao 1 antiga permanece; a regra nova completa 2 e 3 manualmente.
+            regra = {"tipo": "periodos_mes_seguinte", "periodos": [{"inicio": 1, "fim": 10}, {"inicio": 11, "fim": 20}, {"inicio": 21, "fim": 30}], "sem_expediente": "manter"}
+            obrig = s.salvar_obrigacao({**dados, "regra_vencimento": regra}, id=oid, revision=obrig["revision"], **U)
+            previa = s.previa_geracao("2027-01", setor_id=sid, hoje=HOJE)
+            assert [(x["ocorrencia"], x["inicio"], x["vencimento"]) for x in previa["tarefas"]] == [(2, "2027-02-11", "2027-02-20"), (3, "2027-02-21", "2027-02-28")]
+            assert all(x["origem"]["ocorrencia"] == x["ocorrencia"] and x["origem"]["intervalo"] for x in previa["tarefas"])
+            assert s.gerar("2027-01", setor_id=sid, hoje=HOJE, previa_esperada=previa, **U)["contagens"]["criadas"] == 2
+            assert s.gerar("2027-01", setor_id=sid, hoje=HOJE, **U)["contagens"]["criadas"] == 0
+            assert s.eventos(tid) == eventos and s.obter_tarefa(tid)["vencimento"] == tarefa_antes["vencimento"]
+            # Regra efetiva do cliente pode substituir a serie completa; nunca colapsa silenciosamente.
+            ajuste = s.salvar_ajuste(dict(cliente_id=cid, obrigacao_id=oid, tipo="vencimento", regra_vencimento=regra,
+                                         valido_de="2027-02-01", valido_ate="2027-02-28", motivo="Excecao sintetica"), **U)
+            assert len(s.previa_geracao("2027-02", setor_id=sid, hoje=HOJE)["tarefas"]) == 3
+            # Dois processos disputam a mesma serie, preservando todas as ocorrencias.
+            def gerar_concorrente(_):
+                outro = TarefasStore(db)
+                try:
+                    return outro.gerar("2027-02", setor_id=sid, hoje=HOJE, disparo="automatico", **U)["contagens"]["criadas"]
+                finally:
+                    outro.fechar()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                assert sum(pool.map(gerar_concorrente, range(2))) == 3
+            assert s.listar_tarefas({"competencia": "2027-02"}, todas=True)["total"] == 3
+            # Combinacoes ambiguas e recorrencia multipla fora do mensal sao recusadas.
+            recusa(ValueError, s.salvar_obrigacao, {**dados, "nome": "Ambigua", "regra_vencimento": regra, "inicio_antecedencia_dias": 0}, **U)
+            recusa(ValueError, s.salvar_obrigacao, {**dados, "nome": "Trimestre invalido", "regra_vencimento": regra, "periodicidade": "trimestral"}, **U)
+            fixa = {"tipo": "dia_mes_seguinte", "dia": 20, "inicio_dia": 2, "sem_expediente": "manter"}
+            recusa(ValueError, s.salvar_obrigacao, {**dados, "nome": "Inicio ambiguo", "regra_vencimento": fixa, "inicio_antecedencia_dias": 2}, **U)
+            o_fixa = s.salvar_obrigacao({**dados, "nome": "Inicio fixo", "regra_vencimento": fixa}, **U)
+            p = s.previa_geracao("2027-03", setor_id=sid, hoje=HOJE)
+            assert next(x for x in p["tarefas"] if x["obrigacao_id"] == o_fixa["id"])["inicio"] == "2027-04-02"
+            s.salvar_obrigacao({**dados, "nome": "Sem data", "regra_vencimento": {"tipo": "sem_vencimento"}, "exige_conferencia": True}, **U)
+            geradas = s.gerar("2027-03", setor_id=sid, hoje=HOJE, **U)["tarefas"]
+            sem = next(x for x in geradas if not x["vencimento"])
+            assert sem["inicio"] == "2027-04-01" and sem["ocorrencia"] == 1
+            lista = s.listar_tarefas({"competencia": "2027-03"}, todas=True, hoje=date(2030, 1, 1))["itens"]
+            assert lista[-1]["id"] == sem["id"] and not lista[-1]["atrasada"]
+            for filtro in ({"vencimento_de": "2000-01-01"}, {"vencimento_ate": "2100-01-01"}):
+                assert all(x["vencimento"] for x in s.listar_tarefas(filtro, todas=True)["itens"])
+            tarefa = s.obter_tarefa(sem["id"])
+            tarefa = s.mudar_situacao(tarefa["id"], "em_andamento", tarefa["revision"], **U)
+            tarefa = s.mudar_situacao(tarefa["id"], "concluida", tarefa["revision"], hoje=date(2030, 1, 1), **U)
+            assert tarefa["vencimento"] == "" and not tarefa["fora_do_prazo"] and tarefa["pendente_conferencia"]
+            # Ausencia de prazo nao altera as competencias anuais/trimestrais.
+            anuais = s.salvar_obrigacao({**dados, "nome": "Rotina anual", "periodicidade": "anual", "competencias": [3],
+                                        "regra_vencimento": {"tipo": "sem_vencimento"}}, **U)
+            trimestrais = s.salvar_obrigacao({**dados, "nome": "Rotina trimestral", "periodicidade": "trimestral",
+                                            "regra_vencimento": {"tipo": "sem_vencimento"}}, **U)
+            novas = s.previa_geracao("2027-03", setor_id=sid, hoje=HOJE)["tarefas"]
+            assert {x["obrigacao_id"] for x in novas} == {anuais["id"], trimestrais["id"]}
+            assert all(x["inicio"] == "2027-04-01" and x["vencimento"] == "" and x["ocorrencia"] == 1 for x in novas)
+            assert not any(x["obrigacao_id"] in {anuais["id"], trimestrais["id"]}
+                           for x in s.previa_geracao("2027-04", setor_id=sid, hoje=HOJE)["tarefas"])
+        finally:
+            s.fechar()
+        # Reabrir nao altera a versao nem reconstroi os registros/eventos.
+        s = TarefasStore(db)
+        try:
+            assert s.conn.execute("PRAGMA user_version").fetchone()[0] == 3 and s.eventos(tid) == eventos
+        finally:
+            s.fechar()
 
 
 if __name__ == "__main__":

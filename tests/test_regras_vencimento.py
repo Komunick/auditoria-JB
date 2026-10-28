@@ -16,6 +16,79 @@ def recusa(func, *args, **kwargs):
     raise AssertionError(f"Entrada invalida aceita: {func.__name__}{args}")
 
 
+def agenda_por_periodos():
+    # Inicio fixo nao acompanha o adiamento/antecipacao do vencimento.
+    regra = {"tipo": "dia_mes_seguinte", "inicio_dia": 1, "dia": 20, "sem_expediente": "adiar"}
+    assert rv.validar_regra(regra) == regra
+    ocorrencias = rv.calcular_ocorrencias("2026-10", regra, rv.feriados_nacionais(2026))
+    assert ocorrencias == [{"ocorrencia": 1, "inicio": date(2026, 11, 1),
+                           "vencimento": date(2026, 11, 23), "rotulo": ""}]
+    antecipada = rv.calcular_ocorrencias("2026-03", dict(regra, dia=25, sem_expediente="antecipar"))
+    assert antecipada[0]["inicio"] == date(2026, 4, 1)
+    assert antecipada[0]["vencimento"] == date(2026, 4, 24)
+    # Uma regra antiga continua sem inicio fixo, para o store conservar sua politica.
+    assert rv.calcular_ocorrencias("2026-12", {"tipo": "dia_mes_seguinte", "dia": 30}) == [
+        {"ocorrencia": 1, "inicio": None, "vencimento": date(2027, 1, 30), "rotulo": ""}]
+
+    periodos = {"tipo": "periodos_mes_seguinte", "sem_expediente": "manter",
+                "periodos": [{"inicio": 1, "fim": 10}, {"inicio": 11, "fim": 20}, {"inicio": 21, "fim": 30}]}
+    esperado = [(1, date(2026, 2, 1), date(2026, 2, 10), "01–10"),
+                (2, date(2026, 2, 11), date(2026, 2, 20), "11–20"),
+                (3, date(2026, 2, 21), date(2026, 2, 28), "21–30")]
+    recebido = rv.calcular_ocorrencias("2026-01", periodos)
+    assert [(o["ocorrencia"], o["inicio"], o["vencimento"], o["rotulo"]) for o in recebido] == esperado
+    assert rv.calcular_ocorrencias("2028-01", periodos)[2]["vencimento"] == date(2028, 2, 29)
+    assert rv.calcular_ocorrencias("2026-02", periodos)[2]["vencimento"] == date(2026, 3, 30), "Nao estender ate o dia 31"
+    assert rv.calcular_ocorrencias("2026-12", periodos)[0]["inicio"] == date(2027, 1, 1)
+    quinzenas = {"tipo": "periodos_mes_seguinte", "periodos": [{"inicio": 1, "fim": 15}, {"inicio": 16, "fim": 30}],
+                 "sem_expediente": "antecipar"}
+    recebidas = rv.calcular_ocorrencias("2026-01", quinzenas, rv.feriados_nacionais(2026))
+    assert [o["ocorrencia"] for o in recebidas] == [1, 2]
+    assert recebidas[0]["vencimento"] == date(2026, 2, 13)
+    assert recebidas[1]["inicio"] == date(2026, 2, 16) and recebidas[1]["vencimento"] == date(2026, 2, 27)
+    assert recebidas[1]["rotulo"] == "16–30", "Rotulo preserva periodo original, mesmo em fevereiro"
+    # Calendario altera prazos, nunca os identificadores posicionais das ocorrencias.
+    adiadas = rv.calcular_ocorrencias("2026-01", dict(quinzenas, sem_expediente="adiar"), rv.feriados_nacionais(2026))
+    assert [o["ocorrencia"] for o in adiadas] == [1, 2]
+    assert adiadas[0]["inicio"] == date(2026, 2, 1) and adiadas[0]["vencimento"] == date(2026, 2, 18)
+    assert adiadas[1]["inicio"] == date(2026, 2, 16) and adiadas[1]["vencimento"] == date(2026, 3, 2)
+    recusa(rv.calcular_vencimento, "2026-01", periodos)
+    # Nunca entregar apenas parte da agenda quando um intervalo ficou impossivel.
+    recusa(rv.calcular_ocorrencias, "2026-01", {"tipo": "dia_mes_seguinte", "inicio_dia": 8,
+                                              "dia": 8, "sem_expediente": "antecipar"})
+    recusa(rv.calcular_ocorrencias, "2026-01", {"tipo": "periodos_mes_seguinte", "sem_expediente": "antecipar",
+                                              "periodos": [{"inicio": 1, "fim": 5}, {"inicio": 7, "fim": 8}]})
+    sem = {"tipo": "sem_vencimento"}
+    assert rv.validar_regra(sem) == sem
+    assert rv.calcular_ocorrencias("2026-12", sem) == [
+        {"ocorrencia": 1, "inicio": date(2027, 1, 1), "vencimento": None, "rotulo": ""}]
+    recusa(rv.calcular_vencimento, "2026-12", sem)
+    recusa(rv.calcular_ocorrencias, "9999-12", sem)
+    for invalida in (
+        {"tipo": "dia_mes_seguinte", "dia": 20, "inicio_dia": True},
+        {"tipo": "dia_mes_seguinte", "dia": 20, "inicio_dia": 0},
+        {"tipo": "dia_mes_seguinte", "dia": 20, "inicio_dia": 21},
+        {"tipo": "dia_mes_seguinte", "dia": 20, "inicio_dia": None},
+        {"tipo": "dia_mes_fixo", "dia": 20, "mes": 3, "inicio_dia": 1},
+        {"tipo": "ultimo_dia_util_mes_seguinte", "inicio_dia": 1},
+        {"tipo": "sem_vencimento", "dia": 20},
+        {"tipo": "sem_vencimento", "sem_expediente": "manter"},
+        {"tipo": "sem_vencimento", "inicio_dia": 1},
+        {"tipo": []}, {"tipo": "periodos_mes_seguinte"},
+        {"tipo": "periodos_mes_seguinte", "periodos": []},
+        {"tipo": "periodos_mes_seguinte", "periodos": {"inicio": 1, "fim": 10}},
+        {"tipo": "periodos_mes_seguinte", "periodos": [{"inicio": 1, "fim": 10, "extra": True}]},
+        {"tipo": "periodos_mes_seguinte", "periodos": [{"inicio": 1}]},
+        {"tipo": "periodos_mes_seguinte", "periodos": [{"inicio": True, "fim": 10}]},
+        {"tipo": "periodos_mes_seguinte", "periodos": [{"inicio": 0, "fim": 10}]},
+        {"tipo": "periodos_mes_seguinte", "periodos": [{"inicio": 10, "fim": 5}]},
+        {"tipo": "periodos_mes_seguinte", "periodos": [{"inicio": 21, "fim": 32}]},
+        {"tipo": "periodos_mes_seguinte", "periodos": [{"inicio": 1, "fim": 10}, {"inicio": 10, "fim": 20}]},
+        {"tipo": "periodos_mes_seguinte", "periodos": [{"inicio": 11, "fim": 20}, {"inicio": 1, "fim": 10}]},
+    ):
+        recusa(rv.validar_regra, invalida)
+
+
 def main():
     assert rv.validar_competencia("2026-01") == (2026, 1)
     for valor in ("2026-1", "2026-13", "0000-01", "2026-01-01", None):
@@ -71,7 +144,8 @@ def main():
                   {"tipo": "dia_mes_seguinte", "dia": 20, "codigo": "x"},
                   {"tipo": "dia_mes_seguinte", "dia": 20, "sem_expediente": "ignorar"}):
         recusa(rv.validar_regra, regra)
-    print("OK - regras de vencimento, competencias, feriados 2026-2030 e validacao")
+    agenda_por_periodos()
+    print("OK - regras de vencimento, competencias, feriados, inicio fixo, periodos e ausencia de prazo")
     return 0
 
 

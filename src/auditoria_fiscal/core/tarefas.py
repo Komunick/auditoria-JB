@@ -117,8 +117,14 @@ def classificar(tarefa: dict, hoje: date | str | datetime, dias: int = 3) -> dic
     situacao = tarefa.get("situacao")
     if situacao not in SITUACOES:
         raise ErroTarefas("SITUACAO_INVALIDA", "Situação de tarefa desconhecida.")
+    hoje = data_salvador(hoje)
+    if tarefa["vencimento"] in (None, ""):
+        # Ausencia de prazo nao afirma pontualidade nem atraso. Cores de
+        # andamento/devolucao continuam descrevendo o trabalho, nao uma data.
+        cor = "vermelho" if situacao == "devolvida" else "amarelo" if situacao in ("em_andamento", "aguardando_cliente") else "neutro"
+        return {"cor": cor, "atrasada": False, "fora_do_prazo": False}
     vencimento = data_salvador(tarefa["vencimento"])
-    distancia = (vencimento - data_salvador(hoje)).days
+    distancia = (vencimento - hoje).days
     fora = bool(tarefa.get("fora_do_prazo"))
     atrasada = situacao in ABERTAS and distancia < 0
     if situacao == "dispensada":

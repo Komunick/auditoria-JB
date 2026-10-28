@@ -10,7 +10,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from auditoria_fiscal.ferramentas.alertas_email import ConfigSMTP, montar_resumos, enviar_resumos
+from auditoria_fiscal.ferramentas.alertas_email import ConfigSMTP, montar_resumos, enviar_resumos, _mensagem
 from auditoria_fiscal.ferramentas.tarefas_store import TarefasStore
 
 
@@ -165,6 +165,17 @@ class SMTPHandler(socketserver.StreamRequestHandler):
 def main():
     hoje = date(2026,10,27)
     usuarios = [dict(id=i, nome=f'Pessoa Teste {i}', email=f'p{i}@example.test', ativo=True) for i in range(1,5)]
+    # Sem prazo nao atrasa nem vence; conferencia e espera continuam alertando.
+    sem_prazo = Store()
+    sem_prazo.itens = [dict(t, vencimento='', ocorrencia=1) for t in sem_prazo.itens]
+    sem_resumos = montar_resumos(sem_prazo, usuarios, hoje)
+    assert {t['id'] for t in sem_resumos[3]['tarefas']} == {3}
+    assert {t['id'] for t in sem_resumos[4]['tarefas']} == {2, 3}
+    assert sem_resumos[4]['quantidades'] == dict(vencendo=0, atrasadas=0, conferencias=1, aguardando=1)
+    mensagem = _mensagem(sem_resumos[4], ConfigSMTP(remetente='resumo@example.test'), hoje)
+    assert 'Sem vencimento' in mensagem.get_content()
+    sem_resumos[4]['tarefas'][0].update(ocorrencia=2, origem={'intervalo': '11–20'})
+    assert '11–20' in _mensagem(sem_resumos[4], ConfigSMTP(remetente='resumo@example.test'), hoje).get_content()
     s = Store()
     resumos = montar_resumos(s, usuarios, hoje)
     assert set(resumos) == {3,4}, resumos

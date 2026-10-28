@@ -47,15 +47,20 @@ def competencia_aplicavel(competencia: str, periodicidade: str,
 
 def validar_regra(regra: dict) -> dict:
     campos = {
-        "dia_mes_seguinte": {"tipo", "dia", "sem_expediente"},
+        "dia_mes_seguinte": {"tipo", "dia", "inicio_dia", "sem_expediente"},
         "ultimo_dia_util_mes_seguinte": {"tipo", "sem_expediente"},
         "dia_mes_fixo": {"tipo", "dia", "mes", "sem_expediente"},
+        "periodos_mes_seguinte": {"tipo", "periodos", "sem_expediente"},
+        "sem_vencimento": {"tipo"},
     }
-    if not isinstance(regra, dict) or regra.get("tipo") not in campos:
+    if (not isinstance(regra, dict) or not isinstance(regra.get("tipo"), str)
+            or regra["tipo"] not in campos):
         raise ErroTarefas("REGRA_INVALIDA", "Tipo de regra de vencimento desconhecido.")
     tipo = regra["tipo"]
     if set(regra) - campos[tipo]:
         raise ErroTarefas("REGRA_INVALIDA", "A regra contém campos não reconhecidos.")
+    if tipo == "sem_vencimento":
+        return {"tipo": tipo}
     resultado = {"tipo": tipo, "sem_expediente": regra.get("sem_expediente", "manter")}
     if resultado["sem_expediente"] not in ("antecipar", "adiar", "manter"):
         raise ErroTarefas("REGRA_INVALIDA", "Escolha antecipar, adiar ou manter o dia sem expediente.")
@@ -65,6 +70,28 @@ def validar_regra(regra: dict) -> dict:
             if type(valor) is not int or not 1 <= valor <= limite:
                 raise ErroTarefas("REGRA_INVALIDA", f"O campo {campo} deve estar entre 1 e {limite}.")
             resultado[campo] = valor
+    if "inicio_dia" in regra:
+        inicio = regra["inicio_dia"]
+        if type(inicio) is not int or not 1 <= inicio <= resultado["dia"]:
+            raise ErroTarefas("REGRA_INVALIDA", "O início deve ser um dia entre 1 e o dia do vencimento.")
+        resultado["inicio_dia"] = inicio
+    if tipo == "periodos_mes_seguinte":
+        periodos = regra.get("periodos")
+        if not isinstance(periodos, list) or not 1 <= len(periodos) <= 31:
+            raise ErroTarefas("REGRA_INVALIDA", "Informe uma lista de períodos do mês.")
+        anteriores = 0
+        resultado["periodos"] = []
+        for periodo in periodos:
+            if not isinstance(periodo, dict) or set(periodo) != {"inicio", "fim"}:
+                raise ErroTarefas("REGRA_INVALIDA", "Cada período deve informar somente início e fim.")
+            inicio, fim = periodo["inicio"], periodo["fim"]
+            if (type(inicio) is not int or type(fim) is not int
+                    or not 1 <= inicio <= fim <= 31):
+                raise ErroTarefas("REGRA_INVALIDA", "Os períodos exigem dias de 1 a 31, com início anterior ou igual ao fim.")
+            if inicio <= anteriores:
+                raise ErroTarefas("REGRA_INVALIDA", "Informe os períodos em ordem cronológica, sem sobreposição.")
+            anteriores = fim
+            resultado["periodos"].append({"inicio": inicio, "fim": fim})
     return resultado
 
 
@@ -84,10 +111,8 @@ def dia_util(dia: date | str, feriados=()) -> bool:
     return data.weekday() < 5 and data not in _datas_sem_expediente(feriados)
 
 
-def calcular_vencimento(competencia: str, regra: dict, feriados=()) -> date:
+def _mes_vencimento(competencia: str, regra: dict) -> tuple[int, int]:
     ano, mes = validar_competencia(competencia)
-    regra = validar_regra(regra)
-    sem_expediente = _datas_sem_expediente(feriados)
     if regra["tipo"] == "dia_mes_fixo":
         ano += regra["mes"] < mes
         mes = regra["mes"]
@@ -96,10 +121,10 @@ def calcular_vencimento(competencia: str, regra: dict, feriados=()) -> date:
         mes = mes % 12 + 1
     if ano > 9999:
         raise ErroTarefas("REGRA_INVALIDA", "Vencimento ultrapassa o calendário suportado.")
-    ultimo = calendar.monthrange(ano, mes)[1]
-    dia = ultimo if regra["tipo"] == "ultimo_dia_util_mes_seguinte" else min(regra["dia"], ultimo)
-    vencimento = date(ano, mes, dia)
-    politica = "antecipar" if regra["tipo"] == "ultimo_dia_util_mes_seguinte" else regra["sem_expediente"]
+    return ano, mes
+
+
+def _ajustar_expediente(vencimento: date, politica: str, sem_expediente: set[date]) -> date:
     if politica == "manter":
         return vencimento
     passo = timedelta(days=-1 if politica == "antecipar" else 1)
@@ -109,6 +134,48 @@ def calcular_vencimento(competencia: str, regra: dict, feriados=()) -> date:
     except OverflowError as exc:
         raise ErroTarefas("REGRA_INVALIDA", "Vencimento ultrapassa o calendário suportado.") from exc
     return vencimento
+
+
+def calcular_ocorrencias(competencia: str, regra: dict, feriados=()) -> list[dict]:
+    """Agenda completa, com identidade posicional e sem datas ficticias.
+
+    Os intervalos originais definem ordem e identidade. Somente o fim acompanha
+    a politica de expediente; inicio fixo e rotulo preservam a regra cadastrada.
+    """
+    regra = validar_regra(regra)
+    ano, mes = _mes_vencimento(competencia, regra)
+    if regra["tipo"] == "sem_vencimento":
+        return [{"ocorrencia": 1, "inicio": date(ano, mes, 1), "vencimento": None, "rotulo": ""}]
+    sem_expediente = _datas_sem_expediente(feriados)
+    ultimo = calendar.monthrange(ano, mes)[1]
+    if regra["tipo"] == "periodos_mes_seguinte":
+        ocorrencias = []
+        for numero, periodo in enumerate(regra["periodos"], 1):
+            inicio = date(ano, mes, min(periodo["inicio"], ultimo))
+            vencimento = _ajustar_expediente(date(ano, mes, min(periodo["fim"], ultimo)),
+                                             regra["sem_expediente"], sem_expediente)
+            if inicio > vencimento:
+                raise ErroTarefas("REGRA_INVALIDA", f"O período {numero} começa depois do vencimento ajustado; revise a regra.")
+            ocorrencias.append({"ocorrencia": numero, "inicio": inicio, "vencimento": vencimento,
+                                "rotulo": f"{periodo['inicio']:02d}–{periodo['fim']:02d}"})
+        return ocorrencias
+    dia = ultimo if regra["tipo"] == "ultimo_dia_util_mes_seguinte" else min(regra["dia"], ultimo)
+    politica = "antecipar" if regra["tipo"] == "ultimo_dia_util_mes_seguinte" else regra["sem_expediente"]
+    vencimento = _ajustar_expediente(date(ano, mes, dia), politica, sem_expediente)
+    inicio = date(ano, mes, min(regra["inicio_dia"], ultimo)) if "inicio_dia" in regra else None
+    if inicio is not None and inicio > vencimento:
+        raise ErroTarefas("REGRA_INVALIDA", "O início fixo é posterior ao vencimento ajustado; revise a regra.")
+    return [{"ocorrencia": 1, "inicio": inicio, "vencimento": vencimento, "rotulo": ""}]
+
+
+def calcular_vencimento(competencia: str, regra: dict, feriados=()) -> date:
+    """Contrato legado: uma data. Novas agendas nunca sao reduzidas silenciosamente."""
+    ocorrencias = calcular_ocorrencias(competencia, regra, feriados)
+    if len(ocorrencias) != 1:
+        raise ErroTarefas("MULTIPLAS_OCORRENCIAS", "Esta regra produz mais de um vencimento; consulte a agenda completa.")
+    if ocorrencias[0]["vencimento"] is None:
+        raise ErroTarefas("SEM_VENCIMENTO", "Esta regra não define vencimento.")
+    return ocorrencias[0]["vencimento"]
 
 
 def pascoa(ano: int) -> date:

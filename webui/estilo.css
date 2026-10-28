@@ -1034,6 +1034,12 @@ label.permissao input { margin-top: 3px; }
 .tar-opcoes .permissao { display: flex; align-items: center; gap: 8px; margin: 7px 0; }
 .tar-opcoes input, #tar-tabela input[type="checkbox"] { flex: 0 0 auto; min-width: 16px; width: 16px; height: 16px; }
 .tar-modal { max-height: calc(100vh - 50px); overflow: auto; }
+.tar-previa-geracao { margin: 14px 0; table-layout: fixed; }
+.tar-previa-geracao td { vertical-align: top; }
+.tar-previa-geracao td:nth-child(-n+3) { white-space: normal; overflow-wrap: anywhere; }
+.tar-previa-geracao th:nth-child(4) { width: 110px; }
+.tar-previa-geracao th:nth-child(5) { width: 132px; }
+.tar-previa-geracao td:nth-child(n+4) { white-space: nowrap; }
 .tar-cor { display: inline-block; padding: 3px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
 .tar-cor.verde { background: var(--ok-suave); color: var(--ok); }
 .tar-cor.amarelo { background: var(--alerta-suave); color: var(--alerta); }
@@ -1057,5 +1063,6 @@ label.permissao input { margin-top: 3px; }
 @media (max-width: 600px) {
   .tar-grade { grid-template-columns: 1fr; }
   .tar-modal { width: calc(100vw - 24px); }
+  .tar-previa-geracao { min-width: 640px; }
   .tar-config-linha { align-items: flex-start; }
 }
