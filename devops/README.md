@@ -1,5 +1,19 @@
 # devops — deploy da Auditoria Fiscal Web numa VM Linux
 
+## Instalação com systemd (arm07)
+
+A instalação produtiva com a unit `auditoria-jb` usa o fluxo próprio de
+[deploy automático da main](autodeploy/README.md). Não execute `ctl.sh install`,
+`start` ou `update` nessa instalação: os comandos abaixo descrevem a instalação
+legada por cron e criariam um segundo gerenciador do processo.
+
+O deploy automático conserva o serviço existente e valida cada atualização
+antes da parada. Sua instalação, pausa e recuperação estão documentadas no
+diretório `autodeploy/`. Mudanças de dependências e do executor exigem manutenção
+específica; falhas interrompem a automação sem restauração automática de bancos.
+
+## Instalação legada por cron
+
 Tudo que é preciso para colocar este sistema no ar numa VM, versionado junto com
 o código: quem clona o repositório já leva o deploy junto. O `ctl.sh` tem a
 mesma interface dos outros sistemas da Komunick — muda só o que está por baixo.
