@@ -1,0 +1,11 @@
+[Unit]
+Description=Consultar main da Auditoria JB a cada dois minutos
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+AccuracySec=10s
+Unit=auditoria-jb-autodeploy.service
+
+[Install]
+WantedBy=timers.target
