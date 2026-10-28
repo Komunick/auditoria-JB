@@ -11,7 +11,10 @@ depois da resposta, com o status real.
 from __future__ import annotations
 
 import os
+import logging
+from copy import deepcopy
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.staticfiles import StaticFiles
@@ -34,6 +37,13 @@ from .rotas_extracao import router as rotas_extracao
 from .rotas_produtos import router as rotas_produtos
 from .rotas_tarefas import router as rotas_tarefas, criar_store as criar_store_tarefas
 from .agendador import Agendador
+from .versao import identificar_versao
+
+logger = logging.getLogger('uvicorn.error.aplicacao')
+
+
+def _versao_indisponivel():
+    return dict(sha=None, origem='indisponivel', arvore='desconhecida', iniciado_em=None)
 
 
 def _usuarios_alertas():
@@ -50,11 +60,17 @@ def _usuarios_alertas():
 
 @asynccontextmanager
 async def _ciclo_de_vida(app):
+    # Snapshot do checkout na inicialização; não muda se o disco mudar depois.
+    app.state.versao_execucao = dict(identificar_versao(raiz_projeto()),
+                                    iniciado_em=datetime.now(timezone.utc).isoformat())
     # Migração antes de atender; a thread tem suas próprias conexões SQLite.
     store=criar_store_tarefas()
     store.fechar()
     agendador=Agendador(criar_store_tarefas,_usuarios_alertas)
     app.state.tarefas_agendador=agendador
+    versao=app.state.versao_execucao
+    logger.info('aplicacao_inicio sha=%s origem=%s arvore=%s iniciado_em=%s',
+                versao['sha'] or 'indisponivel', versao['origem'], versao['arvore'], versao['iniciado_em'])
     agendador.iniciar()
     try:
         yield
@@ -113,6 +129,7 @@ def _gravar_cookie_sessao(response: Response, request: Request,
 
 def criar_app() -> FastAPI:
     app = FastAPI(title="Auditoria Fiscal Web", docs_url=None, redoc_url=None, lifespan=_ciclo_de_vida)
+    app.state.versao_execucao = _versao_indisponivel()
     app.middleware("http")(auditoria.middleware_historico)
     # Registrado por ultimo = a camada mais externa: Host e Origin sao
     # conferidos antes de qualquer rota (requisicao recusada nao vira linha
@@ -131,7 +148,7 @@ def criar_app() -> FastAPI:
         alcanca — quem manda de verdade e o 403 do servidor."""
         usuario = auth.usuario_do_token(
             request.cookies.get(auth.COOKIE_SESSAO))
-        return {
+        resultado = {
             "precisa_bootstrap": not auth.existe_usuario(),
             "logado": usuario is not None,
             "usuario": ({"usuario": usuario.usuario, "nome": usuario.nome,
@@ -140,6 +157,13 @@ def criar_app() -> FastAPI:
                              usuario.id, usuario.admin)}
                         if usuario else None),
         }
+        if usuario and usuario.admin:
+            agendador = getattr(request.app.state, 'tarefas_agendador', None)
+            resultado['operacao'] = {
+                'versao': dict(request.app.state.versao_execucao),
+                'agendador': deepcopy(agendador.diagnostico) if agendador else {'estado': 'aguardando'},
+            }
+        return resultado
 
     @app.post("/api/bootstrap")
     def bootstrap(entrada: BootstrapEntrada, request: Request,

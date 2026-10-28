@@ -151,6 +151,10 @@ class TarefasStore(ClientesStore):
         self.agora_fn = agora_fn or (lambda: datetime.now(timezone.utc))
         super().__init__(db_path)
 
+    def fechar_estrito(self):
+        """Propaga falhas ao agendador; fechar() mantém o contrato tolerante legado."""
+        self._conn.close()
+
     def _migrar(self):
         super()._migrar()
         self._conn.executescript(_SCHEMA)
