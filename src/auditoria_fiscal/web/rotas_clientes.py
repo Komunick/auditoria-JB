@@ -39,6 +39,7 @@ from starlette.background import BackgroundTask
 from ..core import certificados as ct
 from ..core import clientes as cl
 from ..core import planilha_clientes as pc
+from ..core import planilha_empresas as pe
 from ..core.cofre import Cofre, CofreIndisponivel, SegredoIlegivel
 from ..ferramentas import clientes_store as cs
 from ..ferramentas.relatorio_clientes import gerar_relacao
@@ -649,6 +650,29 @@ def definir_faixas(entrada: FaixasEntrada, request: Request,
 
 # ----------------------------------------------------------------------
 # Importacao com previa
+
+@router.post("/base-fiscal/previa")
+async def previa_base_fiscal(request: Request, arquivo: UploadFile = File(...),
+                             usuario: Usuario = Depends(
+                                 acesso("clientes.importar"))) -> JSONResponse:
+    """Conferencia da fonte, sem abrir store ou preparar uma confirmacao."""
+    nome = (arquivo.filename or "base-fiscal.xlsx").replace("\\", "/").rsplit("/", 1)[-1]
+    try:
+        if os.path.splitext(nome)[1].lower() != ".xlsx":
+            raise erro(422, "Envie a base Fiscal em uma planilha .xlsx.", pc.PLANILHA_INVALIDA)
+        with tempfile.TemporaryDirectory(prefix="base_fiscal_previa_") as pasta:
+            destino = os.path.join(pasta, "base-fiscal.xlsx")
+            await _receber(arquivo, destino, pe.MAX_PLANILHA_BYTES)
+            try:
+                dados = pe.ler_planilha_empresas(destino).resumo()
+            except cl.ErroClientes as exc:
+                raise _traduzir(exc) from exc
+    finally:
+        await arquivo.close()
+    detalhar(request, f"previa base fiscal: {dados['contagens']['linhas']} linha(s)")
+    return JSONResponse(dict(dados, somente_leitura=True, nome_arquivo=nome[:200]),
+                        headers={"Cache-Control": "no-store"})
+
 
 class ConfirmacaoEntrada(BaseModel):
     decisoes: dict[str, str] = {}

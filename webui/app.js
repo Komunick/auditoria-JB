@@ -378,6 +378,8 @@ const Abas = {
 
 const Telas = {
   mostrarLogin() {
+    Sessao.definir(null);
+    document.dispatchEvent(new CustomEvent("sessao:encerrada"));
     // Fecha qualquer modal aberto: um editor/confirmacao por cima do cartao de
     // login (sessao que caiu com o modal aberto) deixaria o login inalcancavel.
     document.querySelectorAll(".modal-fundo").forEach((m) => m.remove());
@@ -441,7 +443,9 @@ async function iniciar() {
         usuario: document.getElementById("login-usuario").value,
         senha: document.getElementById("login-senha").value } });
       const novo = await api("/api/estado");
-      Telas.mostrarApp(novo.usuario);
+      // Recomeçar o documento impede reaproveitar DOM/consultas de outro usuário.
+      if (!novo.logado) throw new Error("Não foi possível confirmar a sessão.");
+      location.reload();
     } catch (erro) {
       document.getElementById("login-erro").textContent = erro.message;
     }
@@ -456,7 +460,8 @@ async function iniciar() {
         nome: document.getElementById("boot-nome").value,
         senha: document.getElementById("boot-senha").value } });
       const novo = await api("/api/estado");
-      Telas.mostrarApp(novo.usuario);
+      if (!novo.logado) throw new Error("Não foi possível confirmar a sessão.");
+      location.reload();
     } catch (erro) {
       document.getElementById("boot-erro").textContent = erro.message;
     }

@@ -129,6 +129,241 @@ function formularioModal(titulo, campos, { textoConfirmar = "Salvar", ajuda = ""
   });
 }
 
+/* Conferência independente da base Fiscal (spec 017). O resultado vive apenas
+   nesta tela, até trocar o arquivo, encerrar a sessão ou limpar a prévia. */
+const BaseFiscalUI = {
+  normalizar(valor) {
+    return String(valor ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+  },
+  selecionar(linhas, filtros = {}) {
+    const texto = this.normalizar(filtros.texto);
+    return linhas.filter(l => {
+      if (filtros.aba && l.aba !== filtros.aba) return false;
+      const condicoes = {
+        pendencias: !!l.pendencias?.length,
+        documentos: !["valido", "zero_inicial_recuperado"].includes(l.documento_status),
+        duplicados: !!l.duplicado,
+        sem_movimento: l.sem_movimento === true,
+        sem_responsavel: !l.responsavel_fiscal_informado,
+        sem_regime: !l.regime,
+      };
+      if (filtros.situacao && !condicoes[filtros.situacao]) return false;
+      return !texto || this.normalizar([l.nome, l.documento, l.documento_informado, l.regime,
+        l.regime_informado, l.responsavel_fiscal_informado, l.contato_nome, l.aba].join(" ")).includes(texto);
+    });
+  },
+  montar(alvo) {
+    const permitido = () => Sessao.pode("aba.clientes") && Sessao.pode("clientes.importar");
+    if (!permitido()) return;
+    const criar = (tag, texto = "", classe = "") => {
+      const e = document.createElement(tag);
+      e.textContent = texto;
+      if (classe) e.className = classe;
+      return e;
+    };
+    const botao = (texto, id, acao) => {
+      const b = criar("button", texto); b.type = "button"; b.id = id;
+      if (acao) b.addEventListener("click", acao);
+      return b;
+    };
+    const campo = (rotulo, entrada) => {
+      const label = criar("label", rotulo); label.append(entrada); return label;
+    };
+    const opcoes = (entrada, itens) => {
+      entrada.textContent = "";
+      for (const [valor, texto] of itens) {
+        const o = criar("option", texto); o.value = valor; entrada.append(o);
+      }
+    };
+    alvo.className = "base-fiscal";
+    alvo.append(criar("h3", "Conferência da base Fiscal", "pat-titulo"),
+      criar("p", "Sem gravação: esta prévia permite conferir a base de empresas. Não cadastra clientes nem associa responsáveis a usuários.", "dica"),
+      criar("p", "A aba ZERADAS indica empresas sem movimento que continuam na carteira. Não significa inatividade, baixa ou dispensa de obrigações.", "dica"));
+    const entrada = criar("input"); entrada.type = "file"; entrada.accept = ".xlsx"; entrada.id = "bf-arquivo";
+    const ler = botao("Conferir base Fiscal", "bf-ler", carregar); ler.className = "botao-primario";
+    const limpar = botao("Limpar prévia", "bf-limpar", () => invalidar("Prévia limpa. Escolha um arquivo XLSX.", true));
+    const envio = criar("div", "", "linha-form");
+    envio.append(campo("Arquivo XLSX (até 20 MB)", entrada), ler, limpar);
+    const status = criar("p", "Escolha uma planilha para conferir.", "status"); status.id = "bf-status";
+    status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
+    const resultado = criar("div"); resultado.id = "bf-resultado";
+    alvo.append(envio, status, resultado);
+    let consulta = 0, previa = null;
+    function invalidar(mensagem, limparArquivo = false) {
+      consulta += 1; previa = null; resultado.textContent = "";
+      status.textContent = mensagem; status.className = "status";
+      resultado.setAttribute("aria-busy", "false"); ler.disabled = !permitido();
+      if (limparArquivo) entrada.value = "";
+    }
+    entrada.addEventListener("change", () => invalidar(entrada.files[0]
+      ? "Arquivo selecionado. Clique em Conferir base Fiscal para ler a nova prévia."
+      : "Escolha uma planilha para conferir."));
+    document.addEventListener("sessao:encerrada", () => invalidar("Sessão encerrada. A prévia foi limpa.", true));
+
+    async function carregar() {
+      invalidar("");
+      if (!permitido()) { status.textContent = "Você não tem permissão para conferir a base Fiscal."; return; }
+      const arquivo = entrada.files[0];
+      if (!arquivo) { status.textContent = "Escolha um arquivo XLSX."; entrada.focus(); return; }
+      if (!/\.xlsx$/i.test(arquivo.name) || arquivo.size > 20 * 1024 * 1024) {
+        status.textContent = "Escolha um arquivo XLSX de até 20 MB."; return;
+      }
+      const geracao = consulta, pessoa = Sessao.usuario;
+      const atual = () => geracao === consulta && Sessao.usuario === pessoa && permitido();
+      status.textContent = "Lendo a base Fiscal…"; ler.disabled = true;
+      resultado.setAttribute("aria-busy", "true");
+      try {
+        const resposta = await apiUpload("/api/clientes/base-fiscal/previa", arquivo);
+        if (!atual()) return;
+        if (resposta.somente_leitura !== true || !Array.isArray(resposta.linhas) || !resposta.contagens) {
+          throw new Error("Não foi possível conferir a resposta da prévia. Tente novamente.");
+        }
+        previa = resposta;
+        desenhar();
+        status.textContent = "Leitura concluída. Nenhum cadastro ou vínculo foi gravado.";
+      } catch (erro) {
+        if (!atual()) return;
+        previa = null; resultado.textContent = "";
+        status.textContent = erro.message || "Não foi possível ler a planilha.";
+        status.className = "status conc-erro";
+      } finally {
+        if (geracao === consulta) {
+          if (!atual()) invalidar("A sessão mudou. Escolha o arquivo novamente.", true);
+          else { ler.disabled = false; resultado.setAttribute("aria-busy", "false"); }
+        }
+      }
+    }
+
+    function desenhar() {
+      resultado.textContent = "";
+      resultado.append(criar("h4", previa.nome_arquivo, "base-fiscal-arquivo"));
+      const contadores = criar("div", "", "base-fiscal-contadores");
+      for (const [chave, rotulo] of [["linhas", "Registros no arquivo"], ["cnpjs_distintos", "CNPJs válidos distintos"],
+        ["documentos_pendentes", "Documentos pendentes"], ["grupos_duplicados", "Grupos repetidos"],
+        ["sem_movimento", "Sem movimento"], ["com_pendencias", "Com pendências"]]) {
+        const card = criar("div"), n = criar("strong", previa.contagens[chave] ?? "—");
+        n.id = `bf-total-${chave}`;
+        card.append(n, criar("span", rotulo)); contadores.append(card);
+      }
+      resultado.append(contadores, criar("p", "Totais do arquivo inteiro. As categorias podem se sobrepor; busca e filtros alteram apenas a lista abaixo.", "dica"));
+      if (previa.avisos?.length) {
+        const avisos = criar("ul", "", "base-fiscal-avisos");
+        for (const aviso of previa.avisos) avisos.append(criar("li", aviso));
+        resultado.append(avisos);
+      }
+      const detalhes = criar("details", "", "base-fiscal-arquivo-detalhes");
+      detalhes.append(criar("summary", "Detalhes do arquivo e das abas"));
+      const abas = criar("ul");
+      for (const aba of previa.abas || []) {
+        abas.append(criar("li", `${aba.nome}: ${aba.total} registro(s), cabeçalho na linha ${aba.linha_cabecalho}` +
+          (aba.tipo === "zeradas" ? ", sem movimento" : ", base principal") + (aba.oculta ? ", aba oculta" : "")));
+      }
+      detalhes.append(abas, criar("p", `Identificação do arquivo (SHA-256): ${previa.hash_arquivo}`, "base-fiscal-hash"));
+      resultado.append(detalhes);
+      const filtros = criar("div", "", "linha-form base-fiscal-filtros");
+      const busca = criar("input"); busca.type = "search"; busca.id = "bf-busca";
+      busca.placeholder = "Empresa, CNPJ, responsável, contato ou regime";
+      const situacao = criar("select"); situacao.id = "bf-situacao";
+      opcoes(situacao, [["", "Todos os registros"], ["pendencias", "Com pendências"], ["documentos", "Documentos pendentes"],
+        ["duplicados", "CNPJ repetido"], ["sem_movimento", "Sem movimento"], ["sem_responsavel", "Sem responsável Fiscal"], ["sem_regime", "Sem regime reconhecido"]]);
+      const aba = criar("select"); aba.id = "bf-aba";
+      opcoes(aba, [["", "Todas as abas"], ...(previa.abas || []).map(a => [a.nome, a.nome])]);
+      const tamanho = criar("select"); tamanho.id = "bf-tamanho";
+      opcoes(tamanho, [["25", "25"], ["50", "50"]]); tamanho.value = "25";
+      let pagina = 1;
+      const resetar = () => { pagina = 1; listar(); };
+      busca.addEventListener("input", resetar);
+      for (const e of [situacao, aba, tamanho]) e.addEventListener("change", resetar);
+      filtros.append(campo("Buscar na base", busca), campo("Conferência", situacao), campo("Aba", aba), campo("Por página", tamanho),
+        botao("Limpar filtros", "bf-limpar-filtros", () => { busca.value = ""; situacao.value = ""; aba.value = ""; resetar(); }));
+      resultado.append(filtros);
+      const rolagem = criar("div", "", "rolagem base-fiscal-rolagem");
+      rolagem.tabIndex = 0; rolagem.setAttribute("role", "region"); rolagem.setAttribute("aria-label", "Registros da base Fiscal");
+      const tabela = criar("table", "", "base-fiscal-tabela"), cabecalho = criar("thead"), tr = criar("tr");
+      for (const nome of ["Empresa / CNPJ", "Regime", "Responsável Fiscal", "Contato da empresa", "Conferência / origem"]) {
+        const th = criar("th", nome); th.setAttribute("scope", "col"); tr.append(th);
+      }
+      cabecalho.append(tr);
+      const corpo = criar("tbody"); corpo.id = "bf-corpo";
+      tabela.append(cabecalho, corpo); rolagem.append(tabela); resultado.append(rolagem);
+      const navegacao = criar("div", "", "conc-paginacao base-fiscal-paginacao");
+      const anterior = botao("‹ Anterior", "bf-anterior", () => { if (pagina > 1) { pagina -= 1; listar(); } });
+      const proxima = botao("Próxima ›", "bf-proxima", () => { if (!proxima.disabled) { pagina += 1; listar(); } });
+      const info = criar("span"); info.id = "bf-pagina"; info.setAttribute("aria-live", "polite");
+      navegacao.append(anterior, info, proxima); resultado.append(navegacao);
+      const porId = new Map(previa.linhas.map(l => [l.id, l]));
+      function listar() {
+        if (!previa) return;
+        const linhas = BaseFiscalUI.selecionar(previa.linhas, {texto: busca.value, situacao: situacao.value, aba: aba.value});
+        const limite = tamanho.value === "50" ? 50 : 25;
+        pagina = Math.min(pagina, Math.max(1, Math.ceil(linhas.length / limite)));
+        const inicio = (pagina - 1) * limite;
+        corpo.textContent = "";
+        if (!linhas.length) {
+          const vazio = criar("tr"), td = criar("td", previa.linhas.length
+            ? "Nenhum registro corresponde aos filtros. Tente limpar a busca ou os filtros."
+            : "Nenhum registro no arquivo.", "base-fiscal-vazio");
+          td.colSpan = 5; vazio.append(td); corpo.append(vazio);
+        }
+        for (const [indice, l] of linhas.slice(inicio, inicio + limite).entries()) {
+          const linha = criar("tr"); linha.setAttribute("data-registro", l.id);
+          const empresa = criar("td"); empresa.append(criar("strong", l.nome || "Nome ausente"),
+            criar("span", l.documento || l.documento_informado || "CNPJ ausente", "base-fiscal-secundario"));
+          if (l.documento_status === "zero_inicial_recuperado") empresa.append(criar("span", "Zero inicial recuperado", "base-fiscal-secundario"));
+          const regime = criar("td", l.regime || "Regime pendente");
+          if (l.regime_informado && l.regime_informado !== l.regime) regime.append(criar("span", `Informado: ${l.regime_informado}`, "base-fiscal-secundario"));
+          const conferencia = criar("td");
+          if (l.sem_movimento === true) conferencia.append(criar("span", "Sem movimento · permanece na carteira", "base-fiscal-marcador"));
+          if (l.duplicado) conferencia.append(criar("span", "CNPJ repetido", "base-fiscal-marcador"));
+          if (l.pendencias?.length) conferencia.append(criar("p", l.pendencias.join("; "), "base-fiscal-pendencias"));
+          else conferencia.append(criar("span", "Sem pendências de leitura", "base-fiscal-secundario"));
+          if (l.oculta || l.aba_oculta) conferencia.append(criar("span", l.aba_oculta ? "Aba oculta na planilha" : "Linha oculta na planilha", "base-fiscal-secundario"));
+          const origemLinha = criar("tr", "", "base-fiscal-origem-linha"); origemLinha.hidden = true;
+          const origemCelula = criar("td"); origemCelula.colSpan = 5;
+          origemLinha.id = `bf-origem-${indice}`;
+          const origem = botao(`Ver origem: ${l.aba} · linha ${l.linha}`, "", () => {
+            origemLinha.hidden = !origemLinha.hidden;
+            origem.setAttribute("aria-expanded", !origemLinha.hidden);
+            if (!origemLinha.hidden && !origemCelula.children.length) desenharOrigem(origemCelula, l, porId);
+          });
+          origem.className = "base-fiscal-origem-botao";
+          origem.setAttribute("aria-expanded", "false"); origem.setAttribute("aria-controls", origemLinha.id);
+          conferencia.append(origem);
+          linha.append(empresa, regime, criar("td", l.responsavel_fiscal_informado || "Não informado"), criar("td", l.contato_nome || "Não informado"), conferencia);
+          origemLinha.append(origemCelula); corpo.append(linha, origemLinha);
+        }
+        info.textContent = linhas.length ? `${inicio + 1}–${Math.min(inicio + limite, linhas.length)} de ${linhas.length} registro(s) filtrado(s) · ${previa.contagens.linhas} no arquivo`
+          : `0 registro(s) na lista · ${previa.contagens.linhas} no arquivo`;
+        anterior.disabled = pagina <= 1; proxima.disabled = inicio + limite >= linhas.length;
+      }
+      listar();
+    }
+
+    function desenharOrigem(alvoOrigem, linha, porId) {
+      alvoOrigem.append(criar("strong", `${linha.aba} · linha ${linha.linha}`));
+      if (linha.duplicado_em?.length) {
+        const locais = linha.duplicado_em.map(id => porId.get(id)).filter(Boolean).map(l => `${l.aba} · linha ${l.linha}`);
+        alvoOrigem.append(criar("p", `CNPJ também presente em: ${locais.join("; ")}.`));
+      }
+      const grade = criar("div", "", "base-fiscal-origem-grade");
+      for (const [chave, rotulo] of [["nome", "Empresa"], ["documento", "CNPJ"], ["regime", "Regime"],
+        ["responsavel_fiscal", "Responsável Fiscal (escritório)"], ["contato_nome", "Contato da empresa"]]) {
+        const origem = linha.origem?.[chave];
+        if (!origem) continue;
+        const bloco = criar("div");
+        bloco.append(criar("strong", rotulo), criar("p", `Célula: ${origem.celula}; origem: ${origem.celula_origem}`),
+          criar("p", `Informado: ${origem.formula ? "[fórmula não lida]" : origem.valor_informado || "(vazio)"}`),
+          criar("p", `Formato da célula: ${origem.formato || "Não informado"}`));
+        if (origem.intervalo_mesclado) bloco.append(criar("p", `Mesclagem: ${origem.intervalo_mesclado}`));
+        if (origem.propagado) bloco.append(criar("p", "Contato propagado da célula de origem na mesclagem."));
+        if (origem.formula) bloco.append(criar("p", "Fórmula não executada nem usada como valor."));
+        grade.append(bloco);
+      }
+      alvoOrigem.append(grade);
+    }
+  },
+};
+
 Abas.registrar("clientes", (container) => {
   container.innerHTML = `
     <div class="caixa">
@@ -206,6 +441,8 @@ Abas.registrar("clientes", (container) => {
 
       <section id="cli-sub-importar" class="conc-sub oculto">
         <div id="cli-imp-area">
+          <section id="cli-base-fiscal" aria-label="Conferência da base Fiscal"></section>
+          <hr class="conc-divisor">
           <h3 class="pat-titulo">Planilha de senhas atual</h3>
           <p class="dica">Envie a planilha (.xlsx). Nada é gravado antes de
              você conferir a prévia. A cor da linha vira a situação do cliente
@@ -1041,6 +1278,7 @@ Abas.registrar("clientes", (container) => {
   }
 
   if (pode.importar) {
+    BaseFiscalUI.montar($("cli-base-fiscal"));
     $("cli-imp-planilha-enviar").addEventListener("click", previaPlanilha);
     $("cli-imp-coleta-enviar").addEventListener("click", previaColeta);
   } else {

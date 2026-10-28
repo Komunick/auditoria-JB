@@ -61,6 +61,23 @@ cumulativamente a aba e o slug próprio: `nfse.perfis` (perfil e versões),
 `nfse.aprovar_emitir` (aprovar e gerar DPS, descartar lote aprovado) e
 `nfse.exportar` (XML, zip e planilha-resumo). Usuário novo recebe só a aba.
 
+## Conferência da base Fiscal (spec 017)
+
+Em **Clientes → Importar → Base Fiscal**, envie a planilha de empresas em XLSX
+para revisar documentos, regimes, responsáveis, contatos e duplicidades. Esse
+bloco exige acesso a Clientes e a permissão de importar. A prévia conserva todas
+as ocorrências e mostra sua aba, linha e célula de origem.
+
+O layout principal distingue o responsável Fiscal do contato da empresa. A aba
+ZERADAS indica empresas sem movimento, sem definir inatividade ou dispensar
+obrigações. Busca e filtros ajudam a encontrar documentos pendentes e campos
+ausentes; as contagens do arquivo ficam separadas do recorte exibido.
+
+A conferência não grava clientes, carteiras ou tarefas. Para corrigir a origem,
+ajuste sua planilha e envie novamente. Os fluxos existentes de importação de
+senhas e coleta de certificados continuam separados. Limites e contrato em
+[`specs/017-previa-base-fiscal/`](specs/017-previa-base-fiscal/).
+
 ## Patrimônio (aba 7, web)
 
 Controla o que a empresa tem, **com quem está** e o que já aconteceu com cada
