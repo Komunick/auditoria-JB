@@ -26,6 +26,9 @@ gatilho de publicação. Dev, branches e PRs abertos não são implantados.
    teste pulado não é contado como aprovado. O mesmo SHA reprovado não repete
    testes; um SHA novo pode ser avaliado. Erro antes de conhecer o alvo é
    reavaliado em ciclo posterior, preservando o serviço em uso.
+   O teste exclusivamente desktop `test_ui_smoke.py` pode ser explicitamente
+   classificado como não aplicável ao servidor web, separado de aprovação e
+   de pulo. Nenhum outro teste recebe essa exclusão.
 5. Antes de alterar o código, impedir o cron de reiniciar a aplicação durante
    a manutenção, parar a unit e copiar a pasta inteira de dados, inclusive WAL,
    SHM, origens e sessões, além de código, venv e configuração recuperáveis.

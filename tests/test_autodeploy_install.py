@@ -145,6 +145,7 @@ def main():
             assert str(cofre) in config["secret_paths"] and str(cofre) not in config["configuration_paths"]
             assert str(unit) in config["configuration_paths"]
             assert config["allowed_skips"] == ["test_fdb_reader.py", "test_web_produtos_fdb.py"]
+            assert config["excluded_tests"] == ["test_ui_smoke.py"]
             assert "ConditionPathExists=!/var/lib/auditoria-jb-autodeploy/hold" in paths["guard"].read_text()
             assert not any("enable" in c or "--check" in c or "--once" in c for c in calls), calls
             first = paths["config"].read_bytes()
@@ -195,6 +196,7 @@ def main():
     parsed = runner["Config"].from_dict(example)
     assert parsed.maintenance_timeout == 900
     assert parsed.allowed_skips == ["test_fdb_reader.py", "test_web_produtos_fdb.py"]
+    assert parsed.excluded_tests == ["test_ui_smoke.py"]
     assert parsed.health_url == "http://127.0.0.1:8600"
     print("OK - auto-deploy install: host, serviço, paths root, config, backup e ativação condicionada")
     return 0

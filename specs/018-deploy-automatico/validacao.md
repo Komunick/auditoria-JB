@@ -21,6 +21,15 @@ motor Firebird opcional. A execução final ocorreu após as correções da revi
 uma execução anterior também passou, mas foi substituída como evidência final
 porque o executor e seu teste mudaram durante aquela rodada.
 
+O primeiro ensaio do candidato no sandbox da VM chegou ao teste desktop e
+recusou sua execução por ausência de PySide6. Esse pacote é deliberadamente
+excluído de `requirements-web.txt`. O serviço produtivo manteve o mesmo PID e
+o timer permaneceu desabilitado. Após RED específico, o instalador passou a
+configurar somente `test_ui_smoke.py` como `not_applicable` (desktop/PySide6),
+separado de aprovação e de pulo. Os testes do runner e instalador foram
+reexecutados e passaram após esse ajuste; nenhuma falha web é convertida em
+pulo. O smoke desktop continuou coberto pela suíte local completa acima.
+
 As regressões específicas incluem criação exclusiva de baseline em diretório
 controlado pelo usuário de teste, transporte sem seguir links, rejeição por SHA,
 preservação do diagnóstico original e último deploy, schema esperado obtido do

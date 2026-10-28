@@ -29,6 +29,7 @@ from urllib.request import build_opener, ProxyHandler, Request
 import uuid
 
 DATABASES = ("auditoria_web.db", "conferencia.db", "conciliacao.db", "patrimonio.db", "nfse.db", "clientes.db")
+DESKTOP_TESTS = {"test_ui_smoke.py": "desktop/PySide6"}
 MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 MAX_COMMAND_OUTPUT = 16 * 1024 * 1024
 SHA = re.compile(r"(?:[0-9a-f]{40}|[0-9a-f]{64})\Z")
@@ -59,7 +60,7 @@ class Config:
         check_work_dir="/var/lib/auditoria-jb-check", state_dir="/var/lib/auditoria-jb-autodeploy",
         backup_dir="/var/backups/auditoria-jb-autodeploy", secrets_backup_dir="/etc/auditoria-jb/autodeploy-backups",
         configuration_paths=[], secret_paths=[], health_url="http://127.0.0.1:8600",
-        allowed_skips=[], command_timeout=300, test_timeout=600, total_test_timeout=3600,
+        allowed_skips=[], excluded_tests=[], command_timeout=300, test_timeout=600, total_test_timeout=3600,
         health_timeout=60, maintenance_timeout=900)
 
     @classmethod
@@ -91,6 +92,10 @@ class Config:
             raise DeployError("config_health_url")
         if not isinstance(obj.allowed_skips, list) or any(not re.fullmatch(r"test_[a-zA-Z0-9_]+\.py", n) for n in obj.allowed_skips):
             raise DeployError("config_skips")
+        if (not isinstance(obj.excluded_tests, list)
+                or any(not isinstance(n, str) or n not in DESKTOP_TESTS for n in obj.excluded_tests)
+                or len(obj.excluded_tests) != len(set(obj.excluded_tests))):
+            raise DeployError("config_excluded_tests")
         for key in ("command_timeout", "test_timeout", "total_test_timeout", "health_timeout", "maintenance_timeout"):
             value = getattr(obj, key)
             if type(value) is not int or not 1 <= value <= (900 if key == "maintenance_timeout" else 7200):
@@ -719,8 +724,11 @@ class Host:
         if not scripts or any(p.is_symlink() for p in scripts):
             raise DeployError("tests_missing")
         started = time.monotonic()
-        results = dict(passed=[], skipped=[])
+        results = dict(passed=[], skipped=[], not_applicable=[])
         for path in scripts:
+            if path.name in self.c.excluded_tests:
+                results["not_applicable"].append({"test": path.name, "reason": DESKTOP_TESTS[path.name]})
+                continue
             remaining = self.c.total_test_timeout - (time.monotonic() - started)
             if remaining <= 0:
                 raise DeployError("tests_total_timeout")

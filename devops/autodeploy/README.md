@@ -119,6 +119,7 @@ produz os caminhos reais das units e dos drop-ins em `configuration_paths`.
   "secret_paths": ["/etc/auditoria-jb/cofre.env"],
   "health_url": "http://127.0.0.1:8600",
   "allowed_skips": ["test_fdb_reader.py", "test_web_produtos_fdb.py"],
+  "excluded_tests": ["test_ui_smoke.py"],
   "command_timeout": 300,
   "test_timeout": 600,
   "total_test_timeout": 3600,
@@ -129,11 +130,20 @@ produz os caminhos reais das units e dos drop-ins em `configuration_paths`.
 `allowed_skips` contém apenas `test_fdb_reader.py` e `test_web_produtos_fdb.py`,
 pela indisponibilidade conhecida do motor Firebird nessa VM. Esses resultados
 ficam registrados como pulados, sem contar como aprovação. Node está disponível;
-os testes de interface não têm exceção. Outra exceção precisa ser específica,
+os testes de interface web não têm exceção. Outra exceção precisa ser específica,
 justificada e registrada pelo administrador. Não colocar
 comandos, tokens, chaves ou valores de ambiente nesse JSON. Alterações manuais de
 configuração exigem cópia prévia e modo `0600`; uma reinstalação produz novamente
 a configuração a partir das opções fornecidas, preservando a anterior no backup.
+
+`excluded_tests` contém somente `test_ui_smoke.py`, teste da interface desktop
+Qt/PySide6 que não é publicada pelo serviço web. O venv web exclui Qt por desenho;
+esse teste não é executado nem tratado como aprovado ou pulado. O resultado o
+registra em `not_applicable`, com o motivo desktop/PySide6, separado de `passed`
+e `skipped`. A configuração recusa qualquer outro nome nessa lista. Essa
+classificação é definida antes da execução e não converte uma falha em sucesso;
+os demais testes continuam obrigatórios, respeitadas apenas as duas limitações
+Firebird já descritas.
 
 ## Conferir e ativar
 

@@ -209,6 +209,63 @@ def test_config_ambiente_e_sandbox():
             raise AssertionError("Configuracao insegura aceita")
 
 
+def test_exclusao_desktop_explicita_e_restrita(pasta):
+    base = dict(schema_version=1, repository="/srv/app", repository_url="https://github.com/test/example.git",
+        venv="/srv/app/.venv", data_dir="/srv/data", service="auditoria-jb.service", control_plane_digest="a" * 40,
+        allowed_skips=["test_fdb_reader.py"])
+    assert ad.Config.from_dict(base).excluded_tests == []
+    for invalidos in (["test_web_tarefas.py"], ["test_ui_smoke.py", "test_ui_smoke.py"], "test_ui_smoke.py", [None]):
+        try:
+            ad.Config.from_dict({**base, "excluded_tests": invalidos})
+        except ad.DeployError as exc:
+            assert exc.code == "config_excluded_tests"
+        else:
+            raise AssertionError("Exclusao fora da lista estrita foi aceita")
+    def preparar(excluir, falhar_web=False):
+        root = Path(tempfile.mkdtemp(dir=pasta, prefix="exclusao_"))
+        h = ad.Host.__new__(ad.Host)
+        h.c = ad.Config.from_dict({**base, "excluded_tests": ["test_ui_smoke.py"] if excluir else []})
+        h.work, h.gitwork = root / "work", root / "git"
+        (h.work / "candidate" / "tests").mkdir(parents=True)
+        h.gitwork.mkdir()
+        for nome in ("test_a_web.py", "test_fdb_reader.py", "test_ui_smoke.py"):
+            (h.work / "candidate" / "tests" / nome).write_text("# sintetico", encoding="utf-8")
+        h.create_work = lambda: None
+        h.uid = h.gid = 1
+        def git(args):
+            (h.gitwork / "candidate.tar").write_bytes(b"arquivo sintetico")
+        h.git = git
+        chamados = []
+        def sandbox(args, **kwargs):
+            if "--helper-extract" in args:
+                return ""
+            nome = Path(args[-1]).name
+            chamados.append(nome)
+            if nome == "test_ui_smoke.py":
+                raise ad.DeployError("qt_indisponivel")
+            if nome == "test_a_web.py" and falhar_web:
+                raise ad.DeployError("teste_web_falhou")
+            return "PULADO - Firebird sintetico" if nome == "test_fdb_reader.py" else "OK"
+        h.sandbox = sandbox
+        return h, chamados
+    h, chamados = preparar(True)
+    with patch.object(ad.os, "chown", create=True):
+        result = h.test_candidate({"target_sha": "b" * 40})
+    assert result["passed"] == ["test_a_web.py"]
+    assert result["skipped"] == ["test_fdb_reader.py"]
+    assert result["not_applicable"] == [{"test": "test_ui_smoke.py", "reason": "desktop/PySide6"}]
+    assert chamados == ["test_a_web.py", "test_fdb_reader.py"]
+    for excluir, falhar, erro in [(False, False, "qt_indisponivel"), (True, True, "teste_web_falhou")]:
+        h, _ = preparar(excluir, falhar)
+        with patch.object(ad.os, "chown", create=True):
+            try:
+                h.test_candidate({"target_sha": "b" * 40})
+            except ad.DeployError as exc:
+                assert exc.code == erro
+            else:
+                raise AssertionError("Falha foi convertida indevidamente em exclusao")
+
+
 def test_saude_urls_e_ambiente():
     h = ad.Host.__new__(ad.Host)
     h.c = SimpleNamespace(health_url="http://127.0.0.1:8600", data_dir="/srv/dados")
@@ -403,6 +460,7 @@ def main():
         test_deadline_parada_e_copia(pasta)
         test_baseline_nao_segue_link_do_candidato(pasta)
         test_manifesto_recuperavel_sem_seguir_links(pasta)
+        test_exclusao_desktop_explicita_e_restrita(pasta)
     print("OK - autodeploy: fluxo, falhas, interrupcao, no-op, sandbox, arquivo e SQLite sinteticos")
 
 

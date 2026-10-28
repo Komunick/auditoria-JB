@@ -251,6 +251,7 @@ def install(source, cofre_env, additional, control_plane_digest):
         "configuration_paths": list(dict.fromkeys([*map(str, configuration), str(PATHS["guard"])])),
         "secret_paths": [str(cofre_env)], "health_url": "http://127.0.0.1:8600",
         "allowed_skips": ["test_fdb_reader.py", "test_web_produtos_fdb.py"],
+        "excluded_tests": ["test_ui_smoke.py"],
         "command_timeout": 300, "test_timeout": 600,
         "total_test_timeout": 3600, "health_timeout": 60,
     }
