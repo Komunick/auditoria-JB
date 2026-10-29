@@ -196,7 +196,7 @@ def main():
     ok(gestor.post(api+'/geracao/confirmar',json=dict(token=previa['token'])),404)
     tarefa=ok(colab.get(api))['itens'][0]; tid=tarefa['id']
     assert tarefa['pode_executar'] and not tarefa['pode_gerir']
-    outra=ok(adm.post(api+'/avulsas',json=dict(cliente_id=cid2,setor_id=outro_setor,titulo='Outra carteira',vencimento='2026-10-28',responsavel_usuario_id=pessoas['outro'][0])))
+    outra=ok(adm.post(api+'/avulsas',json=dict(cliente_id=cid2,setor_id=outro_setor,titulo='Outra carteira',inicio='2026-10-27',vencimento='2026-10-28',responsavel_usuario_id=pessoas['outro'][0])))
     assert ok(colab.get(api))['total']==1
     ok(colab.get(f"{api}/{outra['id']}"),403)
     ok(colab.post(f"{api}/{outra['id']}/situacao",json=dict(situacao='em_andamento',revision=1)),403)
