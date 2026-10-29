@@ -157,6 +157,7 @@ const BaseFiscalUI = {
   },
   montar(alvo) {
     const permitido = () => Sessao.pode("aba.clientes") && Sessao.pode("clientes.importar");
+    const podeBaixar = () => permitido() && Sessao.pode("clientes.exportar");
     if (!permitido()) return;
     const criar = (tag, texto = "", classe = "") => {
       const e = document.createElement(tag);
@@ -191,9 +192,11 @@ const BaseFiscalUI = {
     status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
     const resultado = criar("div"); resultado.id = "bf-resultado";
     alvo.append(envio, status, resultado);
-    let consulta = 0, previa = null;
+    let consulta = 0, previa = null, arquivoConferido = null, pessoaConferida = null;
+    let baixando = false, relatorio = null;
     function invalidar(mensagem, limparArquivo = false) {
       consulta += 1; previa = null; resultado.textContent = "";
+      arquivoConferido = null; pessoaConferida = null; baixando = false; relatorio = null;
       status.textContent = mensagem; status.className = "status";
       resultado.setAttribute("aria-busy", "false"); ler.disabled = !permitido();
       if (limparArquivo) entrada.value = "";
@@ -212,7 +215,7 @@ const BaseFiscalUI = {
         status.textContent = "Escolha um arquivo XLSX de até 20 MB."; return;
       }
       const geracao = consulta, pessoa = Sessao.usuario;
-      const atual = () => geracao === consulta && Sessao.usuario === pessoa && permitido();
+      const atual = () => geracao === consulta && Sessao.usuario === pessoa && permitido() && entrada.files[0] === arquivo;
       status.textContent = "Lendo a base Fiscal…"; ler.disabled = true;
       resultado.setAttribute("aria-busy", "true");
       try {
@@ -222,6 +225,7 @@ const BaseFiscalUI = {
           throw new Error("Não foi possível conferir a resposta da prévia. Tente novamente.");
         }
         previa = resposta;
+        arquivoConferido = arquivo; pessoaConferida = pessoa;
         desenhar();
         status.textContent = "Leitura concluída. Nenhum cadastro ou vínculo foi gravado.";
       } catch (erro) {
@@ -237,9 +241,64 @@ const BaseFiscalUI = {
       }
     }
 
+    async function baixarRelatorio() {
+      if (baixando) return;
+      if (!previa || !arquivoConferido || entrada.files[0] !== arquivoConferido ||
+          Sessao.usuario !== pessoaConferida || !permitido()) {
+        invalidar("A sessão ou o arquivo mudou. Confira a base novamente.", true);
+        return;
+      }
+      if (!podeBaixar()) {
+        relatorio.disabled = true;
+        status.textContent = "Você não tem permissão para exportar clientes.";
+        return;
+      }
+      const geracao = consulta, pessoa = pessoaConferida, arquivo = arquivoConferido;
+      const atual = () => geracao === consulta && Sessao.usuario === pessoa &&
+        entrada.files[0] === arquivo && podeBaixar();
+      const corpo = new FormData();
+      corpo.append("arquivo", arquivo);
+      corpo.append("hash_esperado", previa.hash_arquivo);
+      baixando = true; relatorio.disabled = true;
+      status.textContent = "Gerando o relatório completo…"; status.className = "status";
+      try {
+        const resposta = await api("/api/clientes/base-fiscal/relatorio", {method: "POST", body: corpo});
+        if (!atual()) return;
+        if (typeof resposta.blob !== "function") throw new Error("Não foi possível receber o relatório. Tente novamente.");
+        const blob = await resposta.blob();
+        if (!atual()) return;
+        const url = URL.createObjectURL(blob);
+        try {
+          const link = document.createElement("a");
+          link.href = url; link.download = "conferencia-base-fiscal.xlsx"; link.click();
+        } finally {
+          URL.revokeObjectURL(url);
+        }
+        status.textContent = "Relatório completo preparado para download. Nenhum cadastro ou vínculo foi gravado.";
+      } catch (erro) {
+        if (!atual()) return;
+        if (erro.codigo === "BASE_FISCAL_DIVERGENTE") {
+          invalidar("O arquivo diverge da prévia. Escolha o arquivo e confira novamente.", true);
+          return;
+        }
+        status.textContent = erro.message || "Não foi possível gerar o relatório. Tente novamente.";
+        status.className = "status conc-erro";
+      } finally {
+        if (geracao === consulta) {
+          if (!atual()) invalidar("A sessão, o arquivo ou as permissões mudaram. Confira a base novamente.", true);
+          else { baixando = false; relatorio.disabled = false; }
+        }
+      }
+    }
+
     function desenhar() {
       resultado.textContent = "";
       resultado.append(criar("h4", previa.nome_arquivo, "base-fiscal-arquivo"));
+      relatorio = botao("Baixar relatório completo (.xlsx)", "bf-relatorio", baixarRelatorio);
+      relatorio.disabled = !podeBaixar();
+      const acoes = criar("div", "", "linha-form"); acoes.append(relatorio);
+      resultado.append(acoes, criar("p", "O relatório inclui todos os registros, independentemente dos filtros. A aba Correções tem campos para anotar propostas; este relatório ainda não é aceito como arquivo de importação.", "dica"));
+      if (!podeBaixar()) resultado.append(criar("p", "Para baixar o relatório, é necessária a permissão de exportar clientes.", "dica"));
       const contadores = criar("div", "", "base-fiscal-contadores");
       for (const [chave, rotulo] of [["linhas", "Registros no arquivo"], ["cnpjs_distintos", "CNPJs válidos distintos"],
         ["documentos_pendentes", "Documentos pendentes"], ["grupos_duplicados", "Grupos repetidos"],
