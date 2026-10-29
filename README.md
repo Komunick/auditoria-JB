@@ -78,6 +78,16 @@ ajuste sua planilha e envie novamente. Os fluxos existentes de importação de
 senhas e coleta de certificados continuam separados. Limites e contrato em
 [`specs/017-previa-base-fiscal/`](specs/017-previa-base-fiscal/).
 
+Com a permissão adicional `clientes.exportar`, **Baixar relatório completo
+(.xlsx)** gera uma cópia para revisão com todas as linhas, mesmo com filtros
+ativos na tela. O relatório inclui resumo, conferência, duplicidades, origens e
+uma aba **Correções** com campos vazios para anotar propostas. O arquivo é
+conferido pelo SHA-256 da prévia antes da geração. As propostas são anotações
+para a equipe: esse relatório ainda não é aceito como arquivo de importação.
+Nenhum responsável é associado automaticamente e nenhum cadastro é gravado.
+Contrato e validação em
+[`specs/019-relatorio-base-fiscal/`](specs/019-relatorio-base-fiscal/).
+
 ## Patrimônio (aba 7, web)
 
 Controla o que a empresa tem, **com quem está** e o que já aconteceu com cada

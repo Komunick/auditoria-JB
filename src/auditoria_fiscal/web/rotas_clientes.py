@@ -32,9 +32,10 @@ from dataclasses import dataclass, field
 
 from fastapi import (APIRouter, Depends, File, Form, HTTPException, Request,
                      UploadFile)
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
+from starlette.concurrency import run_in_threadpool
 
 from ..core import certificados as ct
 from ..core import clientes as cl
@@ -43,6 +44,7 @@ from ..core import planilha_empresas as pe
 from ..core.cofre import Cofre, CofreIndisponivel, SegredoIlegivel
 from ..ferramentas import clientes_store as cs
 from ..ferramentas.relatorio_clientes import gerar_relacao
+from ..ferramentas.relatorio_base_fiscal import gerar_relatorio_base_fiscal
 from . import auditoria as trilha
 from . import auth, permissoes
 from .auditoria import acesso, detalhar, exigir_aba
@@ -672,6 +674,40 @@ async def previa_base_fiscal(request: Request, arquivo: UploadFile = File(...),
     detalhar(request, f"previa base fiscal: {dados['contagens']['linhas']} linha(s)")
     return JSONResponse(dict(dados, somente_leitura=True, nome_arquivo=nome[:200]),
                         headers={"Cache-Control": "no-store"})
+
+
+@router.post("/base-fiscal/relatorio")
+async def relatorio_base_fiscal(
+        request: Request, arquivo: UploadFile = File(...),
+        hash_esperado: str = Form(..., min_length=64, max_length=64,
+                                 pattern=r"^[0-9a-f]{64}$"),
+        usuario: Usuario = Depends(acesso("clientes.exportar"))) -> Response:
+    """Rele a fonte conferida; nao recebe linhas do navegador nem abre o cadastro."""
+    try:
+        trilha.exigir_permissao(usuario, "clientes.importar",
+                               "Você não tem permissão para conferir a base Fiscal.")
+        nome = (arquivo.filename or "base-fiscal.xlsx").replace("\\", "/").rsplit("/", 1)[-1]
+        if os.path.splitext(nome)[1].lower() != ".xlsx":
+            raise erro(422, "Envie a base Fiscal em uma planilha .xlsx.", pc.PLANILHA_INVALIDA)
+        with tempfile.TemporaryDirectory(prefix="base_fiscal_relatorio_") as pasta:
+            destino = os.path.join(pasta, "base-fiscal.xlsx")
+            await _receber(arquivo, destino, pe.MAX_PLANILHA_BYTES)
+            try:
+                leitura = await run_in_threadpool(pe.ler_planilha_empresas, destino)
+                if leitura.hash_arquivo != hash_esperado:
+                    raise erro(409, "O arquivo difere da prévia. Confira a base Fiscal novamente.",
+                               "BASE_FISCAL_DIVERGENTE")
+                conteudo = await run_in_threadpool(
+                    gerar_relatorio_base_fiscal, leitura, nome_arquivo=nome[:200])
+            except cl.ErroClientes as exc:
+                raise _traduzir(exc) from exc
+    finally:
+        await arquivo.close()
+    detalhar(request, f"relatorio base fiscal: {len(leitura.linhas)} linha(s)")
+    return Response(conteudo, media_type=MIME_XLSX, headers={
+        "Cache-Control": "no-store",
+        "Content-Disposition": 'attachment; filename="conferencia-base-fiscal.xlsx"',
+    })
 
 
 class ConfirmacaoEntrada(BaseModel):

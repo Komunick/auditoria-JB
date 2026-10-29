@@ -13,5 +13,6 @@
 Evidências em [validacao.md](validacao.md). Regressão e revisão aprovadas;
 [PR #18](https://github.com/Komunick/auditoria-JB/pull/18) aberto para dev.
 
-A tarefa T009 é posterior à integração do PR #18. Suas alterações permanecem
-locais, sem publicação ou implantação nesta rodada.
+A tarefa T009 é posterior à integração do PR #18 e foi integrada à `dev` pelo
+[PR #23](https://github.com/Komunick/auditoria-JB/pull/23), merge `7a17bf6`.
+Ela ainda não foi promovida para `main` nem implantada.
