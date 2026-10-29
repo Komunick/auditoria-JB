@@ -260,7 +260,7 @@ const CentralUI = {
       if (s.focoIndicador) { cards.querySelector(`[data-fila="${s.focoIndicador}"]`)?.focus(); s.focoIndicador = ""; }
     };
     const carregar = async () => {
-      if (!sessaoValida()) return;
+      if (!sessaoValida() || s.catalogoPendente) return;
       refletirFiltros();
       mensagem("Carregando a operação…"); $("central-resultados").classList.add("oculto"); container.setAttribute("aria-busy", "true");
       try {
@@ -280,22 +280,36 @@ const CentralUI = {
     $("central-lista").addEventListener("click", () => u.abrirContexto({filtros: s.filtros, fila: s.fila}));
     const iniciarCatalogo = async () => {
       if (!sessaoValida()) return;
+      const numero = s.consultaCatalogo = (s.consultaCatalogo || 0) + 1;
+      const vigente = () => numero === s.consultaCatalogo && container.isConnected && sessaoValida();
+      ++s.consulta; s.catalogoPendente = true;
       $("central-atualizar").disabled = true;
+      $("central-resultados").classList.add("oculto"); container.setAttribute("aria-busy", "true");
       mensagem("Carregando os filtros…"); form.querySelectorAll("input,select,button").forEach(e => { e.disabled = true; });
       try {
-        const c = await api("/api/tarefas/catalogo"); if (!container.isConnected || !sessaoValida()) return; s.catalogo = c;
-        u.opcoes(controle("cliente_id"), c.clientes, "Todos os clientes"); u.opcoes(controle("setor_id"), c.setores, "Todos os setores");
-        u.opcoes(controle("responsavel_usuario_id"), c.usuarios.filter(p => p.ativo !== false && p.ativo !== 0), "Todos");
-        if ((c.setores_geridos || []).length || Sessao.pode("tarefas.todas")) {
-          const o = u.el("option", "Visão dos setores"); o.value = "setor"; controle("visao").append(o);
+        const c = await api("/api/tarefas/catalogo"); if (!vigente()) return; s.catalogo = c;
+        for (const [campo, itens, vazio] of [["cliente_id", c.clientes, "Todos os clientes"], ["setor_id", c.setores, "Todos os setores"],
+          ["responsavel_usuario_id", c.usuarios.filter(p => p.ativo !== false && p.ativo !== 0), "Todos"]]) {
+          const valido = valor => itens.some(i => String(i.id) === String(valor));
+          const anterior = controle(campo).value;
+          u.opcoes(controle(campo), itens, vazio, valido(anterior) ? anterior : "");
+          if (s.filtros[campo] && !valido(s.filtros[campo])) { delete s.filtros[campo]; s.pagina = 1; }
         }
-        form.querySelectorAll("input,select,button").forEach(e => { e.disabled = false; }); refletirEscopo(); await carregar();
-      } catch (erro) { if (sessaoValida()) mensagem(erro.message + " Use Atualizar para tentar novamente.", true); }
-      finally { if (container.isConnected) $("central-atualizar").disabled = false; }
+        const visoes = [{valor: "cliente", rotulo: "Todo o meu acesso"}, {valor: "minhas", rotulo: "Minhas tarefas"}];
+        if ((c.setores_geridos || []).length || Sessao.pode("tarefas.todas")) {
+          visoes.push({valor: "setor", rotulo: "Visão dos setores"});
+        }
+        const visaoValida = valor => visoes.some(i => i.valor === valor);
+        u.opcoes(controle("visao"), visoes, undefined, visaoValida(controle("visao").value) ? controle("visao").value : "cliente");
+        if (!visaoValida(s.filtros.visao)) { s.filtros.visao = "cliente"; s.pagina = 1; }
+        form.querySelectorAll("input,select,button").forEach(e => { e.disabled = false; }); refletirEscopo();
+        s.catalogoPendente = false; await carregar();
+      } catch (erro) { if (vigente()) { mensagem(erro.message + " Use Atualizar para tentar novamente.", true); container.setAttribute("aria-busy", "false"); } }
+      finally { if (vigente()) { s.catalogoPendente = false; $("central-atualizar").disabled = false; } }
     };
-    $("central-atualizar").addEventListener("click", () => s.catalogo ? carregar() : iniciarCatalogo());
-    document.addEventListener("inicio:abrir", () => { if (s.catalogo) carregar(); });
-    document.addEventListener("sessao:encerrada", () => { ++s.consulta; $("central-resultados").classList.add("oculto"); });
+    $("central-atualizar").addEventListener("click", iniciarCatalogo);
+    document.addEventListener("inicio:abrir", iniciarCatalogo);
+    document.addEventListener("sessao:encerrada", () => { ++s.consulta; ++s.consultaCatalogo; $("central-resultados").classList.add("oculto"); });
     iniciarCatalogo(); return true;
   },
 };

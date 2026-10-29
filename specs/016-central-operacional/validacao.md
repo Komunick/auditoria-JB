@@ -73,3 +73,25 @@ pendências do catálogo fiscal continuam separadas desta entrega.
 
 O aceite cobre implementação e validação local. Merge para `dev`, promoção
 para `main` e implantação exigem as etapas seguintes do fluxo do projeto.
+
+## Correção local do catálogo após revisão — 28/10/2026
+
+O catálogo era carregado somente na primeira montagem. Reabrir o Início ou
+usar Atualizar consultava apenas o painel, deixando novos clientes, setores e
+usuários ausentes dos filtros até um reload da página.
+
+As duas ações agora renovam primeiro o catálogo e depois o painel. As opções e
+os filtros aplicados ainda válidos permanecem; opções removidas ou inativas
+deixam de filtrar. Catálogos antigos e respostas de sessão encerrada são
+descartados, assim como respostas anteriores do painel durante a renovação.
+
+- RED: `test_central_ui.py` reproduziu a ausência de consulta ao catálogo no
+  evento de reabertura, antes de alterar `inicio.js`.
+- GREEN: teste com DOM sintético e eventos reais confirma novos clientes sem
+  reload nas duas ações, preservação dos filtros válidos, retirada dos inválidos,
+  renovação do escopo sem opções duplicadas, catálogo concorrente e fim de sessão.
+- Passaram: `test_central_ui.py`, `test_tarefas_ui.py`, `test_painel_tarefas.py`
+  e `test_web_painel.py`; sintaxe JavaScript e `git diff --check` aprovados.
+
+Esta rodada não executou suíte completa, navegador real, merge, push ou deploy.
+Nenhum acesso à arm07 ou a seus dados/configurações foi realizado.

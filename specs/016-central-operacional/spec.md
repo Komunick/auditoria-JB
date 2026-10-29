@@ -35,6 +35,8 @@ atrasados de competências anteriores não desaparecem na entrada.
 - Fila paginada curta de pendências com situação, prazo e responsável efetivo.
 - Distribuição por responsável representa carga atual, não produtividade histórica.
 - Carregamento, erro e conjunto vazio distintos; falha não vira total zero.
+- Reabrir o Início ou usar Atualizar renova o catálogo antes do painel. Filtros
+  ainda disponíveis são preservados; opções removidas deixam de filtrar.
 - Sem acesso a Tarefas, manter início com os atalhos permitidos e não consultar
   o endpoint do painel. Todos os módulos continuam disponíveis por permissão.
 

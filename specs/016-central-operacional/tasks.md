@@ -8,5 +8,6 @@
 - [x] T006 Melhorar filtros de tarefas e etapas de importação, preservando confirmação e permissões.
 - [x] T007 Organizar navegação e verificar temas, teclado e tela estreita.
 - [x] T008 Executar regressão, revisão independente e documentar evidência/limitações para o PR para dev.
+- [x] T009 Corrigir renovação do catálogo ao reabrir/atualizar a Central, com regressão sintética de filtros e respostas concorrentes.
 
 Evidências e limites: [validacao.md](validacao.md). Merge e implantação ficam fora deste aceite.
