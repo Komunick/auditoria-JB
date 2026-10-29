@@ -46,13 +46,15 @@ def criar_store():
 
 
 @contextmanager
-def _store(*, escrita=False):
+def _store(*, escrita=False, leitura=False):
     s = criar_store()
     try:
         # Escopo e mutação compartilham o lock: trocar o titular/carteira não
         # pode ocorrer entre a autorização da rota e a escrita no domínio.
         if escrita:
             s.conn.execute('BEGIN IMMEDIATE')
+        elif leitura:
+            s.conn.execute('BEGIN')
         yield s
         if escrita:
             s.conn.commit()
@@ -67,7 +69,7 @@ def _store(*, escrita=False):
     except ValueError as exc:
         raise HTTPException(422, detail=str(exc)) from exc
     finally:
-        if escrita and s.conn.in_transaction:
+        if (escrita or leitura) and s.conn.in_transaction:
             s.conn.rollback()
         s.fechar()
 
@@ -80,10 +82,10 @@ def _tem(u, slug):
     return permissoes.tem_permissao(u, slug)
 
 
-def _geridos(s, u):
+def _geridos(s, u, hoje=None):
     if u.admin:
         return [setor['id'] for setor in s.listar_setores()]
-    return s.setores_responsavel(u.id, _hoje()) if _tem(u, 'tarefas.setor') else []
+    return s.setores_responsavel(u.id, hoje if hoje is not None else _hoje()) if _tem(u, 'tarefas.setor') else []
 
 
 def _exigir_setor(s, u, setor_id):
@@ -91,14 +93,14 @@ def _exigir_setor(s, u, setor_id):
         raise HTTPException(403, detail='Você não responde por este setor nesta data.')
 
 
-def _escopo(s, u, visao='cliente', setor_id=None):
+def _escopo(s, u, visao='cliente', setor_id=None, hoje=None):
     if visao not in ('minhas', 'setor', 'cliente'):
         raise ValueError('Visão desconhecida.')
     if visao == 'minhas':
         return dict(escopo_usuario_id=u.id)
     if _tem(u, 'tarefas.todas'):
         return dict(todas=True)
-    geridos = _geridos(s, u)
+    geridos = _geridos(s, u, hoje)
     if visao == 'setor':
         if not geridos or (setor_id and setor_id not in geridos):
             raise HTTPException(403, detail='Você não responde por este setor nesta data.')
@@ -106,9 +108,9 @@ def _escopo(s, u, visao='cliente', setor_id=None):
     return dict(escopo_usuario_id=u.id, escopo_setores=geridos)
 
 
-def _propria(s, u, t):
+def _propria(s, u, t, hoje=None):
     titular = t.get('responsavel_usuario_id')
-    return bool(titular and s.responsavel_efetivo(t['setor_id'], titular, _hoje()) == u.id)
+    return bool(titular and s.responsavel_efetivo(t['setor_id'], titular, hoje if hoje is not None else _hoje()) == u.id)
 
 
 def _ver(s, u, t):
@@ -116,17 +118,18 @@ def _ver(s, u, t):
         raise HTTPException(403, detail='Esta tarefa não está no seu escopo.')
 
 
-def _dto(s, u, t, usuarios=None):
+def _dto(s, u, t, usuarios=None, hoje=None):
+    hoje = hoje if hoje is not None else _hoje()
     usuarios = usuarios or {p['id']: p for p in auth.listar_usuarios()}
     def nome(uid):
         return usuarios.get(uid, {}).get('nome', '')
-    efetivo = s.responsavel_efetivo(t['setor_id'], t['responsavel_usuario_id'], _hoje()) if t.get('responsavel_usuario_id') else None
+    efetivo = s.responsavel_efetivo(t['setor_id'], t['responsavel_usuario_id'], hoje) if t.get('responsavel_usuario_id') else None
     return dict(t, responsavel_efetivo_id=efetivo,
                 responsavel_nome=nome(t.get('responsavel_usuario_id')),
                 responsavel_efetivo_nome=nome(efetivo), concluida_nome=nome(t.get('concluida_por')),
                 conferida_nome=nome(t.get('conferida_por')),
-                pode_executar=bool(_tem(u, 'tarefas.executar') and _propria(s, u, t)),
-                pode_gerir=t['setor_id'] in _geridos(s, u))
+                 pode_executar=bool(_tem(u, 'tarefas.executar') and _propria(s, u, t, hoje)),
+                 pode_gerir=t['setor_id'] in _geridos(s, u, hoje))
 
 
 def _clientes(s, u):
@@ -340,17 +343,20 @@ def catalogo(usuario: Usuario=Depends(exigir_aba('tarefas'))):
                     situacoes=[dict(chave=k,rotulo=v) for k,v in regras.SITUACOES.items()])
 
 
-def _filtros(setor_id=None,cliente_id=None,responsavel_usuario_id=None,competencia='',situacao='',vencimento_de='',vencimento_ate='',sem_responsavel=False):
-    return {k:v for k,v in locals().items() if v is not None and v != '' and v is not False}
+def _filtros(setor_id=None,cliente_id=None,responsavel_usuario_id=None,competencia='',situacao='',vencimento_de='',vencimento_ate='',sem_responsavel=False,
+             texto='',fila='',abertas=False,pendente_conferencia=False):
+    return TarefasStore._normalizar_filtros_tarefas(
+        {k:v for k,v in locals().items() if v is not None and v != '' and v is not False})
 
 
-def _listar(s,u,visao, pagina,limite, filtros):
+def _listar(s,u,visao, pagina,limite, filtros, hoje=None):
     if pagina<1 or not 1<=limite<=200:
         raise ValueError('Paginação inválida.')
-    dados=s.listar_tarefas(filtros=filtros,hoje=_hoje(),offset=(pagina-1)*limite,limite=limite,
-                          **_escopo(s,u,visao,filtros.get('setor_id')))
+    hoje = hoje if hoje is not None else _hoje()
+    dados=s.listar_tarefas(filtros=filtros,hoje=hoje,offset=(pagina-1)*limite,limite=limite,
+                          **_escopo(s,u,visao,filtros.get('setor_id'),hoje))
     us={p['id']:p for p in auth.listar_usuarios()}
-    return dict(dados,itens=[_dto(s,u,t,us) for t in dados['itens']],pagina=pagina,limite=limite,
+    return dict(dados,itens=[_dto(s,u,t,us,hoje) for t in dados['itens']],pagina=pagina,limite=limite,
                 paginas=max(1,math.ceil(dados['total']/limite)))
 
 
@@ -358,10 +364,34 @@ def _listar(s,u,visao, pagina,limite, filtros):
 def listar(visao:str='minhas',setor_id:int|None=None,cliente_id:int|None=None,
            responsavel_usuario_id:int|None=None,competencia:str='',situacao:str='',
            vencimento_de:str='',vencimento_ate:str='',sem_responsavel:bool=False,
+            texto:str='',fila:str='',abertas:bool=False,pendente_conferencia:bool=False,
            pagina:int=1,limite:int=50,usuario:Usuario=Depends(exigir_aba('tarefas'))):
     with _store() as s:
         return _listar(s,usuario,visao,pagina,limite,_filtros(setor_id,cliente_id,responsavel_usuario_id,
-                     competencia,situacao,vencimento_de,vencimento_ate,sem_responsavel))
+                      competencia,situacao,vencimento_de,vencimento_ate,sem_responsavel,
+                      texto,fila,abertas,pendente_conferencia))
+
+
+@router.get('/painel')
+def painel(visao:str='cliente',setor_id:int|None=None,cliente_id:int|None=None,
+           responsavel_usuario_id:int|None=None,competencia:str='',situacao:str='',
+           vencimento_de:str='',vencimento_ate:str='',sem_responsavel:bool=False,
+           texto:str='',fila:str='pendentes',abertas:bool=False,pendente_conferencia:bool=False,
+           pagina:int=1,limite:int=10,usuario:Usuario=Depends(exigir_aba('tarefas'))):
+    # Escopo, totais, substituicoes e pagina observam a mesma versao do banco.
+    with _store(leitura=True) as s:
+        hoje = _hoje()
+        filtros = _filtros(setor_id,cliente_id,responsavel_usuario_id,competencia,situacao,
+                           vencimento_de,vencimento_ate,sem_responsavel,texto,
+                           abertas=abertas,pendente_conferencia=pendente_conferencia)
+        dados = s.painel_tarefas(filtros,hoje,pagina,limite,fila,
+                                 **_escopo(s,usuario,visao,setor_id,hoje))
+        usuarios = {p['id']:p for p in auth.listar_usuarios()}
+        for grupo in dados['por_responsavel']:
+            grupo['nome'] = usuarios.get(grupo['id'],{}).get('nome','') if grupo['id'] is not None else 'Sem responsável'
+        dados['fila']['itens'] = [_dto(s,usuario,t,usuarios,hoje) for t in dados['fila']['itens']]
+        dados['filtros'] = dict(dados['filtros'],visao=visao)
+        return dados
 
 
 @router.get('/avisos')
@@ -390,12 +420,15 @@ def avisos(request:Request,usuario:Usuario=Depends(exigir_aba('tarefas'))):
 def exportar(request:Request,visao:str='minhas',setor_id:int|None=None,cliente_id:int|None=None,
              responsavel_usuario_id:int|None=None,competencia:str='',situacao:str='',
              vencimento_de:str='',vencimento_ate:str='',sem_responsavel:bool=False,
+              texto:str='',fila:str='',abertas:bool=False,pendente_conferencia:bool=False,
              usuario:Usuario=Depends(acesso('tarefas.exportar'))):
     with _store() as s:
-        filtros=_filtros(setor_id,cliente_id,responsavel_usuario_id,competencia,situacao,vencimento_de,vencimento_ate,sem_responsavel)
+        filtros=_filtros(setor_id,cliente_id,responsavel_usuario_id,competencia,situacao,vencimento_de,vencimento_ate,sem_responsavel,
+                         texto,fila,abertas,pendente_conferencia)
+        hoje = _hoje()
         itens=[];pagina=1
         while True:
-            p=_listar(s,usuario,visao,pagina,200,filtros);itens.extend(p['itens'])
+            p=_listar(s,usuario,visao,pagina,200,filtros,hoje);itens.extend(p['itens'])
             if pagina>=p['paginas']:break
             pagina+=1
         dados=gerar_relatorio(itens)

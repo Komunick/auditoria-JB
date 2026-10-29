@@ -1,13 +1,5 @@
-/* Painel de Inicio: a porta de entrada do sistema.
-
-   Ate aqui o site abria direto na primeira ferramenta liberada, o que dava
-   uma primeira tela diferente para cada pessoa e nenhuma visao do conjunto.
-   Este painel mostra o que a pessoa alcanca, com o nome e uma linha do que
-   cada ferramenta faz, e leva para ela num clique.
-
-   Nao existe rota nem permissao propria: e' so uma vitrine do que ja esta
-   liberado. A regra de acesso continua uma so, em Abas.permitida(), e quem
-   barra de verdade e' o 403 do servidor. */
+/* Central operacional: contagens do servidor no escopo autorizado.
+   Ferramentas seguem acessíveis por Abas.permitida(), sem novo papel de acesso. */
 
 "use strict";
 
@@ -96,7 +88,7 @@ function montarInicio(container) {
   const temAdmin = Abas.permitida("admin");
 
   container.innerHTML = `
-    <section class="capa">
+    <section class="capa${Sessao.pode("aba.tarefas") ? " capa-operacional" : ""}">
       <div class="capa-texto">
         <p class="eyebrow capa-data"></p>
         <h2 class="capa-titulo"></h2>
@@ -105,6 +97,7 @@ function montarInicio(container) {
       <img class="capa-selo" src="logo.jpg" alt="" width="72" height="72">
     </section>
 
+    <div id="inicio-central"></div>
     ${ferramentas.length ? `
       <div class="secao-titulo">
         <h3>Suas ferramentas</h3>
@@ -117,13 +110,15 @@ function montarInicio(container) {
       </div>`}
     <div id="inicio-admin"></div>`;
 
-  container.querySelector(".capa-data").textContent = dataPorExtenso();
-  container.querySelector(".capa-titulo").textContent =
-    primeiroNome ? `${saudacao()}, ${primeiroNome}.` : `${saudacao()}.`;
+  const atualizarSaudacao = () => {
+    container.querySelector(".capa-data").textContent = dataPorExtenso();
+    container.querySelector(".capa-titulo").textContent = primeiroNome ? `${saudacao()}, ${primeiroNome}.` : `${saudacao()}.`;
+  };
+  atualizarSaudacao(); document.addEventListener("inicio:abrir", atualizarSaudacao);
   /* "menu de navegacao" e nao "menu a esquerda": em tela estreita a lateral
      vira uma barra no topo (ver o @media do estilo.css). */
   container.querySelector(".capa-linha").textContent = ferramentas.length
-    ? "Escolha uma ferramenta abaixo ou use o menu de navegação."
+    ? (Sessao.pode("aba.tarefas") ? "Acompanhe as prioridades e continue o trabalho da sua equipe." : "Escolha uma ferramenta abaixo ou use o menu de navegação.")
     : "Nenhuma ferramenta de auditoria liberada para o seu usuário.";
   if (ferramentas.length) {
     container.querySelector("#inicio-contagem").textContent =
@@ -155,6 +150,168 @@ function montarInicio(container) {
       area.querySelector(".atalhos").appendChild(cartao);
     }
   }
+  CentralUI.montar(container.querySelector("#inicio-central"));
 }
+
+const CentralUI = {
+  consulta(filtros = {}, fila = "pendentes", pagina = 1) {
+    return {...TarefasUI.contexto({filtros}).filtros, fila, pagina, limite: 10};
+  },
+  async consultar(estado, obter) {
+    const numero = estado.consulta = (estado.consulta || 0) + 1;
+    const vigente = () => numero === estado.consulta && (!("usuarioId" in estado) || Sessao.usuario?.id === estado.usuarioId);
+    try { const dados = await obter(); return {atual: vigente(), dados}; }
+    catch (erro) { if (!vigente()) return {atual: false}; throw erro; }
+  },
+  montar(container) {
+    if (!Sessao.pode("aba.tarefas")) return false;
+    const u = TarefasUI, s = {fila: "pendentes", pagina: 1, consulta: 0, catalogo: null, filtros: {visao: "cliente"}, usuarioId: Sessao.usuario?.id};
+    const sessaoValida = () => Sessao.usuario?.id === s.usuarioId && Sessao.pode("aba.tarefas");
+    container.innerHTML = `
+      <section class="caixa central" aria-label="Central operacional">
+        <div class="tar-cabecalho"><div><p class="eyebrow">Gestão do escritório</p><h2>Sua operação, por prioridade</h2>
+          <p class="dica">As contagens consideram todas as ocorrências no seu acesso e nos filtros abaixo.</p></div>
+          <button type="button" id="central-atualizar">Atualizar</button></div>
+        <details class="central-filtros-bloco"><summary>Filtros <span id="central-filtros-resumo">Todo o meu acesso · Todas as competências</span></summary>
+        <form id="central-filtros" class="central-filtros">
+          <label>Escopo<select name="visao"><option value="cliente">Todo o meu acesso</option><option value="minhas">Minhas tarefas</option></select></label>
+          <label>Competência<input name="competencia" type="month"><small class="dica">Vazio inclui todas as competências.</small></label>
+          <label>Cliente<select name="cliente_id"><option value="">Todos os clientes</option></select></label>
+          <label>Setor<select name="setor_id"><option value="">Todos os setores</option></select></label>
+          <label>Responsável<select name="responsavel_usuario_id"><option value="">Todos</option></select></label>
+          <label>Buscar tarefa ou cliente<input name="texto" type="search" maxlength="200" placeholder="Digite um nome ou tarefa"></label>
+          <div class="acoes"><button class="botao-primario" type="submit">Aplicar filtros</button><button type="button" id="central-limpar">Limpar</button></div>
+        </form></details>
+        <p id="central-status" role="status" aria-live="polite"></p>
+        <div id="central-resultados" class="oculto">
+          <p id="central-referencia" class="dica"></p><div id="central-indicadores" class="central-indicadores"></div>
+          <p class="dica">Uma tarefa pode aparecer em mais de um indicador. Os indicadores permanecem iguais ao trocar a fila.</p>
+          <div class="central-colunas"><section class="central-fila" aria-label="Fila de tarefas">
+            <div class="tar-cabecalho"><h3>Fila de trabalho</h3><button type="button" id="central-lista">Abrir lista completa</button></div>
+            <label class="central-seletor">Mostrar<select id="central-fila"></select></label>
+            <div id="central-itens"></div>
+            <div class="conc-paginacao"><button id="central-anterior" type="button">‹ Anterior</button><span id="central-pagina"></span><button id="central-proxima" type="button">Próxima ›</button></div>
+          </section><section class="central-distribuicao" aria-label="Pendências por responsável">
+            <h3>Pendências por responsável</h3><p class="dica">Carga atual, incluindo conferências. Responsáveis efetivos na data da consulta.</p>
+            <div id="central-responsaveis"></div>
+          </section></div>
+        </div>
+      </section>`;
+    const $ = id => container.querySelector(`#${id}`), form = $("central-filtros");
+    const controle = nome => form.elements.namedItem(nome);
+    const mensagem = (texto, erro = false) => { $("central-status").textContent = texto; $("central-status").classList.toggle("erro", erro); };
+    const filtros = () => {
+      const valores = Object.fromEntries(["visao", "competencia", "cliente_id", "setor_id", "responsavel_usuario_id", "texto"].map(k => [k, controle(k).value.trim()]));
+      if (valores.visao === "minhas") valores.responsavel_usuario_id = "";
+      return u.contexto({filtros: valores}).filtros;
+    };
+    const refletirEscopo = () => {
+      controle("responsavel_usuario_id").disabled = controle("visao").value === "minhas";
+      if (controle("responsavel_usuario_id").disabled) controle("responsavel_usuario_id").value = "";
+    };
+    const refletirFiltros = () => {
+      const f = s.filtros, c = s.catalogo || {}, partes = [({cliente: "Todo o meu acesso", minhas: "Minhas tarefas", setor: "Visão dos setores"})[f.visao], f.competencia ? `Competência ${f.competencia}` : "Todas as competências"];
+      for (const [campo, itens, nome] of [["cliente_id", c.clientes, "Cliente"], ["setor_id", c.setores, "Setor"], ["responsavel_usuario_id", c.usuarios, "Responsável"]]) {
+        if (f[campo]) { const item = (itens || []).find(i => String(i.id) === String(f[campo])); partes.push(`${nome}: ${item?.nome || item?.usuario || "selecionado"}`); }
+      }
+      if (f.texto) partes.push(`Busca: ${f.texto}`);
+      $("central-filtros-resumo").textContent = partes.join(" · ");
+    };
+    u.opcoes($("central-fila"), Object.entries(u.filas).map(([valor, rotulo]) => ({valor, rotulo})), undefined, s.fila);
+    const desenhar = dados => {
+      $("central-resultados").classList.remove("oculto");
+      $("central-referencia").textContent = `${dados.resumo.total} tarefa(s) no conjunto filtrado · ${dados.resumo.pendentes} pendente(s) · Referência: ${u.data(dados.hoje)}, Salvador.`;
+      const cards = $("central-indicadores"); cards.textContent = "";
+      for (const [fila, chave, titulo, ajuda, cor] of [
+        ["atrasadas", "atrasadas", "Atrasadas", "Abertas com prazo vencido", "vermelho"],
+        ["hoje", "vencendo_hoje", "Vencem hoje", "Abertas para a data de hoje", "amarelo"],
+        ["proximas", "proximas", "Próximos prazos", `Nos próximos ${dados.alerta_dias} dias`, ""],
+        ["conferencia", "pendentes_conferencia", "Para conferir", "Concluídas aguardando conferência", ""],
+        ["aguardando_cliente", "aguardando_cliente", "Aguardando cliente", "Inclui tarefas sem prazo", ""],
+        ["sem_responsavel", "sem_responsavel", "Sem responsável", "Pendentes para atribuir", ""],
+        ["sem_vencimento", "sem_vencimento", "Sem vencimento", "Pendentes sem data limite", ""]]) {
+        const card = u.botao("", () => { s.focoIndicador = fila; s.fila = fila; s.pagina = 1; $("central-fila").value = fila; return carregar(); }, `central-indicador ${cor}`);
+        card.dataset.fila = fila;
+        card.setAttribute("aria-pressed", String(s.fila === fila));
+        card.append(u.el("span", titulo), u.el("strong", String(dados.resumo[chave])), u.el("small", ajuda)); cards.append(card);
+      }
+      const itens = $("central-itens"); itens.textContent = "";
+      for (const t of dados.fila.itens) {
+        const linha = u.el("article", undefined, "central-tarefa"), info = u.el("div");
+        info.append(u.el("strong", t.titulo), u.el("p", t.cliente_nome || "Cliente"),
+          u.el("small", `${t.responsavel_efetivo_nome || t.responsavel_nome || "Sem responsável"} · ${t.competencia || "Avulsa"}`));
+        if (u.ocorrencia(t)) info.append(u.el("small", u.ocorrencia(t)));
+        const estado = u.el("div", undefined, "central-tarefa-estado");
+        estado.append(u.el("span", u.vencimento(t.vencimento)), u.el("span", u.rotuloSituacao(t.situacao), `tar-cor ${["verde","amarelo","vermelho"].includes(t.cor) ? t.cor : "neutro"}`),
+          u.botao("Abrir tarefa", () => u.abrirContexto({filtros: s.filtros, fila: s.fila, tarefa_id: t.id})));
+        linha.append(info, estado); itens.append(linha);
+      }
+      if (!dados.fila.itens.length) itens.append(u.el("p", dados.resumo.total ? "Nenhuma tarefa nesta fila com os filtros aplicados." : "Nenhuma tarefa no seu acesso com os filtros aplicados.", "central-vazio"));
+      s.pagina = dados.fila.pagina;
+      $("central-pagina").textContent = `${dados.fila.total} tarefa(s) · Página ${s.pagina} de ${Math.max(1, dados.fila.paginas)}`;
+      $("central-anterior").disabled = s.pagina <= 1; $("central-proxima").disabled = s.pagina >= dados.fila.paginas;
+      const pessoas = $("central-responsaveis"); pessoas.textContent = "";
+      const pendentes = dados.por_responsavel.filter(p => p.pendentes > 0).sort((a,b) => b.pendentes - a.pendentes);
+      for (const p of pendentes) {
+        const linha = u.el("div", undefined, "central-pessoa"); linha.append(u.el("strong", p.nome || "Sem responsável"),
+          u.el("span", `${p.pendentes} pendente(s)`), u.el("small", `${p.atrasadas} atrasada(s) · ${p.pendentes_conferencia} para conferir`)); pessoas.append(linha);
+      }
+      if (!pendentes.length) pessoas.append(u.el("p", "Nenhuma pendência no conjunto filtrado.", "dica"));
+      if (s.focoIndicador) { cards.querySelector(`[data-fila="${s.focoIndicador}"]`)?.focus(); s.focoIndicador = ""; }
+    };
+    const carregar = async () => {
+      if (!sessaoValida() || s.catalogoPendente) return;
+      refletirFiltros();
+      mensagem("Carregando a operação…"); $("central-resultados").classList.add("oculto"); container.setAttribute("aria-busy", "true");
+      try {
+        const consulta = this.consulta(s.filtros, s.fila, s.pagina);
+        const r = await this.consultar(s, () => api("/api/tarefas/painel?" + new URLSearchParams(consulta)));
+        if (!r.atual || !container.isConnected) return;
+        desenhar(r.dados); mensagem(""); container.setAttribute("aria-busy", "false");
+      } catch (erro) { if (container.isConnected && sessaoValida()) { mensagem(erro.message + " Use Atualizar para tentar novamente.", true); container.setAttribute("aria-busy", "false"); } }
+    };
+    const aplicar = () => { s.filtros = filtros(); s.pagina = 1; return carregar(); };
+    form.addEventListener("submit", e => { e.preventDefault(); aplicar(); });
+    controle("visao").addEventListener("change", refletirEscopo);
+    $("central-limpar").addEventListener("click", () => { form.reset(); refletirEscopo(); s.fila = "pendentes"; $("central-fila").value = s.fila; aplicar(); });
+    $("central-fila").addEventListener("change", () => { s.fila = $("central-fila").value; s.pagina = 1; carregar(); });
+    $("central-anterior").addEventListener("click", () => { s.pagina -= 1; carregar(); });
+    $("central-proxima").addEventListener("click", () => { s.pagina += 1; carregar(); });
+    $("central-lista").addEventListener("click", () => u.abrirContexto({filtros: s.filtros, fila: s.fila}));
+    const iniciarCatalogo = async () => {
+      if (!sessaoValida()) return;
+      const numero = s.consultaCatalogo = (s.consultaCatalogo || 0) + 1;
+      const vigente = () => numero === s.consultaCatalogo && container.isConnected && sessaoValida();
+      ++s.consulta; s.catalogoPendente = true;
+      $("central-atualizar").disabled = true;
+      $("central-resultados").classList.add("oculto"); container.setAttribute("aria-busy", "true");
+      mensagem("Carregando os filtros…"); form.querySelectorAll("input,select,button").forEach(e => { e.disabled = true; });
+      try {
+        const c = await api("/api/tarefas/catalogo"); if (!vigente()) return; s.catalogo = c;
+        for (const [campo, itens, vazio] of [["cliente_id", c.clientes, "Todos os clientes"], ["setor_id", c.setores, "Todos os setores"],
+          ["responsavel_usuario_id", c.usuarios.filter(p => p.ativo !== false && p.ativo !== 0), "Todos"]]) {
+          const valido = valor => itens.some(i => String(i.id) === String(valor));
+          const anterior = controle(campo).value;
+          u.opcoes(controle(campo), itens, vazio, valido(anterior) ? anterior : "");
+          if (s.filtros[campo] && !valido(s.filtros[campo])) { delete s.filtros[campo]; s.pagina = 1; }
+        }
+        const visoes = [{valor: "cliente", rotulo: "Todo o meu acesso"}, {valor: "minhas", rotulo: "Minhas tarefas"}];
+        if ((c.setores_geridos || []).length || Sessao.pode("tarefas.todas")) {
+          visoes.push({valor: "setor", rotulo: "Visão dos setores"});
+        }
+        const visaoValida = valor => visoes.some(i => i.valor === valor);
+        u.opcoes(controle("visao"), visoes, undefined, visaoValida(controle("visao").value) ? controle("visao").value : "cliente");
+        if (!visaoValida(s.filtros.visao)) { s.filtros.visao = "cliente"; s.pagina = 1; }
+        form.querySelectorAll("input,select,button").forEach(e => { e.disabled = false; }); refletirEscopo();
+        s.catalogoPendente = false; await carregar();
+      } catch (erro) { if (vigente()) { mensagem(erro.message + " Use Atualizar para tentar novamente.", true); container.setAttribute("aria-busy", "false"); } }
+      finally { if (vigente()) { s.catalogoPendente = false; $("central-atualizar").disabled = false; } }
+    };
+    $("central-atualizar").addEventListener("click", iniciarCatalogo);
+    document.addEventListener("inicio:abrir", iniciarCatalogo);
+    document.addEventListener("sessao:encerrada", () => { ++s.consulta; ++s.consultaCatalogo; $("central-resultados").classList.add("oculto"); });
+    iniciarCatalogo(); return true;
+  },
+};
 
 Abas.registrar("inicio", montarInicio);
