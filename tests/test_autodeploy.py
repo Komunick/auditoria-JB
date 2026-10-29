@@ -5,6 +5,7 @@ import io
 import os
 import sqlite3
 import stat
+import subprocess
 import sys
 import tarfile
 import tempfile
@@ -210,6 +211,7 @@ def test_config_ambiente_e_sandbox():
 
 
 def test_exclusao_desktop_explicita_e_restrita(pasta):
+    expected_tree, payload = fixture_git_archive(pasta)
     base = dict(schema_version=1, repository="/srv/app", repository_url="https://github.com/test/example.git",
         venv="/srv/app/.venv", data_dir="/srv/data", service="auditoria-jb.service", control_plane_digest="a" * 40,
         allowed_skips=["test_fdb_reader.py"])
@@ -226,14 +228,19 @@ def test_exclusao_desktop_explicita_e_restrita(pasta):
         h = ad.Host.__new__(ad.Host)
         h.c = ad.Config.from_dict({**base, "excluded_tests": ["test_ui_smoke.py"] if excluir else []})
         h.work, h.gitwork = root / "work", root / "git"
+        h.state_dir, h.run_id = root / "root", "exclusao-sintetica"
+        h.state_dir.mkdir()
         (h.work / "candidate" / "tests").mkdir(parents=True)
         h.gitwork.mkdir()
         for nome in ("test_a_web.py", "test_fdb_reader.py", "test_ui_smoke.py"):
             (h.work / "candidate" / "tests" / nome).write_text("# sintetico", encoding="utf-8")
         h.create_work = lambda: None
         h.uid = h.gid = 1
-        def git(args):
-            (h.gitwork / "candidate.tar").write_bytes(b"arquivo sintetico")
+        def git(args, *, stdout_path=None):
+            if args[0] == "rev-parse":
+                return expected_tree
+            Path(stdout_path).write_bytes(payload)
+            return ""
         h.git = git
         chamados = []
         def sandbox(args, **kwargs):
@@ -444,6 +451,209 @@ def test_manifesto_recuperavel_sem_seguir_links(pasta):
         assert item["type"] == "symlink" and item["target"] == "/arquivo-externo-inexistente" and "sha256" not in item
 
 
+def fixture_git_archive(pasta, *, attributes=None):
+    repo = Path(tempfile.mkdtemp(dir=pasta, prefix="git_archive_"))
+    (repo / "tests").mkdir()
+    (repo / "tests/test_sintetico.py").write_bytes(b"assert False, 'suite original reprova'\n")
+    (repo / "executavel.sh").write_bytes(b"#!/bin/sh\nexit 0\n")
+    (repo / "a.c").write_bytes(b"arquivo antes de diretorio\n")
+    (repo / "a").mkdir()
+    (repo / "a/acentuado-ç.txt").write_bytes(b"conteudo sintetico\n")
+    if attributes:
+        (repo / ".gitattributes").write_text(attributes, encoding="utf-8")
+    def git(*args):
+        return subprocess.check_output(["git", "-c", "core.autocrlf=false", "-c", "core.hooksPath=/dev/null", "-C", str(repo), *args])
+    git("init", "--quiet")
+    git("add", ".")
+    git("update-index", "--chmod=+x", "executavel.sh")
+    tree = git("write-tree").decode().strip()
+    return tree, git("archive", "--format=tar", tree)
+
+
+def alterar_archive(payload, mutacao="conteudo"):
+    output = io.BytesIO()
+    with tarfile.open(fileobj=io.BytesIO(payload), mode="r:") as src, tarfile.open(fileobj=output, mode="w") as dst:
+        for item in src:
+            if mutacao == "ausente" and item.name == "a.c":
+                continue
+            data = src.extractfile(item).read() if item.isfile() else None
+            if mutacao == "modo" and item.name == "executavel.sh":
+                item.mode = 0o644
+            if mutacao == "conteudo" and item.name == "tests/test_sintetico.py":
+                data = b"print('OK - conteudo substituido')\n"
+                item.size = len(data)
+            dst.addfile(item, io.BytesIO(data) if data is not None else None)
+    return output.getvalue()
+
+
+def test_archive_adulterado_falha_antes_da_manutencao(pasta):
+    expected, original = fixture_git_archive(pasta)
+    h = HostFalso()
+    root = Path(tempfile.mkdtemp(dir=pasta, prefix="archive_host_"))
+    h.state_dir, h.gitwork, h.work = root / "root", root / "ubuntu", root / "check"
+    h.state_dir.mkdir(); h.gitwork.mkdir()
+    h.run_id = "archive-sintetico"
+    h.uid = h.gid = 1
+    h.c = SimpleNamespace(excluded_tests=[], allowed_skips=[], total_test_timeout=20, test_timeout=10)
+    def create_work():
+        (h.work / "candidate").mkdir(parents=True)
+    h.create_work = create_work
+    destinations = []
+    def git(args, *, stdout_path=None, **kwargs):
+        if args[0] == "rev-parse":
+            assert args[1] == h.alvo + "^{tree}"
+            return expected
+        assert args[0] == "archive"
+        if stdout_path is not None:
+            assert not any(a.startswith("--output") for a in args), "Caminho privado exposto ao Git"
+        path = Path(stdout_path) if stdout_path else Path(next(a.split("=", 1)[1] for a in args if a.startswith("--output=")))
+        destinations.append(path)
+        path.write_bytes(original)
+        # Reproduz substituicao por outro tar REGULAR depois de git archive.
+        path.write_bytes(alterar_archive(original))
+        return ""
+    h.git = git
+    def sandbox(args, **kwargs):
+        if "--helper-extract" in args:
+            with Path(args[-2]).open("rb") as payload:
+                ad.safe_extract(payload, args[-1])
+        return "OK - teste sintetico"
+    h.sandbox = sandbox
+    h.test_candidate = lambda revision: ad.Host.test_candidate(h, revision)
+    with patch.object(ad.os, "chown", create=True):
+        assert ad.Runner(h).run() == 1, "Tar substituido foi testado e SHA original foi implantado"
+    assert h.estado["error"] == "archive_mismatch", h.estado
+    assert h.ativo and not h.held and "maintenance" not in h.eventos and "stop" not in h.eventos
+    assert destinations and destinations[0].is_relative_to(h.state_dir)
+
+
+def test_archive_oid_git_real_e_export_ignore(pasta):
+    expected, payload = fixture_git_archive(pasta)
+    assert ad.archive_tree_oid(io.BytesIO(payload), len(expected)) == expected
+    for mutacao in ("conteudo", "modo", "ausente"):
+        assert ad.archive_tree_oid(io.BytesIO(alterar_archive(payload, mutacao)), len(expected)) != expected
+    expected, exported = fixture_git_archive(pasta, attributes="tests/test_sintetico.py export-ignore\n")
+    assert ad.archive_tree_oid(io.BytesIO(exported), len(expected)) != expected
+
+
+def test_stdout_binario_separado_do_log(pasta):
+    root = Path(pasta) / "stdout_root"
+    root.mkdir()
+    h = ad.Host.__new__(ad.Host)
+    h.c = SimpleNamespace(command_timeout=10)
+    h.deadline, h.counter, h.run_id, h.logs = None, 0, "stdout-sintetico", root
+    destination = root / "candidate.tar"
+    output = h.command([sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'\\x00bytes-do-tar'); sys.stderr.write('diagnostico')"], stdout_path=destination)
+    assert destination.read_bytes() == b"\x00bytes-do-tar"
+    assert output == "diagnostico"
+    assert b"bytes-do-tar" not in (root / "stdout-sintetico-1.log").read_bytes()
+    h.gitwork = root / "ubuntu"
+    h.c = SimpleNamespace(deploy_user="ubuntu", repository="/repo/sintetico")
+    with patch.object(h, "command", return_value="") as command:
+        h.git(["archive", "--format=tar", "b" * 40], stdout_path=destination)
+    argv = command.call_args.args[0]
+    assert "core.autocrlf=false" in argv
+    assert not any(arg.startswith("--output") for arg in argv)
+    assert str(destination) not in argv and command.call_args.kwargs["stdout_path"] == destination
+
+
+def test_inventario_atualizacao_condicional_legal(pasta):
+    directory = Path(pasta) / "inventario_condicional"
+    directory.mkdir()
+    for name in ad.DATABASES:
+        with closing(sqlite3.connect(directory / name)) as conn, conn:
+            conn.executescript("CREATE TABLE numeracao(id INTEGER PRIMARY KEY,proximo INTEGER);"
+                "CREATE TRIGGER so_cresce BEFORE UPDATE ON numeracao WHEN NEW.proximo < OLD.proximo "
+                "BEGIN SELECT RAISE(ABORT,'nao pode diminuir'); END;"
+                "CREATE TABLE evento(id INTEGER PRIMARY KEY,acao TEXT);"
+                "CREATE TRIGGER evento_imutavel BEFORE UPDATE ON evento BEGIN SELECT RAISE(ABORT,'imutavel'); END;"
+                "CREATE TABLE segredo(id INTEGER PRIMARY KEY,cifra BLOB);"
+                "INSERT INTO numeracao VALUES(1,1); INSERT INTO evento VALUES(1,'original'); INSERT INTO segredo VALUES(1,X'0102');")
+    before = ad.sqlite_inventory(directory)
+    with closing(sqlite3.connect(directory / "nfse.db")) as conn, conn:
+        conn.execute("UPDATE numeracao SET proximo=2")
+    ad.compare_inventory(before, ad.sqlite_inventory(directory, before))
+    for table, sql, undo in [("segredo", "UPDATE segredo SET cifra=X'0304'", "UPDATE segredo SET cifra=X'0102'"),
+                             ("evento", "DROP TRIGGER evento_imutavel; UPDATE evento SET acao='alterado'", "")]:
+        with closing(sqlite3.connect(directory / "nfse.db")) as conn, conn:
+            conn.executescript(sql)
+        try:
+            ad.compare_inventory(before, ad.sqlite_inventory(directory, before))
+        except ad.DeployError as exc:
+            assert exc.code == "immutable_data_changed"
+        else:
+            raise AssertionError("Alteracao imutavel aceita: " + table)
+        if undo:
+            with closing(sqlite3.connect(directory / "nfse.db")) as conn, conn:
+                conn.executescript(undo)
+
+
+def test_crontab_preflight_sem_cron_e_falha(pasta):
+    def host(status, text):
+        h = HostFalso()
+        h.original_pid = 123
+        h.health = lambda: 123
+        h.clean_checkout = lambda: h.atual
+        h.space = lambda: None
+        h.c = SimpleNamespace(repository_url="https://github.com/test/example.git", control_plane_digest="c" * 40)
+        h.crontab_snapshot = None
+        h.git = lambda args: "c" * 40 if args[0] == "rev-parse" and ":" in args[1] else h.alvo if args[0] == "rev-parse" else ""
+        def command(args, **kwargs):
+            assert args == ["/usr/bin/crontab", "-u", "ubuntu", "-l"]
+            assert not h.held and h.ativo
+            h.eventos.append("read_cron")
+            return status, text
+        h.command = command
+        h.capture_crontab = lambda: ad.Host.capture_crontab(h)
+        h.preflight = lambda: ad.Host.preflight(h)
+        return h
+    with patch.object(ad, "protected_window", return_value=False):
+        h = host(1, "no crontab for ubuntu\n")
+        assert ad.Runner(h).run() == 0
+        assert h.crontab_snapshot["present"] is False and h.crontab_snapshot["content"] == ""
+        assert h.eventos.index("read_cron") < h.eventos.index("maintenance")
+        h = host(1, "crontabs: Permission denied\n")
+        assert ad.Runner(h).run() == 1, "Falha do cron deveria ser detectada antes da parada"
+        assert h.estado["error"] == "crontab_preflight_failed"
+        assert h.ativo and not h.held and "maintenance" not in h.eventos
+        h = host(0, "45 7 * * * comando-sintetico\n")
+        assert ad.Runner(h).run() == 0 and h.crontab_snapshot["present"] is True
+        assert h.crontab_snapshot["content"] == "45 7 * * * comando-sintetico\n"
+
+
+def test_backup_sem_crontab_usa_captura_previa(pasta):
+    root = Path(pasta) / "backup_sem_cron"
+    root.mkdir()
+    h = ad.Host.__new__(ad.Host)
+    h.run_id, h.deadline = "sintetico", None
+    h.c = SimpleNamespace(backup_dir=str(root / "backups"), secrets_backup_dir=str(root / "secrets"),
+        data_dir=str(root / "data"), venv=str(root / "venv"), configuration_paths=[], secret_paths=[])
+    Path(h.c.backup_dir).mkdir(); Path(h.c.secrets_backup_dir).mkdir()
+    h.gitwork = root / "git"
+    h.gitwork.mkdir()
+    h.has_hold = lambda: True
+    h.service = lambda: dict(MainPID="0")
+    h.copy_config = lambda sources, dest: Path(dest).mkdir(exist_ok=True)
+    h.manifest = lambda *args, **kwargs: {}
+    h.crontab_snapshot = dict(present=False, content="", captured_at="2026-10-28T12:00:00+00:00")
+    def git(args):
+        if args[0] == "bundle":
+            Path(args[2]).write_bytes(b"bundle sintetico")
+            return ""
+        return "a" * 40
+    h.git = git
+    def forbidden(*args, **kwargs):
+        raise AssertionError("Backup leu crontab depois de parar o servico")
+    h.command = forbidden
+    with patch.object(ad, "copy_tree", side_effect=lambda src, dst, **kwargs: Path(dst).mkdir()):
+        target = Path(h.backup("pre"))
+    secret = Path(h.c.secrets_backup_dir) / h.run_id
+    meta = __import__('json').loads((secret / "manifest.json").read_text())
+    assert meta["crontab_present"] is False and meta["crontab_captured_at"] == h.crontab_snapshot["captured_at"]
+    assert (secret / "crontab-ubuntu.txt").read_text() == ""
+    assert (target / "RECUPERACAO.md").is_file()
+
+
 def main():
     test_fluxo_e_falhas()
     test_noop_check_e_interrupcao()
@@ -453,6 +663,12 @@ def main():
     test_saude_urls_e_ambiente()
     test_abertura_por_ancestrais()
     with tempfile.TemporaryDirectory(prefix="autodeploy_sintetico_") as pasta:
+        test_archive_adulterado_falha_antes_da_manutencao(pasta)
+        test_archive_oid_git_real_e_export_ignore(pasta)
+        test_stdout_binario_separado_do_log(pasta)
+        test_inventario_atualizacao_condicional_legal(pasta)
+        test_crontab_preflight_sem_cron_e_falha(pasta)
+        test_backup_sem_crontab_usa_captura_previa(pasta)
         test_archive_sem_links_ou_escape(pasta)
         test_sqlite_so_copia_e_integridade(pasta)
         test_inventario_preserva_ids_eventos_e_cifras(pasta)

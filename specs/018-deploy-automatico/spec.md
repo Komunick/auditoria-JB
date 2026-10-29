@@ -29,14 +29,23 @@ gatilho de publicação. Dev, branches e PRs abertos não são implantados.
    O teste exclusivamente desktop `test_ui_smoke.py` pode ser explicitamente
    classificado como não aplicável ao servidor web, separado de aprovação e
    de pulo. Nenhum outro teste recebe essa exclusão.
+   O archive é recebido pelo stdout em diretório privado do root; seu conteúdo,
+   nomes e modos devem produzir o OID da árvore do SHA candidato. Divergência
+   encerra o ciclo com `archive_mismatch` antes da manutenção.
 5. Antes de alterar o código, impedir o cron de reiniciar a aplicação durante
    a manutenção, parar a unit e copiar a pasta inteira de dados, inclusive WAL,
    SHM, origens e sessões, além de código, venv e configuração recuperáveis.
    Segredos ficam em cópia protegida separada. Backups nunca são sobrescritos
    nem apagados automaticamente.
+   A leitura do crontab ocorre no preflight e sua ausência é registrada como
+   ausência, sem erro. Falha de leitura interrompe antes do hold e da parada;
+   o backup utiliza a captura desse preflight.
 6. Validar integridade e chaves estrangeiras dos seis bancos apenas em cópias
    de trabalho. Ensaiar migração na cópia isolada, sem servidor, agendador ou
    envio de e-mail. Rejeitar symlinks e arquivos especiais na fonte de dados.
+   O inventário preserva integralmente o segredo e as tabelas com bloqueio
+   incondicional de UPDATE. Um trigger com WHEN não torna toda a tabela
+   imutável: atualizações permitidas por sua condição continuam válidas.
 7. Atualizar main para o SHA aprovado por fast-forward e iniciar a mesma unit.
    Verificar processo e HTTP, bootstrap ausente e APIs protegidas. Preservar
    dados, chave do cofre, SMTP desligado, loopback e worker único.
