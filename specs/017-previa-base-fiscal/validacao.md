@@ -64,3 +64,26 @@ executada nem usada para substituir a suíte deste branch.
 
 Firebird e produção não foram verificados nesta etapa. A publicação é por PR
 para `dev`; merge e deploy seguem o fluxo do projeto.
+
+## Correções locais da revisão — 28/10/2026
+
+Sobre `dev@fd3b88d4f7a1bf31d20f7e56872659a0fad4239d`, no branch local
+`codex/correcoes-review-017-018`, foram reproduzidos e corrigidos somente os
+dois defeitos de leitura apontados na revisão externa. As evidências abaixo
+não representam publicação, implantação ou nova verificação da VM.
+
+| Correção | RED observado | GREEN sintético |
+|---|---|---|
+| Colunas inexistentes em ZERADAS | Linha válida gerava duas pendências; filtros incluíam a linha como responsável/regime faltantes | Linha sem pendências, contadores zerados, filtros excluem colunas inexistentes e UI informa a ausência no layout; principal com campos vazios continua pendente |
+| Dados acima do cabeçalho | Células mapeadas preenchidas eram omitidas com sucesso | Recusa explícita com aba/linha, inclusive zero; título na coluna A não mapeada continua aceito |
+
+Passaram `test_planilha_empresas.py` (17 cenários), `test_web_base_fiscal.py`
+e `test_base_fiscal_ui.py`. O novo metadado `campos_ausentes_no_layout` é
+aditivo e não altera as permissões ou o contrato de prévia sem cadastro.
+Fixtures exclusivamente sintéticas; nenhuma planilha real foi relida.
+
+Regressão final sobre essa base da dev: 78 scripts independentes, 76 aprovados,
+2 pulados por Firebird opcional ausente e 0 falhas. Manifesto dos fontes e
+testes permaneceu idêntico durante toda a execução. As specs 015/016 não foram
+integradas nessa árvore; a correção do catálogo da 016 foi testada em worktree
+separado sobre o head do PR #17.

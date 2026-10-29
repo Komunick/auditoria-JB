@@ -7,7 +7,7 @@ Git, nao instala dependencias e nao atualiza este proprio executor.
 from __future__ import annotations
 
 import argparse
-from contextlib import closing, contextmanager
+from contextlib import closing, contextmanager, ExitStack
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -171,6 +171,63 @@ def safe_extract(fileobj, destination):
                 target.chmod(0o755 if member.mode & 0o111 else 0o644)
 
 
+def archive_tree_oid(fileobj, oid_length):
+    """OID Git dos bytes, nomes e modos do tar; nao executa codigo candidato."""
+    algorithm = "sha1" if oid_length == 40 else "sha256"
+    tree = {}
+    def object_id(kind, data):
+        return hashlib.new(algorithm, kind + b" " + str(len(data)).encode() + b"\0" + data).digest()
+    with tarfile.open(fileobj=fileobj, mode="r:") as archive:
+        seen, total = set(), 0
+        for member in archive:
+            name = member.name.rstrip("/")
+            path = PurePosixPath(name)
+            total += member.size
+            if len(seen) >= 50000 or total > MAX_ARCHIVE_BYTES or len(path.parts) > 128:
+                raise DeployError("archive_limit")
+            if (not name or path.is_absolute() or ".." in path.parts or "\\" in name or ":" in name
+                    or path.as_posix() != name or name in seen or not (member.isdir() or member.isfile())):
+                raise DeployError("archive_unsafe")
+            seen.add(name)
+            directory = tree
+            for part in path.parts[:-1]:
+                directory = directory.setdefault(part, {})
+                if not isinstance(directory, dict):
+                    raise DeployError("archive_unsafe")
+            if member.isdir():
+                if not isinstance(directory.setdefault(path.name, {}), dict):
+                    raise DeployError("archive_unsafe")
+            else:
+                if path.name in directory:
+                    raise DeployError("archive_unsafe")
+                digest = hashlib.new(algorithm, b"blob " + str(member.size).encode() + b"\0")
+                with archive.extractfile(member) as content:
+                    while data := content.read(1024 * 1024):
+                        digest.update(data)
+                directory[path.name] = (b"100755" if member.mode & 0o111 else b"100644", digest.digest())
+    def tree_id(directory):
+        entries = []
+        for name, item in directory.items():
+            encoded = name.encode("utf-8", errors="surrogateescape")
+            if isinstance(item, dict):
+                mode, digest, suffix = b"40000", tree_id(item), b"/"
+            else:
+                mode, digest = item
+                suffix = b""
+            entries.append((encoded + suffix, mode + b" " + encoded + b"\0" + digest))
+        return object_id(b"tree", b"".join(value for _, value in sorted(entries)))
+    return tree_id(tree).hex()
+
+
+def unconditional_update_trigger(sql):
+    # Literais, identificadores citados e comentarios nao sao palavras-chave.
+    tokens = re.sub(r"'(?:''|[^'])*'|\"(?:\"\"|[^\"])*\"|`(?:``|[^`])*`|\[[^\]]*\]|--[^\n]*|/\*.*?\*/", " ", sql or "", flags=re.S)
+    header = re.split(r"\bBEGIN\b", tokens, maxsplit=1, flags=re.I)[0]
+    return bool(re.search(r"\bBEFORE\s+UPDATE\b", header, re.I)
+                and not re.search(r"\bWHEN\b", header, re.I)
+                and re.search(r"\bRAISE\s*\(", tokens, re.I))
+
+
 def validate_sqlite(directory):
     """Chamador fornece SOMENTE copia descartavel, nunca o backup original."""
     directory = Path(directory)
@@ -204,7 +261,7 @@ def sqlite_inventory(directory, baseline=None):
             tables = {}
             version = conn.execute("PRAGMA user_version").fetchone()[0]
             triggers = conn.execute("SELECT tbl_name,sql FROM sqlite_master WHERE type='trigger'").fetchall()
-            protected = {table for table, sql in triggers if re.search(r"BEFORE\s+UPDATE", sql or "", re.I) and "RAISE" in (sql or "").upper()}
+            protected = {table for table, sql in triggers if unconditional_update_trigger(sql)}
             protected.add("segredo")
             for (table,) in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"):
                 if table in {"sessao_login", "tentativa_login", "sessao"}:
@@ -250,7 +307,8 @@ def write_recovery(destination, revision, secrets):
         "2. Examine state.json e os logs privados. Trabalhe em NOVAS cópias dos backups; nunca abra os bancos originais do backup.\n"
         "3. Confira manifest.json, inventory-before.json/inventory-after.json quando presentes, integridade e chaves estrangeiras das cópias.\n"
         "4. repository.bundle recupera código e refs; venv conserva dependências e symlinks. configuration conserva unit/drop-ins/Caddy/cron. "
-        "Compare a configuração atual antes de aplicar alterações. Segredos e crontab-ubuntu.txt estão na cópia protegida separada.\n"
+        "Compare a configuração atual antes de aplicar alterações. Segredos e crontab-ubuntu.txt estão na cópia protegida separada. "
+        "O manifesto separado registra crontab_present e crontab_captured_at: ausência de crontab é diferente de um crontab vazio; a captura foi feita antes da manutenção.\n"
         "5. Um banco já migrado não deve receber código antigo sem análise específica. Não restaure o snapshot anterior sobre gravações mais recentes.\n"
         "6. Depois do reparo aprovado, com o timer ainda parado, abra uma janela administrativa controlada: remova o hold e inicie a aplicação. "
         "Valide serviço, catálogos protegidos, cofre, SMTP desligado, dados e SHA; se falhar, recoloque hold e pare a aplicação. "
@@ -518,6 +576,7 @@ class Host:
         self.original_pid = 0
         self.last_pid = 0
         self.revision = None
+        self.crontab_snapshot = None
 
     def load_state(self):
         path = self.state_dir / "state.json"
@@ -558,7 +617,7 @@ class Host:
         finally:
             os.close(fd)
 
-    def command(self, argv, *, timeout=None, acceptable=(0,), label="command"):
+    def command(self, argv, *, timeout=None, acceptable=(0,), label="command", stdout_path=None, return_status=False):
         timeout = timeout or self.c.command_timeout
         if self.deadline is not None:
             timeout = min(timeout, self.deadline - time.monotonic())
@@ -566,9 +625,13 @@ class Host:
                 raise DeployError("maintenance_timeout")
         self.counter += 1
         log = self.logs / (self.run_id + "-" + str(self.counter) + ".log")
-        with log.open("xb") as output:
+        with ExitStack() as stack:
+            output = stack.enter_context(log.open("xb"))
             log.chmod(0o600)
-            proc = subprocess.Popen(list(map(str, argv)), stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
+            capture = stack.enter_context(Path(stdout_path).open("xb")) if stdout_path is not None else output
+            if stdout_path is not None:
+                Path(stdout_path).chmod(0o600)
+            proc = subprocess.Popen(list(map(str, argv)), stdin=subprocess.DEVNULL, stdout=capture, stderr=output,
                 env=clean_environment("/nonexistent"), shell=False, start_new_session=True)
             started = time.monotonic()
             reason = None
@@ -577,7 +640,7 @@ class Host:
                     if time.monotonic() - started > timeout:
                         reason = "command_timeout"
                         break
-                    if output.tell() > MAX_COMMAND_OUTPUT:
+                    if output.tell() > MAX_COMMAND_OUTPUT or (stdout_path is not None and capture.tell() > MAX_ARCHIVE_BYTES):
                         reason = "command_output_limit"
                         break
                     time.sleep(.1)
@@ -590,21 +653,28 @@ class Host:
                     os.killpg(proc.pid, signal.SIGKILL)
                     proc.wait(timeout=10)
                 raise
+            if stdout_path is not None:
+                if capture.tell() > MAX_ARCHIVE_BYTES:
+                    raise DeployError("archive_limit")
+                capture.flush()
+                os.fsync(capture.fileno())
         result = log.read_bytes()
         if len(result) > MAX_COMMAND_OUTPUT:
             raise DeployError("command_output_limit")
         if proc.returncode not in acceptable:
             raise DeployError(label + "_failed")
-        return result.decode("utf-8", errors="replace").strip()
+        text = result.decode("utf-8", errors="replace")
+        return (proc.returncode, text) if return_status else text.strip()
 
-    def git(self, arguments, *, acceptable=(0,)):
+    def git(self, arguments, *, acceptable=(0,), stdout_path=None):
         env = clean_environment(self.gitwork)
         env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL="/dev/null", GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0")
+        archive_config = ["-c", "core.autocrlf=false"] if arguments and arguments[0] == "archive" else []
         argv = ["/usr/sbin/runuser", "-u", self.c.deploy_user, "--", "/usr/bin/setpriv", "--no-new-privs",
                 "/usr/bin/env", "-i", *(k + "=" + v for k, v in env.items()), "/usr/bin/git",
                 "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "protocol.file.allow=never",
-                "-c", "protocol.ext.allow=never", "-C", self.c.repository, *arguments]
-        return self.command(argv, acceptable=acceptable, label="git")
+                "-c", "protocol.ext.allow=never", *archive_config, "-C", self.c.repository, *arguments]
+        return self.command(argv, acceptable=acceptable, label="git", stdout_path=stdout_path)
 
     def sandbox(self, command, *, timeout=None, writable_candidate=False):
         timeout = timeout or self.c.test_timeout
@@ -694,8 +764,18 @@ class Host:
         if any(PurePosixPath(n).name in names or re.fullmatch(r"requirements[^/]*\.txt", PurePosixPath(n).name) for n in changes):
             raise DeployError("dependencies_require_maintenance")
         self.space()
+        self.capture_crontab()
         self.revision = dict(current_sha=current, target_sha=target)
         return self.revision
+
+    def capture_crontab(self):
+        status, text = self.command(["/usr/bin/crontab", "-u", "ubuntu", "-l"],
+            acceptable=(0, 1), label="crontab_preflight", return_status=True)
+        absent = status == 1 and text.strip() == "no crontab for ubuntu"
+        if status != 0 and not absent:
+            raise DeployError("crontab_preflight_failed")
+        self.crontab_snapshot = dict(present=not absent, content="" if absent else text,
+                                     captured_at=utcnow().isoformat())
 
     def create_work(self):
         self.work.mkdir(mode=0o700)
@@ -711,12 +791,19 @@ class Host:
 
     def test_candidate(self, revision):
         self.create_work()
-        archive = self.gitwork / "candidate.tar"
-        self.git(["archive", "--format=tar", "--output=" + str(archive), revision["target_sha"]])
-        if archive.is_symlink() or not archive.is_file() or archive.stat().st_size > MAX_ARCHIVE_BYTES:
-            raise DeployError("archive_unsafe")
         destination = self.work / "candidate.tar"
-        copy_regular(archive, destination, max_bytes=MAX_ARCHIVE_BYTES)
+        expected_tree = self.git(["rev-parse", revision["target_sha"] + "^{tree}"])
+        if not SHA.fullmatch(expected_tree):
+            raise DeployError("archive_mismatch")
+        # Git escreve somente no descritor stdout aberto pelo root; nenhum caminho
+        # de archive fica gravavel por ubuntu enquanto a aplicacao esta ativa.
+        with tempfile.TemporaryDirectory(prefix=self.run_id + "-archive-", dir=self.state_dir) as private:
+            archive = Path(private) / "candidate.tar"
+            self.git(["archive", "--format=tar", revision["target_sha"]], stdout_path=archive)
+            with archive.open("rb") as source:
+                if archive_tree_oid(source, len(expected_tree)) != expected_tree:
+                    raise DeployError("archive_mismatch")
+            copy_regular(archive, destination, max_bytes=MAX_ARCHIVE_BYTES)
         os.chown(destination, self.uid, self.gid)
         # Extracao e feita por este arquivo INSTALADO, sob UID sem privilegios.
         self.sandbox(["/usr/bin/python3", "-I", str(Path(__file__).resolve()), "--helper-extract", str(destination), str(self.work / "candidate")], writable_candidate=True)
@@ -781,6 +868,8 @@ class Host:
     def backup(self, label):
         if self.service().get("MainPID") != "0" or not self.has_hold():
             raise DeployError("backup_requires_stopped_hold")
+        if label == "pre" and self.crontab_snapshot is None:
+            raise DeployError("crontab_not_captured")
         target = Path(self.c.backup_dir) / (self.run_id + "-" + label)
         target.mkdir(mode=0o700)
         copy_tree(self.c.data_dir, target / "data", deadline=self.deadline)
@@ -795,12 +884,13 @@ class Host:
             secrets.mkdir(mode=0o700)
             self.copy_config(self.c.configuration_paths, target / "configuration")
             self.copy_config(self.c.secret_paths, secrets)
-            cron = self.command(["/usr/bin/crontab", "-u", "ubuntu", "-l"], label="crontab_backup")
             cron_path = secrets / "crontab-ubuntu.txt"
-            cron_path.write_text(cron + "\n", encoding="utf-8")
+            cron_path.write_text(self.crontab_snapshot["content"], encoding="utf-8")
             cron_path.chmod(0o600)
             secret_manifest = dict(created_at=utcnow().isoformat(), files=self.manifest(secrets, source="/"),
-                                   crontab_source="crontab -u ubuntu -l")
+                                   crontab_source="crontab -u ubuntu -l",
+                                   crontab_present=self.crontab_snapshot["present"],
+                                   crontab_captured_at=self.crontab_snapshot["captured_at"])
             (secrets / "manifest.json").write_text(json.dumps(secret_manifest, sort_keys=True), encoding="utf-8")
         manifest = dict(label=label, sha=self.git(["rev-parse", "HEAD"]), created_at=utcnow().isoformat(),
                         data_files=self.manifest(target / "data", source=self.c.data_dir), secrets_backup=self.run_id if label == "pre" else None,

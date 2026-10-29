@@ -87,7 +87,7 @@ def test_layouts_origem_duplicidades_e_ocultas(pasta):
     assert resumo["hash_arquivo"] == hashlib.sha256((Path(pasta) / "base.xlsx").read_bytes()).hexdigest()
     assert resumo["contagens"] == dict(linhas=3, documentos_validos=3, cnpjs_distintos=2,
         documentos_pendentes=0, grupos_duplicados=1, linhas_duplicadas=2, sem_movimento=1,
-        sem_responsavel=1, sem_regime=1, com_pendencias=2)
+        sem_responsavel=0, sem_regime=0, com_pendencias=2)
     a, b, c = resumo["linhas"]
     assert [r["id"] for r in (a, b, c)] == ["1:3", "1:4", "2:3"]
     assert a["sem_movimento"] is None and b["sem_movimento"] is None and c["sem_movimento"] is True
@@ -151,6 +151,54 @@ def test_pendencias_sem_inferir(pasta):
     assert a["regime_informado"] == "MEI" and len(a["pendencias"]) == 4
     assert b["regime"] == "Lucro Real" and not b["pendencias"]
     assert resumo["contagens"]["com_pendencias"] == 1
+
+
+def test_zeradas_nao_exige_colunas_inexistentes(pasta):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "ZERADAS"
+    ws.append([None, "EMPRESA", "CNPJ"])
+    ws.append([None, "Empresa sintetica sem movimento", cnpj(1730)])
+    resumo = ler(wb, pasta)
+    item = resumo["linhas"][0]
+    assert item["pendencias"] == [], item["pendencias"]
+    assert item["campos_ausentes_no_layout"] == ["contato_nome", "regime", "responsavel_fiscal"]
+    assert resumo["contagens"]["sem_responsavel"] == 0
+    assert resumo["contagens"]["sem_regime"] == 0
+    assert resumo["contagens"]["com_pendencias"] == 0
+    wb, _ = livro([linha(cnpj(1731), responsavel="", regime="")])
+    principal = ler(wb, pasta)
+    assert principal["linhas"][0]["campos_ausentes_no_layout"] == []
+    assert principal["linhas"][0]["pendencias"] == ["Responsável Fiscal ausente.", "Regime ausente ou não reconhecido."]
+    assert principal["contagens"]["sem_responsavel"] == principal["contagens"]["sem_regime"] == 1
+
+
+def test_dados_antes_do_cabecalho_nao_sao_descartados(pasta):
+    # Titulo em A continua permitido; dados em qualquer campo mapeado nao.
+    for coluna in range(2, 7):
+        wb, ws = livro([linha(cnpj(1732))])
+        ws.cell(1, coluna, linha(cnpj(1733))[coluna - 1])
+        caminho = Path(pasta) / "dados-antes-cabecalho.xlsx"
+        wb.save(caminho)
+        wb.close()
+        recusa(caminho, "antes do cabeçalho")
+    wb, ws = livro([linha(cnpj(1734))])
+    ws.append(linha(cnpj(1735)))
+    ws["B1"] = 0  # Zero tambem e conteudo, nao uma celula vazia.
+    caminho = Path(pasta) / "zero-antes-cabecalho.xlsx"
+    wb.save(caminho)
+    wb.close()
+    recusa(caminho, "antes do cabeçalho")
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "ZERADAS"
+    ws.append([None, "Empresa anterior", cnpj(1736)])
+    ws.append([None, "EMPRESA", "CNPJ"])
+    ws.append([None, "Empresa posterior", cnpj(1737)])
+    caminho = Path(pasta) / "zeradas-antes-cabecalho.xlsx"
+    wb.save(caminho)
+    wb.close()
+    recusa(caminho, "antes do cabeçalho")
 
 
 def test_layouts_recusados_e_vazio(pasta):

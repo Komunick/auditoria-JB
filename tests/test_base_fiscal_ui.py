@@ -60,8 +60,8 @@ assert.strictEqual(run('BaseFiscalUI.selecionar(linhas,{texto:"sintetica 360",si
 assert.strictEqual(run('BaseFiscalUI.selecionar(linhas,{texto:"Contato separado",situacao:"",aba:""}).length'),360);
 assert.strictEqual(run('BaseFiscalUI.selecionar(linhas,{texto:"12345678000195",situacao:"",aba:""}).length'),360);
 assert.strictEqual(run('BaseFiscalUI.selecionar([{documento_status:"formula"},{documento_status:"zero_inicial_recuperado"}],{situacao:"documentos"}).length'),1);
-assert.strictEqual(run('BaseFiscalUI.selecionar([{regime:""},{regime:"Lucro Real"}],{situacao:"sem_regime"}).length'),1);
-assert.strictEqual(run('BaseFiscalUI.selecionar([{responsavel_fiscal_informado:""},{responsavel_fiscal_informado:"Teste"}],{situacao:"sem_responsavel"}).length'),1);
+assert.strictEqual(run('BaseFiscalUI.selecionar([{regime:""},{regime:"Lucro Real"},{regime:"",campos_ausentes_no_layout:["regime"]}],{situacao:"sem_regime"}).length'),1);
+assert.strictEqual(run('BaseFiscalUI.selecionar([{responsavel_fiscal_informado:""},{responsavel_fiscal_informado:"Teste"},{responsavel_fiscal_informado:"",campos_ausentes_no_layout:["responsavel_fiscal"]}],{situacao:"sem_responsavel"}).length'),1);
 run('BaseFiscalUI.montar(alvo)');
 async function enviar(nome='base.xlsx') {
   get('bf-arquivo').files = [{name:nome,size:100}];
@@ -100,6 +100,18 @@ async function enviar(nome='base.xlsx') {
   assert.strictEqual(get('bf-proxima').disabled,true);
   await get('bf-limpar-filtros').emit('click');
   assert(get('bf-pagina').textContent.includes('1–50 de 360'));
+  // Campos inexistentes em ZERADAS nao sao dados faltantes nem pendencias.
+  pedido = await enviar('zeradas.xlsx');
+  const zerada = {...linhas[350], regime:'', regime_informado:'', responsavel_fiscal_informado:'', contato_nome:'',
+    campos_ausentes_no_layout:['contato_nome','regime','responsavel_fiscal'], origem:{}, pendencias:[]};
+  pendentes.shift().resolve({...previa,linhas:[zerada],contagens:{...previa.contagens,linhas:1,com_pendencias:0}});
+  await pedido.terminar;
+  assert.strictEqual(elementos(get('bf-corpo')).filter(e => e.textContent === 'Coluna ausente no layout').length,3);
+  assert(get('bf-corpo').textContent.includes('Sem pendências de leitura'));
+  for (const situacao of ['sem_responsavel','sem_regime','pendencias']) {
+    get('bf-situacao').value=situacao; await get('bf-situacao').emit('change');
+    assert(get('bf-corpo').textContent.includes('Nenhum registro corresponde'));
+  }
   // O arquivo novo invalida sucesso e erro atrasados; nenhum contador anterior sobrevive.
   pedido = await enviar('antiga.xlsx');
   get('bf-arquivo').files=[{name:'nova.xlsx',size:100}]; await get('bf-arquivo').emit('change');

@@ -56,6 +56,7 @@ class LinhaEmpresa:
     duplicado: bool = False
     duplicado_em: list[str] = field(default_factory=list)
     pendencias: list[str] = field(default_factory=list)
+    campos_ausentes_no_layout: list[str] = field(default_factory=list)
     oculta: bool = False
     aba_oculta: bool = False
     origem: dict = field(default_factory=dict)
@@ -79,8 +80,8 @@ class LeituraEmpresas:
                 "cnpjs_distintos": len(documentos), "documentos_pendentes": sum(not l.documento for l in self.linhas),
                 "grupos_duplicados": len(repetidos), "linhas_duplicadas": sum(l.duplicado for l in self.linhas),
                 "sem_movimento": sum(l.sem_movimento is True for l in self.linhas),
-                "sem_responsavel": sum(not l.responsavel_fiscal_informado.strip() for l in self.linhas),
-                "sem_regime": sum(not l.regime for l in self.linhas),
+                "sem_responsavel": sum("responsavel_fiscal" not in l.campos_ausentes_no_layout and not l.responsavel_fiscal_informado.strip() for l in self.linhas),
+                "sem_regime": sum("regime" not in l.campos_ausentes_no_layout and not l.regime for l in self.linhas),
                 "com_pendencias": sum(bool(l.pendencias) for l in self.linhas)},
             "linhas": [asdict(l) for l in self.linhas],
         }
@@ -326,6 +327,8 @@ def _ler_aba(ws, aba: _AbaFisica, indice: int, resultado: LeituraEmpresas) -> No
     for numero, row in chain(primeiras, rows):
         if any(_preenchida(c) for c in row[ultima_coluna:]):
             raise _erro(f"Coluna adicional preenchida na aba {aba.nome}, linha {numero}.")
+        if numero < cabecalho and any(_preenchida(row[coluna - 1]) for coluna in campos.values()):
+            raise _erro(f"Célula mapeada preenchida antes do cabeçalho na aba {aba.nome}, linha {numero}; confira a posição do cabeçalho.")
         if numero <= cabecalho:
             continue
         if _tipo_cabecalho(row, aba.nome):
@@ -340,6 +343,7 @@ def _ler_aba(ws, aba: _AbaFisica, indice: int, resultado: LeituraEmpresas) -> No
             raise _erro(f"A planilha excede o limite de {MAX_LINHAS} linhas úteis no arquivo.")
         item = LinhaEmpresa(id=f"{indice}:{numero}", aba=aba.nome, linha=numero,
             sem_movimento=True if tipo == "zeradas" else None,
+            campos_ausentes_no_layout=sorted(set(_CAMPOS["principal"]) - campos.keys()),
             oculta=numero in aba.ocultas, aba_oculta=aba.oculta)
         valores = {}
         for campo, coluna in campos.items():
@@ -377,9 +381,9 @@ def _ler_aba(ws, aba: _AbaFisica, indice: int, resultado: LeituraEmpresas) -> No
             item.pendencias.append("CNPJ ausente.")
         elif item.documento_status == "invalido":
             item.pendencias.append("CNPJ inválido; conferir o documento informado.")
-        if not item.responsavel_fiscal_informado:
+        if tipo == "principal" and not item.responsavel_fiscal_informado:
             item.pendencias.append("Responsável Fiscal ausente.")
-        if not item.regime:
+        if tipo == "principal" and not item.regime:
             item.pendencias.append("Regime ausente ou não reconhecido.")
         resultado.linhas.append(item)
         total += 1
