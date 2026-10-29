@@ -1,5 +1,38 @@
 # Validação — spec 018
 
+## Correções locais após revisão — 28/10/2026
+
+Os resultados operacionais históricos abaixo não validam estas correções na
+VM. A rodada local parte de `dev@fd3b88d4f7a1bf31d20f7e56872659a0fad4239d`,
+no branch `codex/correcoes-review-017-018`, sem push, merge ou implantação.
+
+| Defeito | RED reproduzido | Correção e regressão sintética |
+|---|---|---|
+| Conteúdo do archive diferente do SHA | Substituir o tar regular após `git archive` permitia concluir o ciclo | Stdout binário recebido em pasta root; OID reconstruído de nomes, modos e blobs comparado com a árvore Git; tar substituído retorna `archive_mismatch` antes de manutenção/hold/parada |
+| Trigger condicional tratado como imutabilidade total | UPDATE permitido por WHEN provocava `immutable_data_changed` | Somente bloqueio de UPDATE sem WHEN marca a tabela; atualização legal passa, alteração de segredo ou trilha incondicional continua recusada |
+| Cron lido depois da parada | Backup chamava crontab com hold já criado | Captura no preflight; ausência registrada no manifesto; erro antes da parada; backup consome a captura sem consultar cron novamente |
+
+Os testes usam seis bancos sintéticos, repositórios Git temporários e serviços
+simulados. Passaram `test_autodeploy.py` e `test_autodeploy_install.py`;
+revisão independente das três correções não identificou bloqueador concreto.
+Nenhum instalador/controlador foi executado contra a arm07, nem foram lidos
+segredos, crontab ou bancos de produção nesta rodada.
+
+Regressão final local: 78 scripts independentes, 76 aprovados, 2 pulados
+(`test_fdb_reader.py` e `test_web_produtos_fdb.py`, Firebird opcional ausente),
+0 falhas e nenhum fonte/teste alterado durante a execução. Sintaxe JavaScript
+e `git diff --check` aprovados. O OID recalculado do archive real da dev
+conferiu com `995fcf119255e01d921d3e2a8b74ab7f608a559a`; o comando archive
+desativa conversão automática de finais de linha somente nessa invocação,
+sem mudar a configuração persistente do Git.
+
+O pacote do controlador mudou: uma futura publicação exige manutenção e
+reinstalação explícita do pacote aprovado. O executor instalado não se atualiza
+sozinho. As hipóteses e limitações externas ao escopo da revisão permanecem
+inalteradas.
+
+## Validação histórica da primeira implantação
+
 Validação encerrada em 28/10/2026, incluindo o primeiro deploy automático e
 um ciclo posterior sem mudanças. Evidências operacionais detalhadas ficam em
 área privada; este registro não publica dados de negócio ou segredos.

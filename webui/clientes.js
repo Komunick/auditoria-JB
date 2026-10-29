@@ -135,6 +135,9 @@ const BaseFiscalUI = {
   normalizar(valor) {
     return String(valor ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
   },
+  colunaAusente(linha, campo) {
+    return (linha.campos_ausentes_no_layout || []).includes(campo);
+  },
   selecionar(linhas, filtros = {}) {
     const texto = this.normalizar(filtros.texto);
     return linhas.filter(l => {
@@ -144,8 +147,8 @@ const BaseFiscalUI = {
         documentos: !["valido", "zero_inicial_recuperado"].includes(l.documento_status),
         duplicados: !!l.duplicado,
         sem_movimento: l.sem_movimento === true,
-        sem_responsavel: !l.responsavel_fiscal_informado,
-        sem_regime: !l.regime,
+        sem_responsavel: !this.colunaAusente(l, "responsavel_fiscal") && !l.responsavel_fiscal_informado,
+        sem_regime: !this.colunaAusente(l, "regime") && !l.regime,
       };
       if (filtros.situacao && !condicoes[filtros.situacao]) return false;
       return !texto || this.normalizar([l.nome, l.documento, l.documento_informado, l.regime,
@@ -310,7 +313,8 @@ const BaseFiscalUI = {
           const empresa = criar("td"); empresa.append(criar("strong", l.nome || "Nome ausente"),
             criar("span", l.documento || l.documento_informado || "CNPJ ausente", "base-fiscal-secundario"));
           if (l.documento_status === "zero_inicial_recuperado") empresa.append(criar("span", "Zero inicial recuperado", "base-fiscal-secundario"));
-          const regime = criar("td", l.regime || "Regime pendente");
+          const valorCampo = (campo, valor, ausente) => BaseFiscalUI.colunaAusente(l, campo) ? "Coluna ausente no layout" : valor || ausente;
+          const regime = criar("td", valorCampo("regime", l.regime, "Regime pendente"));
           if (l.regime_informado && l.regime_informado !== l.regime) regime.append(criar("span", `Informado: ${l.regime_informado}`, "base-fiscal-secundario"));
           const conferencia = criar("td");
           if (l.sem_movimento === true) conferencia.append(criar("span", "Sem movimento · permanece na carteira", "base-fiscal-marcador"));
@@ -329,7 +333,8 @@ const BaseFiscalUI = {
           origem.className = "base-fiscal-origem-botao";
           origem.setAttribute("aria-expanded", "false"); origem.setAttribute("aria-controls", origemLinha.id);
           conferencia.append(origem);
-          linha.append(empresa, regime, criar("td", l.responsavel_fiscal_informado || "Não informado"), criar("td", l.contato_nome || "Não informado"), conferencia);
+          linha.append(empresa, regime, criar("td", valorCampo("responsavel_fiscal", l.responsavel_fiscal_informado, "Não informado")),
+            criar("td", valorCampo("contato_nome", l.contato_nome, "Não informado")), conferencia);
           origemLinha.append(origemCelula); corpo.append(linha, origemLinha);
         }
         info.textContent = linhas.length ? `${inicio + 1}–${Math.min(inicio + limite, linhas.length)} de ${linhas.length} registro(s) filtrado(s) · ${previa.contagens.linhas} no arquivo`

@@ -26,6 +26,8 @@ diferentes; esta entrega acrescenta uma conferência própria em Clientes.
    normaliza espaços, acentos e caixa. Cabeçalho nas primeiras dez linhas.
    Nenhuma inferência por aparência dos dados. Abas preenchidas desconhecidas
    ou cabeçalhos ambíguos são recusados; abas vazias podem ser ignoradas com aviso.
+   Células mapeadas preenchidas antes do cabeçalho também recusam a aba, para
+   evitar omissão silenciosa de linhas. Título em coluna não mapeada é permitido.
 3. Ler todas as linhas úteis das abas reconhecidas, inclusive ocultas, com
    identidade aba+linha. Preservar duplicidades; informar grupos por CNPJ válido
    normalizado, inclusive entre abas. Colunas adicionais preenchidas são recusadas.
@@ -41,7 +43,10 @@ diferentes; esta entrega acrescenta uma conferência própria em Clientes.
    são pendências, não zero nem cadastro pronto. Não consultar titularidade.
 5. Regime informado é preservado, com normalização apenas dos rótulos conhecidos
    Simples Nacional, Lucro Real e Lucro Presumido/Presumido. Desconhecido ou ausente
-   permanece pendente. Responsável ausente permanece pendente, sem escolher usuário.
+   permanece pendente no layout principal. Responsável ausente no principal
+   permanece pendente, sem escolher usuário. Na aba ZERADAS, responsável Fiscal,
+   contato e regime são informados como colunas ausentes do layout; essa ausência
+   não gera pendência nem entra nos filtros de responsável ou regime ausentes.
    `sem_movimento=true` somente no layout/aba ZERADAS; principal usa `null`,
    apesar de sua coluna E também se chamar ZERADAS.
 6. Somente contato pode vir de mesclagem vertical dentro da área de dados,

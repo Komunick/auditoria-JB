@@ -57,9 +57,12 @@ ficam fora de `/home/ubuntu`, cujo proprietário poderia substituir diretórios.
    precisam existir, pertencer ao root e não ser symlinks. Não passar o arquivo
    do cofre nessa opção. O crontab de `ubuntu` em `/var/spool/cron/crontabs` não
    atende à regra de ancestrais exclusivos do root: não passá-lo diretamente.
-   O executor coleta `crontab -u ubuntu -l` em cada backup anterior à atualização
-   e guarda `crontab-ubuntu.txt` com modo `0600` na cópia separada de configuração
-   sensível, sem imprimir nem alterar o agendamento. A referência acompanha
+   O executor coleta `crontab -u ubuntu -l` no preflight, antes de criar o hold
+   ou parar o serviço, e guarda essa captura em `crontab-ubuntu.txt`, com modo
+   `0600`, na cópia separada de configuração sensível. Não imprime nem altera
+   o agendamento. O manifesto registra `crontab_present` e `crontab_captured_at`:
+   a mensagem exata de ausência do crontab é aceita como ausência, enquanto
+   outros erros impedem o ciclo antes da manutenção. A referência acompanha
    `RECUPERACAO.md`. Arquivos como o Caddyfile podem entrar na lista adicional,
    desde que revisados e sem valores de segredos que pertençam à cópia separada.
 4. A partir desse staging aprovado, executar a preparação abaixo. As variáveis
@@ -177,8 +180,17 @@ e resulta em `unverified_noop_revision`.
 ## Operação e horários preservados
 
 O executor confirma origem, branch, checkout limpo, fast-forward, dependências,
-espaço e saúde; fixa o candidato por SHA e o testa isoladamente. Antes de mudar
-o checkout, cria `hold`, para a aplicação e faz cópias recuperáveis de dados,
+espaço e saúde; fixa o candidato por SHA. Recebe o `git archive` pelo stdout em
+arquivo privado do root, com `core.autocrlf=false`, e
+recalcula o OID da árvore Git a partir dos nomes, modos e bytes do tar. Esse OID
+precisa corresponder a `SHA^{tree}`; divergência termina em `archive_mismatch`
+antes da manutenção. O Git continua rodando como `ubuntu`, sem receber caminho
+gravável para o archive. Transformações por `export-ignore` ou `export-subst`
+que alterem a árvore exportada são recusadas; links continuam fora do contrato
+do extrator. Somente o conteúdo conferido segue para o sandbox de testes.
+
+Depois dos testes e antes de mudar o checkout, cria `hold`, para a aplicação e
+faz cópias recuperáveis de dados,
 código, venv e configuração. Os seis bancos são verificados em cópias de trabalho,
 incluindo integridade e chaves estrangeiras. O ensaio de migração atual abre
 `TarefasStore` sobre a cópia de `clientes.db`, sem servidor, agendador ou envio de
@@ -187,6 +199,10 @@ backups originais não são abertos para validação.
 
 Os inventários privados conferem a preservação de identificadores existentes e
 de registros protegidos contra alteração, incluindo o conteúdo cifrado do cofre.
+Uma tabela só é considerada integralmente imutável por gatilho quando este
+impede UPDATE sem cláusula `WHEN`; gatilhos condicionais não proíbem todas as
+alterações legítimas. `segredo` permanece protegido explicitamente, assim como
+as trilhas com gatilho incondicional.
 Após o primeiro início, o executor para novamente a aplicação para obter o
 snapshot consistente de pós-inicialização, valida essa cópia e inicia o serviço
 pela segunda vez. O ciclo só termina com sucesso depois da verificação final de
