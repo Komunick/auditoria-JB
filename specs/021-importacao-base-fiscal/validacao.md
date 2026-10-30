@@ -1,5 +1,58 @@
 # Validação
 
+## Correção de Limpar prévia — 30/10/2026
+
+Branch local: `codex/cancelar-preparacao-base-fiscal`, a partir da `dev`
+`5ed2eb2`. A validação abaixo foi concluída antes da publicação, sem commit,
+push, merge, deploy, Linear ou acesso à produção.
+
+Antes, o botão removia somente a tela e perdia a referência da preparação.
+Agora usa o DELETE existente, mantém metadados em memória para nova tentativa
+e cancela também a preparação cuja resposta chega depois da limpeza. Troca de
+fonte/relatório e nova revisão invalidam as preparações anteriores. Não houve
+alteração do backend, do schema ou das regras de permissão.
+
+| Critério | Evidência | Resultado |
+|---|---|---|
+| Reproduzir o defeito | Teste UI RED: `Limpar deve cancelar a preparação no servidor`, 0 chamadas DELETE em vez de 1 | Reproduzido antes da correção |
+| Limpeza e repetição | Seleções vazias, prévia e confirmação removidas, um DELETE mesmo com duplo clique | Aprovado |
+| Falha de rede ou autorização | Rede, 403, 404, 500 e resposta inválida preservam aviso e referência para retry | Aprovado |
+| Token já indisponível | Só 410 com `BASE_FISCAL_TOKEN_EXPIRADO` é terminal seguro, além de 200/ok | Aprovado |
+| Preparação em trânsito | Limpar, iniciar outra prévia e receber a preparação antiga: descarta sem reativar controles nem apagar a nova prévia | Aprovado |
+| Confirmação já enviada | Resposta em voo ou perdida mantém aviso de que descarte não desfaz importação concluída | Aprovado |
+| Isolamento HTTP | Outro usuário/sessão/banco, revogação e logout recusados; token legítimo preservado | Aprovado |
+| Sem gravação no descarte | Preparação, DELETE, repetição e expiração não abrem store de escrita nem criam banco cadastral | Aprovado |
+| Confirmação após descarte | Token descartado recebe 410 ao tentar confirmar | Aprovado |
+
+O teste UI exige o marcador final de conclusão, além do exit code, para que uma
+Promise não resolvida não produza falso sucesso. Revisão independente final sem
+bloqueios; os avisos sobre confirmação já enviada e preparações anteriores foram
+ajustados durante a revisão.
+
+Regressão integral após a correção: **91 scripts**, **89 aprovados**, **2 pulados**
+(somente Firebird opcional indisponível), **0 falhas**. Código e testes estáveis
+durante a execução (`changed_during_run=[]`); `git diff --check` aprovado.
+Logs privados: `tmp/validacao-spec021-20261030-131810/`, fora do Git.
+
+Navegador local em `127.0.0.1:8622`, conta sintética e cadastro vazio: a fonte
+e as correções apresentaram seis inclusões e uma ocorrência ignorada. Preparar
+exibiu o aceite desmarcado e o botão de confirmar desabilitado. Limpar prévia
+resultou em DELETE 200, arquivo vazio, controles removidos e confirmação de
+cancelamento. Nenhum POST de confirmação foi enviado. Console sem erros/avisos.
+
+O dump lógico cadastral permaneceu idêntico: **0 clientes e 0 recibos** antes e
+depois; `integrity_check=ok` e zero violações de FK. A aba e o servidor exclusivos
+de QA foram encerrados. Evidências privadas fora do Git:
+`tmp/qa-limpar-previa-20261030/resultado.json` e `limpeza-confirmada.jpg` na pasta
+de trabalho.
+
+Limite de transporte: se a resposta da preparação se perder por completo, sem
+token utilizável, a interface não consegue endereçar o DELETE. Informa que o
+cancelamento não foi comprovado e orienta aguardar a expiração já existente no
+servidor. Não registra nem apresenta sucesso nesse caso.
+
+## Implementação inicial
+
 Concluída localmente em 30/10/2026. Somente dados sintéticos, sem acesso ao
 Linear ou à produção, commit, push, merge ou deploy.
 
