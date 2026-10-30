@@ -78,12 +78,18 @@ def _resumo(leitura: LeituraEmpresas, nome_arquivo: str):
     yield "Relatório", "Conferência da Base Fiscal — preparação para importação"
     yield "Arquivo de origem", nome_arquivo
     yield "SHA-256 da fonte", leitura.hash_arquivo
-    yield "Uso do relatório", ("Material de revisão: este relatório ainda não é aceito como arquivo de "
-                                "importação. Nenhum cadastro ou vínculo foi gravado.")
+    yield "Uso do relatório", ("Material de revisão: este relatório não é aceito para gravação direta. "
+                                "Envie-o junto da fonte original para gerar a prévia de importação. "
+                                "Nenhum cadastro ou vínculo foi gravado.")
     yield "Como revisar", ("Confira as abas Conferência, Duplicidades e Origens. Anote propostas somente "
-                            "nas colunas de revisão da aba Correções, preservando o ID de origem.")
+                            "nas colunas G:K da aba Correções, preservando as colunas originais A:F. "
+                            "Proposta vazia preserva o original; não apaga o campo. "
+                            "Na coluna L, use manter ou ignorar; ignorar exige justificativa na coluna M.")
     yield "Duplicidades", ("Cada ocorrência continua separada. Compare todas as linhas do mesmo CNPJ; "
-                            "o relatório não escolhe um cadastro nem um responsável.")
+                            "o relatório não escolhe um cadastro nem um responsável. Para resolver um grupo, "
+                            "marque uma ocorrência como manter e todas as demais como ignorar com justificativa, "
+                            "ou corrija os CNPJs. Também é possível ignorar todo o grupo, justificando cada "
+                            "ocorrência. Nomes de responsáveis não vinculam contas.")
     yield "Sem movimento", "Empresas sem movimento permanecem na carteira; não significa baixa, inatividade ou dispensa de obrigações."
     yield "Ausência no layout", "Coluna ausente no layout não é uma célula vazia nem uma pendência de leitura."
     yield "Fórmulas", "Fórmulas da fonte não são executadas nem copiadas; são identificadas pelo marcador [fórmula não lida]."

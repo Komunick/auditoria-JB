@@ -107,26 +107,26 @@ def _inteiro(valor, *, limite: int) -> int:
         raise _erro("Coordenada inválida na estrutura da planilha.")
     numero = int(valor)
     if not 1 <= numero <= limite:
-        raise _erro(f"A planilha excede o limite de {MAX_LINHAS_FISICAS} linhas físicas ou {MAX_COLUNAS} colunas por aba.")
+        raise _erro(f"A planilha excede o limite físico permitido ({limite}) para esta coordenada.")
     return numero
 
 
-def _coordenada(valor: str) -> tuple[int, int]:
+def _coordenada(valor: str, *, max_linhas: int = MAX_LINHAS_FISICAS) -> tuple[int, int]:
     achado = re.fullmatch(r"\$?([A-Z]{1,3})\$?([0-9]{1,8})", valor or "")
     if not achado:
         raise _erro("Referência de célula inválida na planilha.")
     coluna = 0
     for letra in achado[1]:
         coluna = coluna * 26 + ord(letra) - ord("A") + 1
-    return _inteiro(achado[2], limite=MAX_LINHAS_FISICAS), _inteiro(str(coluna), limite=MAX_COLUNAS)
+    return _inteiro(achado[2], limite=max_linhas), _inteiro(str(coluna), limite=MAX_COLUNAS)
 
 
-def _intervalo(valor: str) -> tuple[int, int, int, int]:
+def _intervalo(valor: str, *, max_linhas: int = MAX_LINHAS_FISICAS) -> tuple[int, int, int, int]:
     partes = valor.split(":")
     if not 1 <= len(partes) <= 2:
         raise _erro("Intervalo de células inválido.")
-    r1, c1 = _coordenada(partes[0])
-    r2, c2 = _coordenada(partes[-1])
+    r1, c1 = _coordenada(partes[0], max_linhas=max_linhas)
+    r2, c2 = _coordenada(partes[-1], max_linhas=max_linhas)
     if r2 < r1 or c2 < c1:
         raise _erro("Intervalo de células invertido.")
     return r1, c1, r2, c2
@@ -141,7 +141,7 @@ def _xml_seguro(dados: bytes):
     return raiz
 
 
-def _medir_aba(raiz, aba: _AbaFisica) -> None:
+def _medir_aba(raiz, aba: _AbaFisica, *, max_linhas: int = MAX_LINHAS_FISICAS) -> None:
     if raiz.tag != f"{{{_NS}}}worksheet":
         raise _erro("A base Fiscal deve conter somente abas de planilha.")
     if len(list(raiz.iter(f"{{{_NS}}}sheetData"))) > 1:
@@ -162,7 +162,7 @@ def _medir_aba(raiz, aba: _AbaFisica) -> None:
                 raise _erro("Elemento fora da área de dados da planilha.")
     ultima_linha = 0
     for elemento in raiz.iter(f"{{{_NS}}}row"):
-        numero = _inteiro(elemento.get("r", str(ultima_linha + 1)), limite=MAX_LINHAS_FISICAS)
+        numero = _inteiro(elemento.get("r", str(ultima_linha + 1)), limite=max_linhas)
         if numero <= ultima_linha:
             raise _erro("Linhas duplicadas ou fora de ordem no XML da planilha.")
         ultima_linha = numero
@@ -172,7 +172,7 @@ def _medir_aba(raiz, aba: _AbaFisica) -> None:
         ultima_coluna = 0
         for celula in elemento.findall(f"{{{_NS}}}c"):
             if "r" in celula.attrib:
-                linha, coluna = _coordenada(celula.get("r"))
+                linha, coluna = _coordenada(celula.get("r"), max_linhas=max_linhas)
                 if linha != numero:
                     raise _erro("Célula fora da sua linha no XML da planilha.")
             else:
@@ -188,13 +188,13 @@ def _medir_aba(raiz, aba: _AbaFisica) -> None:
             raise _erro("Faixa de colunas inválida na planilha.")
     for merge in raiz.findall(f"{{{_NS}}}mergeCells/{{{_NS}}}mergeCell"):
         referencia = merge.get("ref", "")
-        r1, c1, r2, c2 = _intervalo(referencia)
+        r1, c1, r2, c2 = _intervalo(referencia, max_linhas=max_linhas)
         aba.mesclagens.append((referencia, r1, c1, r2, c2))
         aba.max_linha = max(aba.max_linha, r2)
         aba.max_coluna = max(aba.max_coluna, c2)
 
 
-def _preflight(caminho: str, max_bytes: int) -> list[_AbaFisica]:
+def _preflight(caminho: str, max_bytes: int, *, limites_linhas: dict[str, int] | None = None) -> list[_AbaFisica]:
     validar_pacote_xlsx(caminho, max_bytes=max_bytes)
     with zipfile.ZipFile(caminho) as pacote:
         nomes = pacote.namelist()
@@ -229,7 +229,9 @@ def _preflight(caminho: str, max_bytes: int) -> list[_AbaFisica]:
             if nome in por_caminho or nome.lower().endswith((".xml", ".rels")):
                 raiz = _xml_seguro(pacote.read(nome))
                 if nome in por_caminho:
-                    _medir_aba(raiz, por_caminho[nome])
+                    aba = por_caminho[nome]
+                    limite = (limites_linhas or {}).get(aba.nome, MAX_LINHAS_FISICAS)
+                    _medir_aba(raiz, aba, max_linhas=limite)
         return abas
 
 

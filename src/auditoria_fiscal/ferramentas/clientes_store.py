@@ -183,6 +183,20 @@ CREATE TABLE IF NOT EXISTS importacao (
   ignoradas TEXT NOT NULL DEFAULT '[]'
 );
 
+CREATE TABLE IF NOT EXISTS importacao_base_fiscal (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  hash_arquivo TEXT NOT NULL,
+  hash_correcoes TEXT NOT NULL,
+  nome_arquivo TEXT NOT NULL,
+  nome_correcoes TEXT NOT NULL,
+  usuario_id INTEGER NOT NULL,
+  usuario_login TEXT NOT NULL,
+  criada_em TEXT NOT NULL,
+  resultado TEXT NOT NULL,
+  proveniencia TEXT NOT NULL,
+  UNIQUE (hash_arquivo, hash_correcoes)
+);
+
 CREATE TABLE IF NOT EXISTS configuracao (
   chave TEXT PRIMARY KEY,
   valor TEXT NOT NULL,
@@ -230,6 +244,14 @@ CREATE TRIGGER IF NOT EXISTS trg_cliente_sem_delete
 BEFORE DELETE ON cliente BEGIN
   SELECT RAISE(ABORT, 'Cliente nao e excluido: mude a situacao.');
 END;
+CREATE TRIGGER IF NOT EXISTS trg_importacao_base_fiscal_sem_update
+BEFORE UPDATE ON importacao_base_fiscal BEGIN
+  SELECT RAISE(ABORT, 'Recibo da Base Fiscal e imutavel.');
+END;
+CREATE TRIGGER IF NOT EXISTS trg_importacao_base_fiscal_sem_delete
+BEFORE DELETE ON importacao_base_fiscal BEGIN
+  SELECT RAISE(ABORT, 'Recibo da Base Fiscal e imutavel.');
+END;
 """
 
 _CAMPOS_EDITAVEIS = ("nome", "documento", "ie", "ie_situacao", "im",
@@ -256,7 +278,13 @@ class ClientesStore:
             os.makedirs(pasta, exist_ok=True)
         self._conn = sqlite3.connect(db_path, timeout=15, isolation_level=None)
         self._conn.row_factory = sqlite3.Row
-        self._migrar()
+        try:
+            self._migrar()
+        except Exception:
+            # O chamador ainda não recebeu a instância e não pode fechá-la
+            # quando abertura/migração falha (banco inválido, trava, permissões).
+            self._conn.close()
+            raise
 
     def _migrar(self) -> None:
         conn = self._conn
