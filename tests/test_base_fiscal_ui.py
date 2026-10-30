@@ -142,7 +142,9 @@ async function enviar(nome='base.xlsx') {
   // Nenhuma persistência/rota de confirmação no módulo. Legados continuam registrados.
   const fonte=fs.readFileSync('webui/clientes.js','utf8');
   const modulo=fonte.slice(fonte.indexOf('const BaseFiscalUI'),fonte.indexOf('Abas.registrar("clientes"'));
-  assert(!/localStorage|sessionStorage|\/confirmar|\.token\b|innerHTML/.test(modulo));
+  // A conferência 017 segue somente leitura; a confirmação separada da 021
+  // tem testes comportamentais de permissão, preparação e aceite explícito.
+  assert(!/localStorage|sessionStorage|innerHTML/.test(modulo));
   assert(fonte.includes('"cli-imp-planilha-enviar").addEventListener("click", previaPlanilha)'));
   assert(fonte.includes('"cli-imp-coleta-enviar").addEventListener("click", previaColeta)'));
   const app=fs.readFileSync('webui/app.js','utf8');
