@@ -204,6 +204,11 @@ CATALOGO: tuple[Permissao, ...] = (
               GRUPO_CLIENTES,
               "Enviar a planilha de clientes ou o arquivo do coletor de "
               "certificados, conferir a previa e confirmar."),
+    Permissao("clientes.importar_base_fiscal", "Confirmar importação da Base Fiscal",
+              GRUPO_CLIENTES,
+              "Preparar e confirmar a inclusão de empresas da Base Fiscal revisada. "
+              "Exige também acesso a Clientes e a permissão de importar. "
+              "Não altera empresas existentes, carteira ou tarefas."),
     Permissao("clientes.exportar", "Exportar o cadastro (Excel)",
               GRUPO_CLIENTES,
               "Baixar a relacao de clientes e certificados. O arquivo nunca "

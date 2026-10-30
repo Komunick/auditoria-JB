@@ -23,9 +23,11 @@ from __future__ import annotations
 import datetime as dt
 import hashlib
 import json
+import logging
 import os
 import secrets
 import shutil
+import sqlite3
 import tempfile
 import threading
 from dataclasses import dataclass, field
@@ -33,18 +35,26 @@ from dataclasses import dataclass, field
 from fastapi import (APIRouter, Depends, File, Form, HTTPException, Request,
                      UploadFile)
 from fastapi.responses import FileResponse, JSONResponse, Response
+from fastapi.exception_handlers import (http_exception_handler,
+                                       request_validation_exception_handler)
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
 from pydantic import BaseModel
 from starlette.background import BackgroundTask
 from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from ..core import certificados as ct
 from ..core import clientes as cl
 from ..core import planilha_clientes as pc
 from ..core import planilha_empresas as pe
+from ..core import correcoes_base_fiscal as cbf
 from ..core.cofre import Cofre, CofreIndisponivel, SegredoIlegivel
 from ..ferramentas import clientes_store as cs
+from ..ferramentas import importacao_base_fiscal as ibf
 from ..ferramentas.relatorio_clientes import gerar_relacao
 from ..ferramentas.relatorio_base_fiscal import gerar_relatorio_base_fiscal
+from ..ferramentas.previa_cadastro_fiscal import consultar_cadastro, CadastroIndisponivel
 from . import auditoria as trilha
 from . import auth, permissoes
 from .auditoria import acesso, detalhar, exigir_aba
@@ -708,6 +718,317 @@ async def relatorio_base_fiscal(
         "Cache-Control": "no-store",
         "Content-Disposition": 'attachment; filename="conferencia-base-fiscal.xlsx"',
     })
+
+
+def _simular_base_fiscal(fonte: str, revisao: str, hash_esperado: str,
+                        banco: str) -> dict:
+    """Arquivos e snapshot mínimo; não inicializa stores ou sessões de carga."""
+    leitura = pe.ler_planilha_empresas(fonte)
+    if leitura.hash_arquivo != hash_esperado:
+        raise cl.ErroClientes("BASE_FISCAL_DIVERGENTE",
+                             "O arquivo difere da prévia. Confira a base Fiscal novamente.")
+    previa = cbf.preparar_previa(leitura, revisao)
+    documentos = {linha["efetivo"]["documento"] for linha in previa["linhas"]
+                  if linha["efetivo"].get("documento")}
+    snapshot = consultar_cadastro(banco, documentos)
+    resultado = cbf.comparar_cadastro(previa, snapshot["clientes"])
+    resultado["cadastro_disponivel"] = snapshot["disponivel"]
+    resultado["cadastro_consultado_em"] = snapshot["consultado_em"]
+    if not snapshot["disponivel"]:
+        resultado["avisos"].append("O banco de clientes ainda não existe. A comparação considera o cadastro vazio.")
+    return resultado
+
+
+@router.post("/base-fiscal/importacao/previa")
+async def previa_importacao_base_fiscal(
+        request: Request, arquivo: UploadFile = File(...),
+        correcoes: UploadFile = File(...),
+        hash_esperado: str = Form(..., min_length=64, max_length=64,
+                                 pattern=r"^[0-9a-f]{64}$"),
+        usuario: Usuario = Depends(acesso("clientes.importar"))) -> JSONResponse:
+    """Simula correções e confronta o cadastro, sem token ou confirmação."""
+    try:
+        nomes = [(a.filename or "").replace("\\", "/").rsplit("/", 1)[-1]
+                 for a in (arquivo, correcoes)]
+        if any(os.path.splitext(n)[1].lower() != ".xlsx" for n in nomes):
+            raise erro(422, "Envie a fonte original e o relatório de correções em formato .xlsx.",
+                       pc.PLANILHA_INVALIDA)
+        with tempfile.TemporaryDirectory(prefix="base_fiscal_importacao_") as pasta:
+            fonte, revisao = (os.path.join(pasta, n) for n in ("fonte.xlsx", "correcoes.xlsx"))
+            await _receber(arquivo, fonte, pe.MAX_PLANILHA_BYTES)
+            await _receber(correcoes, revisao, pe.MAX_PLANILHA_BYTES)
+            try:
+                dados = await run_in_threadpool(_simular_base_fiscal, fonte, revisao,
+                                               hash_esperado, caminho_db_clientes())
+            except cl.ErroClientes as exc:
+                raise _traduzir(exc) from exc
+            except CadastroIndisponivel as exc:
+                raise erro(503, "Não foi possível consultar o cadastro de clientes. "
+                           "Nenhuma empresa foi classificada para importação. Tente novamente "
+                           "ou solicite a verificação do banco.", "CADASTRO_INDISPONIVEL") from exc
+    finally:
+        try:
+            await arquivo.close()
+        finally:
+            await correcoes.close()
+    detalhar(request, f"previa importacao base fiscal: {len(dados['linhas'])} linha(s)")
+    return JSONResponse(dict(dados, somente_leitura=True, nome_arquivo=nomes[0][:200],
+                             nome_correcoes=nomes[1][:200]), headers={"Cache-Control": "no-store"})
+
+
+class _BaseFiscalSemCache(APIRoute):
+    """Limita o cabeçalho às novas rotas, inclusive erros de auth/validação."""
+
+    def get_route_handler(self):
+        original = super().get_route_handler()
+
+        async def sem_cache(request: Request):
+            try:
+                resposta = await original(request)
+            except StarletteHTTPException as exc:
+                resposta = await http_exception_handler(request, exc)
+            except RequestValidationError as exc:
+                resposta = await request_validation_exception_handler(request, exc)
+            except Exception as exc:
+                # Não expor valores das planilhas ou caminhos em respostas/logs.
+                logging.getLogger(__name__).error(
+                    "Falha inesperada na operação da Base Fiscal: %s", type(exc).__name__)
+                resposta = JSONResponse(status_code=500, content={"detail": {
+                    "detail": "Não foi possível conferir o resultado da operação. "
+                              "Se estava confirmando, tente novamente com a mesma preparação.",
+                    "code": "BASE_FISCAL_FALHA_INTERNA"}})
+            resposta.headers["Cache-Control"] = "no-store"
+            return resposta
+
+        return sem_cache
+
+
+_carga_base_fiscal = APIRouter(prefix="/base-fiscal/importacao",
+                              route_class=_BaseFiscalSemCache)
+_trava_preparacoes_base_fiscal = threading.Lock()
+PREPARACOES_BASE_FISCAL_MAXIMAS = 30
+
+
+@dataclass(frozen=True)
+class PreparacaoBaseFiscal:
+    usuario_id: int
+    sessao: str
+    banco: str
+    criada: dt.datetime
+    hash_arquivo: str
+    hash_correcoes: str
+    assinatura: str
+
+
+_preparacoes_base_fiscal: dict[str, PreparacaoBaseFiscal] = {}
+
+
+def _banco_base_fiscal() -> str:
+    return os.path.normcase(os.path.realpath(caminho_db_clientes()))
+
+
+def _exigir_carga_base_fiscal(request: Request) -> Usuario:
+    """Reconsulta sessão e permissões, inclusive depois do processamento dos arquivos."""
+    usuario = auth.exigir_usuario(request)
+    for slug in ("aba.clientes", "clientes.importar", "clientes.importar_base_fiscal"):
+        trilha.exigir_permissao(usuario, slug,
+                               "Você não tem permissão para confirmar a Base Fiscal.")
+    return usuario
+
+
+def _guardar_preparacao_base_fiscal(previa: dict, request: Request,
+                                   usuario: Usuario, banco: str) -> str:
+    agora = _agora()
+    preparacao = PreparacaoBaseFiscal(
+        usuario_id=usuario.id, sessao=_chave_sessao(request), banco=banco,
+        criada=agora, hash_arquivo=previa["hash_arquivo"],
+        hash_correcoes=previa["hash_correcoes"], assinatura=ibf.assinatura_previa(previa))
+    with _trava_preparacoes_base_fiscal:
+        limite = agora - dt.timedelta(minutes=PREVIA_MINUTOS)
+        for token in [t for t, p in _preparacoes_base_fiscal.items() if p.criada <= limite]:
+            _preparacoes_base_fiscal.pop(token, None)
+        minhas = sorted((p.criada, t) for t, p in _preparacoes_base_fiscal.items()
+                        if p.usuario_id == usuario.id)
+        for _, antiga in minhas[:max(0, len(minhas) - PREVIAS_POR_USUARIO + 1)]:
+            _preparacoes_base_fiscal.pop(antiga, None)
+        todas = sorted((p.criada, t) for t, p in _preparacoes_base_fiscal.items())
+        for _, antiga in todas[:max(0, len(todas) - PREPARACOES_BASE_FISCAL_MAXIMAS + 1)]:
+            _preparacoes_base_fiscal.pop(antiga, None)
+        token = secrets.token_urlsafe(32)
+        _preparacoes_base_fiscal[token] = preparacao
+        return token
+
+
+def _obter_preparacao_base_fiscal(token: str, request: Request,
+                                 usuario: Usuario) -> PreparacaoBaseFiscal:
+    with _trava_preparacoes_base_fiscal:
+        p = _preparacoes_base_fiscal.get(token)
+        if p is not None and (p.usuario_id != usuario.id or
+                              p.sessao != _chave_sessao(request) or
+                              p.banco != _banco_base_fiscal()):
+            raise erro(404, "Preparação não encontrada para esta sessão.",
+                       "BASE_FISCAL_TOKEN_INVALIDO")
+        if p is None or p.criada <= _agora() - dt.timedelta(minutes=PREVIA_MINUTOS):
+            _preparacoes_base_fiscal.pop(token, None)
+            raise erro(410, "A preparação expirou ou foi descartada. Prepare a importação novamente.",
+                       "BASE_FISCAL_TOKEN_EXPIRADO")
+        return p
+
+
+def _descartar_preparacao_base_fiscal(token: str) -> None:
+    with _trava_preparacoes_base_fiscal:
+        _preparacoes_base_fiscal.pop(token, None)
+
+
+def _nomes_base_fiscal(arquivo: UploadFile, correcoes: UploadFile) -> list[str]:
+    nomes = [(a.filename or "").replace("\\", "/").rsplit("/", 1)[-1]
+             for a in (arquivo, correcoes)]
+    if any(os.path.splitext(n)[1].lower() != ".xlsx" for n in nomes):
+        raise erro(422, "Envie a fonte original e o relatório de correções em formato .xlsx.",
+                   pc.PLANILHA_INVALIDA)
+    return [n[:200] for n in nomes]
+
+
+def _erro_importacao_base_fiscal(exc: Exception) -> HTTPException:
+    if isinstance(exc, cl.ErroClientes):
+        if exc.codigo in ("BASE_FISCAL_BLOQUEADA", "BASE_FISCAL_SEM_INCLUSAO"):
+            return erro(422, exc.mensagem, exc.codigo)
+        return _traduzir(exc)
+    if isinstance(exc, (CadastroIndisponivel, sqlite3.Error)):
+        return erro(503, "Não foi possível acessar o cadastro de clientes. "
+                   "Tente novamente com a mesma preparação para conferir o resultado.",
+                   "CADASTRO_INDISPONIVEL")
+    raise exc
+
+
+def _ler_confirmacao_base_fiscal(fonte: str, revisao: str,
+                                preparacao: PreparacaoBaseFiscal) -> dict:
+    leitura = pe.ler_planilha_empresas(fonte)
+    if leitura.hash_arquivo != preparacao.hash_arquivo:
+        raise cl.ErroClientes("BASE_FISCAL_DIVERGENTE",
+                             "A fonte mudou. Confira os arquivos e prepare novamente.")
+    previa = cbf.preparar_previa(leitura, revisao)
+    if previa["hash_correcoes"] != preparacao.hash_correcoes:
+        raise cl.ErroClientes("BASE_FISCAL_DIVERGENTE",
+                             "O relatório mudou. Confira os arquivos e prepare novamente.")
+    ibf.validar_apta(previa)
+    return ibf.enriquecer_origens(previa, leitura)
+
+
+def _gravar_confirmacao_base_fiscal(token: str, request: Request, previa: dict,
+                                   nomes: list[str]) -> dict:
+    # Revalidar depois dos awaits e antes de abrir conexão de escrita. O caminho
+    # fixado impede que uma alteração de configuração redirecione esta carga.
+    usuario = _exigir_carga_base_fiscal(request)
+    preparacao = _obter_preparacao_base_fiscal(token, request, usuario)
+
+    def revalidar():
+        # O construtor e BEGIN IMMEDIATE podem esperar outro escritor. Conferir
+        # a autoridade novamente sob a transação, inclusive em um retry/recibo.
+        atual = _exigir_carga_base_fiscal(request)
+        vigente = _obter_preparacao_base_fiscal(token, request, atual)
+        if vigente != preparacao:
+            raise cl.ErroClientes("BASE_FISCAL_DESATUALIZADA",
+                                 "A preparação mudou. Confira os arquivos e prepare novamente.")
+
+    store = cs.ClientesStore(preparacao.banco)
+    try:
+        return ibf.importar_base_fiscal(
+            store, previa, preparacao.assinatura, nome_arquivo=nomes[0],
+            nome_correcoes=nomes[1], revalidar=revalidar, **_quem(usuario))
+    finally:
+        store.fechar()
+
+
+@_carga_base_fiscal.post("/preparar")
+async def preparar_importacao_base_fiscal(
+        request: Request, arquivo: UploadFile = File(...), correcoes: UploadFile = File(...),
+        hash_esperado: str = Form(..., min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"),
+        hash_correcoes_esperado: str = Form(..., min_length=64, max_length=64,
+                                            pattern=r"^[0-9a-f]{64}$"),
+        usuario: Usuario = Depends(acesso("clientes.importar"))) -> JSONResponse:
+    try:
+        _exigir_carga_base_fiscal(request)
+        nomes = _nomes_base_fiscal(arquivo, correcoes)
+        banco = _banco_base_fiscal()
+        with tempfile.TemporaryDirectory(prefix="base_fiscal_preparar_") as pasta:
+            fonte, revisao = (os.path.join(pasta, n) for n in ("fonte.xlsx", "correcoes.xlsx"))
+            await _receber(arquivo, fonte, pe.MAX_PLANILHA_BYTES)
+            await _receber(correcoes, revisao, pe.MAX_PLANILHA_BYTES)
+            try:
+                previa = await run_in_threadpool(_simular_base_fiscal, fonte, revisao,
+                                                hash_esperado, banco)
+                if previa["hash_correcoes"] != hash_correcoes_esperado:
+                    raise cl.ErroClientes("BASE_FISCAL_DIVERGENTE",
+                                         "O relatório difere da prévia. Confira as correções novamente.")
+                ibf.validar_apta(previa)
+                usuario = _exigir_carga_base_fiscal(request)
+                if _banco_base_fiscal() != banco:
+                    raise erro(409, "O cadastro mudou. Prepare a importação novamente.",
+                               "BASE_FISCAL_DESATUALIZADA")
+                token = _guardar_preparacao_base_fiscal(previa, request, usuario, banco)
+            except (cl.ErroClientes, CadastroIndisponivel, sqlite3.Error) as exc:
+                raise _erro_importacao_base_fiscal(exc) from exc
+    finally:
+        try:
+            await arquivo.close()
+        finally:
+            await correcoes.close()
+    detalhar(request, f"preparacao base fiscal: {previa['contagens']['linhas']} linha(s)")
+    return JSONResponse({"formato": "base_fiscal_confirmacao_v1", "token": token,
+                         "expira_em_minutos": PREVIA_MINUTOS,
+                         "previa": dict(previa, nome_arquivo=nomes[0], nome_correcoes=nomes[1])})
+
+
+@_carga_base_fiscal.post("/{token}/confirmar")
+async def confirmar_importacao_base_fiscal(
+        token: str, request: Request, arquivo: UploadFile = File(...),
+        correcoes: UploadFile = File(...), confirmacao: str = Form(...),
+        usuario: Usuario = Depends(acesso("clientes.importar"))) -> JSONResponse:
+    try:
+        usuario = _exigir_carga_base_fiscal(request)
+        preparacao = _obter_preparacao_base_fiscal(token, request, usuario)
+        if confirmacao != "IMPORTAR EMPRESAS":
+            raise erro(422, "Confirme explicitamente a inclusão das empresas revisadas.",
+                       "BASE_FISCAL_CONFIRMACAO_OBRIGATORIA")
+        nomes = _nomes_base_fiscal(arquivo, correcoes)
+        with tempfile.TemporaryDirectory(prefix="base_fiscal_confirmar_") as pasta:
+            fonte, revisao = (os.path.join(pasta, n) for n in ("fonte.xlsx", "correcoes.xlsx"))
+            await _receber(arquivo, fonte, pe.MAX_PLANILHA_BYTES)
+            await _receber(correcoes, revisao, pe.MAX_PLANILHA_BYTES)
+            try:
+                previa = await run_in_threadpool(_ler_confirmacao_base_fiscal, fonte, revisao,
+                                                preparacao)
+                resultado = await run_in_threadpool(_gravar_confirmacao_base_fiscal,
+                                                   token, request, previa, nomes)
+            except (cl.ErroClientes, CadastroIndisponivel, sqlite3.Error) as exc:
+                traduzida = _erro_importacao_base_fiscal(exc)
+                if traduzida.status_code == 409:
+                    _descartar_preparacao_base_fiscal(token)
+                raise traduzida from exc
+    finally:
+        try:
+            await arquivo.close()
+        finally:
+            await correcoes.close()
+    detalhar(request, f"confirmacao base fiscal: {resultado['contagens']['incluidas']} incluída(s), "
+             f"{resultado['contagens']['existentes']} existente(s), "
+             f"{resultado['contagens']['ignoradas']} ignorada(s); "
+             f"repetida: {'sim' if resultado['repetida'] else 'nao'}")
+    return JSONResponse(resultado)
+
+
+@_carga_base_fiscal.delete("/{token}")
+def descartar_importacao_base_fiscal(token: str, request: Request,
+                                    usuario: Usuario = Depends(acesso("clientes.importar"))) -> dict:
+    usuario = _exigir_carga_base_fiscal(request)
+    _obter_preparacao_base_fiscal(token, request, usuario)
+    _descartar_preparacao_base_fiscal(token)
+    detalhar(request, "preparacao base fiscal descartada")
+    return {"ok": True}
+
+
+router.include_router(_carga_base_fiscal)
 
 
 class ConfirmacaoEntrada(BaseModel):

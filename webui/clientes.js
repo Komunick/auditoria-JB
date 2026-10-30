@@ -181,7 +181,7 @@ const BaseFiscalUI = {
     };
     alvo.className = "base-fiscal";
     alvo.append(criar("h3", "Conferência da base Fiscal", "pat-titulo"),
-      criar("p", "Sem gravação: esta prévia permite conferir a base de empresas. Não cadastra clientes nem associa responsáveis a usuários.", "dica"),
+      criar("p", "Sem gravação na conferência: a prévia da base é somente leitura. A inclusão de empresas exige preparar a importação e confirmar as quantidades com a permissão específica.", "dica"),
       criar("p", "A aba ZERADAS indica empresas sem movimento que continuam na carteira. Não significa inatividade, baixa ou dispensa de obrigações.", "dica"));
     const entrada = criar("input"); entrada.type = "file"; entrada.accept = ".xlsx"; entrada.id = "bf-arquivo";
     const ler = botao("Conferir base Fiscal", "bf-ler", carregar); ler.className = "botao-primario";
@@ -193,8 +193,9 @@ const BaseFiscalUI = {
     const resultado = criar("div"); resultado.id = "bf-resultado";
     alvo.append(envio, status, resultado);
     let consulta = 0, previa = null, arquivoConferido = null, pessoaConferida = null;
-    let baixando = false, relatorio = null;
+    let baixando = false, relatorio = null, limparRevisao = () => {};
     function invalidar(mensagem, limparArquivo = false) {
+      limparRevisao(); limparRevisao = () => {};
       consulta += 1; previa = null; resultado.textContent = "";
       arquivoConferido = null; pessoaConferida = null; baixando = false; relatorio = null;
       status.textContent = mensagem; status.className = "status";
@@ -297,8 +298,9 @@ const BaseFiscalUI = {
       relatorio = botao("Baixar relatório completo (.xlsx)", "bf-relatorio", baixarRelatorio);
       relatorio.disabled = !podeBaixar();
       const acoes = criar("div", "", "linha-form"); acoes.append(relatorio);
-      resultado.append(acoes, criar("p", "O relatório inclui todos os registros, independentemente dos filtros. A aba Correções tem campos para anotar propostas; este relatório ainda não é aceito como arquivo de importação.", "dica"));
+      resultado.append(acoes, criar("p", "O relatório inclui todos os registros, independentemente dos filtros. Preencha a aba Correções e envie o relatório abaixo para preparar a prévia de importação. Nenhuma alteração será gravada.", "dica"));
       if (!podeBaixar()) resultado.append(criar("p", "Para baixar o relatório, é necessária a permissão de exportar clientes.", "dica"));
+      montarRevisao();
       const contadores = criar("div", "", "base-fiscal-contadores");
       for (const [chave, rotulo] of [["linhas", "Registros no arquivo"], ["cnpjs_distintos", "CNPJs válidos distintos"],
         ["documentos_pendentes", "Documentos pendentes"], ["grupos_duplicados", "Grupos repetidos"],
@@ -399,6 +401,305 @@ const BaseFiscalUI = {
         info.textContent = linhas.length ? `${inicio + 1}–${Math.min(inicio + limite, linhas.length)} de ${linhas.length} registro(s) filtrado(s) · ${previa.contagens.linhas} no arquivo`
           : `0 registro(s) na lista · ${previa.contagens.linhas} no arquivo`;
         anterior.disabled = pagina <= 1; proxima.disabled = inicio + limite >= linhas.length;
+      }
+      listar();
+    }
+
+    function montarRevisao() {
+      const bloco = criar("section", "", "base-fiscal-revisao");
+      bloco.setAttribute("aria-label", "Correções e prévia de importação");
+      bloco.append(criar("h4", "Correções e prévia de importação"),
+        criar("p", "No relatório baixado, edite somente a aba Correções: G a K contêm as propostas; campo vazio preserva o original. Não altere as seis colunas originais nem remova registros.", "dica"),
+        criar("p", "Para CNPJs repetidos, escreva manter em uma ocorrência e ignorar nas demais, na coluna L. Preencha a justificativa de cada ignorar na coluna M. Também é possível ignorar todas as ocorrências, justificando cada uma. Corrigir um CNPJ pode resolver ou criar uma duplicidade.", "dica"),
+        criar("p", "A prévia não grava empresas. Responsáveis permanecem sem vínculo com usuários; regime e sem movimento não são aplicados ao cadastro ou à agenda.", "dica"));
+      const correcoes = criar("input"); correcoes.type = "file"; correcoes.accept = ".xlsx"; correcoes.id = "bf-correcoes";
+      const gerar = botao("Gerar prévia de importação", "bf-importacao-gerar", gerarPrevia);
+      gerar.disabled = true;
+      const acoes = criar("div", "", "linha-form");
+      acoes.append(campo("Relatório com correções (XLSX, até 20 MB)", correcoes), gerar);
+      const mensagem = criar("p", "Escolha o relatório com as propostas para conferir.", "status");
+      mensagem.id = "bf-importacao-status"; mensagem.setAttribute("role", "status"); mensagem.setAttribute("aria-live", "polite");
+      const saida = criar("div"); saida.id = "bf-importacao-resultado";
+      bloco.append(acoes, mensagem, saida); resultado.append(bloco);
+      let versao = 0, ocupada = false;
+      const fonte = arquivoConferido, pessoa = pessoaConferida, geracao = consulta, hashFonte = previa.hash_arquivo;
+      const fonteAtual = () => geracao === consulta && arquivoConferido === fonte && entrada.files[0] === fonte &&
+        Sessao.usuario === pessoa && permitido();
+      const podeImportar = () => permitido() && Sessao.pode("clientes.importar_base_fiscal");
+      const arquivoValido = arquivo => arquivo && /\.xlsx$/i.test(arquivo.name) && arquivo.size <= 20 * 1024 * 1024;
+      const tipos = ["incluir", "existente", "conflito", "pendente", "ignorar"];
+      function previaValida(dados, hashCorrecoes) {
+        const contagens = Object.fromEntries(tipos.map(tipo => [tipo, 0]));
+        if (Array.isArray(dados?.linhas)) for (const linha of dados.linhas) if (tipos.includes(linha?.status)) contagens[linha.status]++;
+        return dados?.somente_leitura === true && dados.formato === "base_fiscal_importacao_v1" &&
+          dados.hash_arquivo === hashFonte && /^[a-f0-9]{64}$/.test(dados.hash_correcoes || "") &&
+          (!hashCorrecoes || dados.hash_correcoes === hashCorrecoes) && Array.isArray(dados.linhas) &&
+          dados.contagens?.linhas === dados.linhas.length && tipos.every(tipo => dados.contagens[tipo] === contagens[tipo]) &&
+          dados.linhas.every(l => tipos.includes(l?.status));
+      }
+      const apta = dados => dados.contagens.incluir > 0 && !dados.contagens.conflito && !dados.contagens.pendente &&
+        !dados.linhas.some(l => l.status === "conflito" || l.status === "pendente");
+      function limpar() {
+        versao += 1; ocupada = false; saida.textContent = ""; saida.setAttribute("aria-busy", "false");
+        gerar.disabled = !fonteAtual() || !arquivoValido(correcoes.files[0]);
+      }
+      limparRevisao = () => { limpar(); correcoes.value = ""; gerar.disabled = true; };
+      correcoes.addEventListener("change", () => {
+        limpar(); mensagem.className = "status";
+        mensagem.textContent = !correcoes.files[0] ? "Escolha o relatório com as propostas para conferir."
+          : arquivoValido(correcoes.files[0]) ? "Relatório selecionado. Gere uma nova prévia para conferir as propostas."
+            : "Escolha um relatório XLSX de até 20 MB.";
+      });
+      async function gerarPrevia() {
+        if (ocupada) return;
+        if (!fonteAtual()) { invalidar("A sessão ou o arquivo mudou. Confira a base novamente.", true); return; }
+        const arquivo = correcoes.files[0];
+        if (!arquivoValido(arquivo)) {
+          mensagem.textContent = "Escolha um relatório XLSX de até 20 MB."; correcoes.focus(); return;
+        }
+        limpar(); ocupada = true; gerar.disabled = true;
+        const revisao = versao;
+        const atual = () => fonteAtual() && revisao === versao && correcoes.files[0] === arquivo;
+        saida.setAttribute("aria-busy", "true"); mensagem.className = "status";
+        mensagem.textContent = "Conferindo correções e comparando com o cadastro…";
+        const corpo = new FormData(); corpo.append("arquivo", fonte); corpo.append("correcoes", arquivo); corpo.append("hash_esperado", hashFonte);
+        try {
+          const dados = await api("/api/clientes/base-fiscal/importacao/previa", {method: "POST", body: corpo});
+          if (!atual()) return;
+          if (!previaValida(dados)) {
+            throw new Error("Não foi possível conferir a resposta da prévia de importação. Tente novamente.");
+          }
+          desenharRevisao(saida, dados);
+          oferecerPreparacao(dados, arquivo, revisao);
+          mensagem.textContent = "Prévia de importação concluída. Nenhum cadastro ou vínculo foi gravado.";
+        } catch (erro) {
+          if (!atual()) return;
+          if (erro.codigo === "BASE_FISCAL_DIVERGENTE") {
+            invalidar("O arquivo diverge da prévia. Escolha a fonte e confira novamente.", true); return;
+          }
+          saida.textContent = ""; mensagem.className = "status conc-erro";
+          mensagem.textContent = erro.message || "Não foi possível conferir as correções. Tente novamente.";
+        } finally {
+          if (geracao === consulta && !fonteAtual()) invalidar("A sessão ou as permissões mudaram. Confira a base novamente.", true);
+          else if (atual()) { ocupada = false; gerar.disabled = false; saida.setAttribute("aria-busy", "false"); }
+        }
+      }
+
+      function oferecerPreparacao(dados, arquivo, revisao) {
+        if (!podeImportar()) return;
+        const carga = criar("section"); carga.setAttribute("aria-label", "Preparar inclusão de empresas");
+        saida.append(carga);
+        if (!apta(dados)) {
+          carga.append(criar("p", dados.contagens.conflito || dados.contagens.pendente
+            ? "Resolva os conflitos e as pendências e gere uma nova prévia antes de preparar a importação."
+            : "Não há empresas novas para incluir nesta prévia.", "dica"));
+          return;
+        }
+        const preparar = botao("Preparar importação", "bf-importacao-preparar", prepararCarga);
+        carga.append(criar("p", "Preparar consulta novamente o cadastro. A gravação só acontece depois de conferir a nova prévia e confirmar a inclusão.", "dica"), preparar);
+        const atual = () => fonteAtual() && podeImportar() && revisao === versao && correcoes.files[0] === arquivo;
+        async function prepararCarga() {
+          if (ocupada) return;
+          if (!atual()) {
+            if (geracao === consulta && (!fonteAtual() || !podeImportar())) invalidar("A sessão ou as permissões mudaram. Confira a base novamente.", true);
+            return;
+          }
+          ocupada = true; preparar.disabled = true; gerar.disabled = true;
+          saida.setAttribute("aria-busy", "true"); mensagem.className = "status";
+          mensagem.textContent = "Revalidando os arquivos e o cadastro para preparar a confirmação…";
+          const corpo = new FormData(); corpo.append("arquivo", fonte); corpo.append("correcoes", arquivo);
+          corpo.append("hash_esperado", dados.hash_arquivo); corpo.append("hash_correcoes_esperado", dados.hash_correcoes);
+          try {
+            const resposta = await api("/api/clientes/base-fiscal/importacao/preparar", {method: "POST", body: corpo});
+            if (!atual()) return;
+            if (resposta?.formato !== "base_fiscal_confirmacao_v1" || typeof resposta.token !== "string" ||
+                !resposta.token.trim() || resposta.token.length > 512 || !Number.isInteger(resposta.expira_em_minutos) ||
+                resposta.expira_em_minutos <= 0 || !previaValida(resposta.previa, dados.hash_correcoes) || !apta(resposta.previa)) {
+              throw new Error("Não foi possível conferir a preparação recebida. Gere uma nova prévia.");
+            }
+            desenharRevisao(saida, resposta.previa);
+            oferecerConfirmacao(resposta, arquivo, revisao);
+            mensagem.textContent = "Cadastro revalidado. Confira a prévia atualizada e as quantidades antes de confirmar. Nenhuma empresa foi gravada nesta preparação.";
+          } catch (erro) {
+            if (!atual()) return;
+            carga.textContent = ""; mensagem.className = "status conc-erro";
+            mensagem.textContent = `${erro.message || "Não foi possível preparar a importação."} Gere uma nova prévia antes de tentar novamente.`;
+          } finally {
+            if (geracao === consulta && (!fonteAtual() || !podeImportar())) invalidar("A sessão ou as permissões mudaram. Confira a base novamente.", true);
+            else if (atual()) { ocupada = false; gerar.disabled = false; saida.setAttribute("aria-busy", "false"); }
+          }
+        }
+      }
+
+      function oferecerConfirmacao(preparacao, arquivo, revisao) {
+        const dados = preparacao.previa, totais = dados.contagens;
+        const carga = criar("section"); carga.setAttribute("aria-label", "Confirmar inclusão de empresas");
+        const aceite = criar("input"); aceite.type = "checkbox"; aceite.id = "bf-importacao-aceite";
+        const gravar = botao(`Confirmar inclusão de ${totais.incluir} empresa(s)`, "bf-importacao-confirmar", confirmarCarga);
+        gravar.disabled = true;
+        const rotulo = `Conferi a prévia atualizada e autorizo incluir ${totais.incluir} empresa(s), preservar ${totais.existente} já cadastrada(s) e ignorar ${totais.ignorar} ocorrência(s).`;
+        carga.append(criar("h4", "Confirmação da importação"),
+          criar("p", `Esta preparação vale por ${preparacao.expira_em_minutos} minutos. O cadastro será conferido novamente antes da gravação.`, "dica"),
+          criar("p", "Serão incluídos somente os dados cadastrais das novas empresas. Responsáveis, carteira, características fiscais e tarefas exigem configuração separada.", "dica"),
+          campo(rotulo, aceite), gravar);
+        saida.append(carga);
+        let ativa = true;
+        const atual = () => ativa && fonteAtual() && podeImportar() && revisao === versao && correcoes.files[0] === arquivo;
+        aceite.addEventListener("change", () => { gravar.disabled = ocupada || !atual() || !aceite.checked; });
+        async function confirmarCarga() {
+          if (ocupada || !ativa) return;
+          if (!atual()) {
+            if (geracao === consulta && (!fonteAtual() || !podeImportar())) invalidar("A sessão ou as permissões mudaram. Confira a base novamente.", true);
+            return;
+          }
+          if (!aceite.checked) return;
+          ocupada = true; gravar.disabled = true; aceite.disabled = true; gerar.disabled = true;
+          saida.setAttribute("aria-busy", "true"); mensagem.className = "status";
+          mensagem.textContent = "Conferindo e registrando a importação…";
+          const corpo = new FormData(); corpo.append("arquivo", fonte); corpo.append("correcoes", arquivo);
+          corpo.append("confirmacao", "IMPORTAR EMPRESAS");
+          try {
+            const resposta = await api(`/api/clientes/base-fiscal/importacao/${encodeURIComponent(preparacao.token)}/confirmar`, {method: "POST", body: corpo});
+            if (!atual()) return;
+            const id = resposta?.importacao_id, contagens = resposta?.contagens;
+            if (resposta?.formato !== "base_fiscal_resultado_v1" ||
+                !(Number.isInteger(id) && id > 0 || typeof id === "string" && id.trim() && id.length <= 128) ||
+                typeof resposta.repetida !== "boolean" || resposta.hash_arquivo !== dados.hash_arquivo || resposta.hash_correcoes !== dados.hash_correcoes ||
+                !contagens || contagens.incluidas !== totais.incluir || contagens.existentes !== totais.existente || contagens.ignoradas !== totais.ignorar) {
+              throw new Error("O retorno recebido não corresponde à preparação conferida.");
+            }
+            ativa = false; aceite.checked = false; carga.textContent = "";
+            const recibo = criar("section"); recibo.id = "bf-importacao-recibo"; recibo.setAttribute("role", "status");
+            recibo.append(criar("h4", resposta.repetida ? "Importação já concluída anteriormente" : "Importação concluída"),
+              criar("p", `Registro da importação: ${id}.`),
+              criar("p", `${contagens.incluidas} empresa(s) incluída(s), ${contagens.existentes} preservada(s) e ${contagens.ignoradas} ocorrência(s) ignorada(s).`),
+              criar("p", "A carteira, os responsáveis, as características fiscais e as tarefas permanecem para configuração separada.", "dica"));
+            carga.append(recibo);
+            mensagem.textContent = resposta.repetida ? "Resultado da importação anterior recuperado. Nenhuma empresa foi duplicada." : "Importação concluída. Confira o resumo abaixo.";
+          } catch (erro) {
+            if (!atual()) return;
+            aceite.checked = false; mensagem.className = "status conc-erro";
+            if ([403, 404, 409, 410].includes(erro.status) ||
+                ["BASE_FISCAL_DIVERGENTE", "BASE_FISCAL_DESATUALIZADA", "BASE_FISCAL_TOKEN_EXPIRADO"].includes(erro.codigo)) {
+              ativa = false; carga.textContent = "";
+              mensagem.textContent = `${erro.message || "A preparação não está mais disponível."} Gere uma nova prévia e prepare novamente a importação.`;
+            } else {
+              mensagem.textContent = `Não foi possível confirmar o resultado da importação. A operação pode ter sido concluída. Confira novamente o aceite para consultar ou repetir esta mesma confirmação com segurança. ${erro.message || "Tente novamente."}`;
+            }
+          } finally {
+            if (geracao === consulta && (!fonteAtual() || !podeImportar())) invalidar("A sessão ou as permissões mudaram. Confira a base novamente.", true);
+            else if (fonteAtual() && revisao === versao && correcoes.files[0] === arquivo) {
+              ocupada = false; gerar.disabled = false; aceite.disabled = false;
+              gravar.disabled = !ativa || !aceite.checked; saida.setAttribute("aria-busy", "false");
+            }
+          }
+        }
+      }
+    }
+
+    function desenharRevisao(alvoRevisao, dados) {
+      alvoRevisao.textContent = "";
+      const rotulos = {incluir: "Novas empresas", existente: "Já cadastradas", conflito: "Conflitos com o cadastro", pendente: "Pendências", ignorar: "Ignoradas na proposta"};
+      const campos = {nome: "Empresa", documento: "CNPJ", regime: "Regime", responsavel_fiscal: "Responsável Fiscal", contato_nome: "Contato"};
+      alvoRevisao.append(criar("h4", "Resultado da prévia"),
+        criar("p", `${dados.contagens.linhas} registro(s) conferido(s) · ${dados.contagens.alteradas} com propostas de alteração.`, "dica"),
+        criar("p", "Novas empresas são candidatas a uma futura inclusão. Já cadastradas não serão recriadas; conflitos e pendências exigem revisão. Ignorar não exclui clientes existentes. Esta prévia precisa ser revalidada antes de qualquer futura gravação.", "dica"));
+      const contadores = criar("div", "", "base-fiscal-contadores");
+      for (const [chave, rotulo] of Object.entries(rotulos)) {
+        const card = criar("div"), total = criar("strong", dados.contagens[chave] ?? "—");
+        total.id = `bf-importacao-total-${chave}`; card.append(total, criar("span", rotulo)); contadores.append(card);
+      }
+      alvoRevisao.append(contadores);
+      if (dados.cadastro_disponivel === false) alvoRevisao.append(criar("p", "Ainda não existe banco cadastral neste ambiente. A comparação considera um cadastro vazio.", "dica"));
+      function horarioConsulta(valor) {
+        const data = typeof valor === "string" && valor.trim() ? new Date(valor) : null;
+        if (!data || Number.isNaN(data.getTime())) return "Horário da consulta cadastral indisponível.";
+        const texto = new Intl.DateTimeFormat("pt-BR", {
+          dateStyle: "short", timeStyle: "medium", timeZone: "America/Bahia",
+        }).format(data);
+        return `Cadastro consultado em: ${texto} (horário de Salvador).`;
+      }
+      alvoRevisao.append(criar("p", horarioConsulta(dados.cadastro_consultado_em), "dica"));
+      for (const aviso of dados.avisos || []) alvoRevisao.append(criar("p", aviso, "dica"));
+      const identificacao = criar("details", "", "base-fiscal-arquivo-detalhes");
+      identificacao.append(criar("summary", "Identificação dos arquivos"),
+        criar("p", `Fonte (SHA-256): ${dados.hash_arquivo}`, "base-fiscal-hash"),
+        criar("p", `Correções (SHA-256): ${dados.hash_correcoes}`, "base-fiscal-hash"));
+      alvoRevisao.append(identificacao);
+      const filtros = criar("div", "", "linha-form base-fiscal-filtros");
+      const busca = criar("input"); busca.type = "search"; busca.id = "bf-importacao-busca";
+      const filtro = criar("select"); filtro.id = "bf-importacao-filtro";
+      opcoes(filtro, [["", "Todos os resultados"], ...Object.entries(rotulos)]);
+      const tamanho = criar("select"); tamanho.id = "bf-importacao-tamanho";
+      opcoes(tamanho, [["25", "25"], ["50", "50"]]); tamanho.value = "25";
+      let pagina = 1;
+      const resetar = () => { pagina = 1; listar(); };
+      busca.addEventListener("input", resetar); filtro.addEventListener("change", resetar); tamanho.addEventListener("change", resetar);
+      filtros.append(campo("Buscar nas propostas", busca), campo("Resultado", filtro), campo("Registros por página", tamanho),
+        botao("Limpar filtros da prévia", "bf-importacao-limpar-filtros", () => { busca.value = ""; filtro.value = ""; resetar(); }));
+      const rolagem = criar("div", "", "rolagem base-fiscal-rolagem"); rolagem.tabIndex = 0;
+      rolagem.setAttribute("role", "region"); rolagem.setAttribute("aria-label", "Prévia de importação das empresas");
+      const tabela = criar("table", "", "base-fiscal-tabela"), cabecalho = criar("thead"), titulos = criar("tr");
+      for (const nome of ["Empresa / CNPJ propostos", "Resultado", "Revisão / origem"]) {
+        const th = criar("th", nome); th.setAttribute("scope", "col"); titulos.append(th);
+      }
+      cabecalho.append(titulos); const corpo = criar("tbody"); corpo.id = "bf-importacao-corpo";
+      tabela.append(cabecalho, corpo); rolagem.append(tabela);
+      const navegacao = criar("div", "", "conc-paginacao base-fiscal-paginacao");
+      const anterior = botao("‹ Anterior", "bf-importacao-anterior", () => { if (pagina > 1) { pagina--; listar(); } });
+      const proxima = botao("Próxima ›", "bf-importacao-proxima", () => { if (!proxima.disabled) { pagina++; listar(); } });
+      const info = criar("span"); info.id = "bf-importacao-pagina"; info.setAttribute("aria-live", "polite");
+      navegacao.append(anterior, info, proxima); alvoRevisao.append(filtros, rolagem, navegacao);
+      function listar() {
+        const termo = BaseFiscalUI.normalizar(busca.value);
+        const linhas = dados.linhas.filter(l => (!filtro.value || l.status === filtro.value) && (!termo ||
+          BaseFiscalUI.normalizar([l.id, l.aba, ...Object.values(l.original || {}), ...Object.values(l.proposto || {}),
+            ...Object.values(l.efetivo || {}), l.observacao].join(" ")).includes(termo)));
+        const limite = tamanho.value === "50" ? 50 : 25;
+        pagina = Math.min(pagina, Math.max(1, Math.ceil(linhas.length / limite))); const inicio = (pagina - 1) * limite;
+        corpo.textContent = "";
+        if (!linhas.length) {
+          const tr = criar("tr"), td = criar("td", "Nenhum registro corresponde aos filtros.", "base-fiscal-vazio"); td.colSpan = 3; tr.append(td); corpo.append(tr);
+        }
+        for (const [indice, l] of linhas.slice(inicio, inicio + limite).entries()) {
+          const tr = criar("tr"); tr.setAttribute("data-registro", l.id);
+          const empresa = criar("td"), efetivo = l.efetivo || {};
+          empresa.append(criar("strong", efetivo.nome || "Nome pendente"), criar("span", efetivo.documento || "CNPJ pendente", "base-fiscal-secundario"));
+          if (efetivo.sem_movimento === true) empresa.append(criar("span", "Sem movimento · permanece na carteira", "base-fiscal-marcador"));
+          const revisao = criar("td"); revisao.append(criar("p", `${l.aba} · linha ${l.linha} · ID ${l.id}`));
+          for (const pendencia of l.pendencias || []) revisao.append(criar("p", pendencia, "base-fiscal-pendencias"));
+          if (l.observacao) revisao.append(criar("p", `Justificativa / observação: ${l.observacao}`));
+          const detalhe = criar("tr", "", "base-fiscal-origem-linha"); detalhe.hidden = true; detalhe.id = `bf-importacao-detalhe-${indice}`;
+          const conteudo = criar("td"); conteudo.colSpan = 3; detalhe.append(conteudo);
+          const abrir = botao(`Conferir proposta: ${l.aba} · linha ${l.linha}`, "", () => {
+            detalhe.hidden = !detalhe.hidden; abrir.setAttribute("aria-expanded", !detalhe.hidden);
+            if (!detalhe.hidden && !conteudo.children.length) mostrarDetalhes(conteudo, l);
+          });
+          abrir.setAttribute("aria-expanded", "false"); abrir.setAttribute("aria-controls", detalhe.id); revisao.append(abrir);
+          tr.append(empresa, criar("td", rotulos[l.status]), revisao); corpo.append(tr, detalhe);
+        }
+        info.textContent = linhas.length ? `${inicio + 1}–${Math.min(inicio + limite, linhas.length)} de ${linhas.length} registro(s) filtrado(s) · ${dados.contagens.linhas} na prévia`
+          : `0 registro(s) filtrado(s) · ${dados.contagens.linhas} na prévia`;
+        anterior.disabled = pagina <= 1; proxima.disabled = inicio + limite >= linhas.length;
+      }
+      function mostrarDetalhes(conteudo, linha) {
+        conteudo.append(criar("strong", `Origem: ${linha.aba} · linha ${linha.linha} · ID ${linha.id}`));
+        const grade = criar("div", "", "base-fiscal-origem-grade");
+        for (const [chave, rotulo] of Object.entries(campos)) {
+          const campo = criar("div");
+          campo.append(criar("strong", rotulo), criar("p", `Original: ${linha.original?.[chave] || "Não informado"}`),
+            criar("p", `Proposta: ${linha.proposto?.[chave] || "Preservar original"}`), criar("p", `Efetivo: ${linha.efetivo?.[chave] || "Não informado"}`));
+          for (const alteracao of (linha.alteracoes || []).filter(a => a.campo === chave)) campo.append(criar("p", `Célula da correção: ${alteracao.celula}`));
+          grade.append(campo);
+        }
+        conteudo.append(grade, criar("p", `Decisão sobre duplicidade: ${linha.decisao || "Não informada"}`));
+        for (const aviso of linha.avisos || []) conteudo.append(criar("p", aviso, "dica"));
+        if (linha.cadastro) {
+          const c = linha.cadastro;
+          conteudo.append(criar("strong", `Cadastro encontrado · ID ${c.id} · revisão ${c.revision}`),
+            criar("p", `Empresa: ${c.nome}; CNPJ: ${c.documento}; contato: ${c.contato_nome || "Não informado"}; situação: ${c.situacao}.`),
+            criar("p", "Nenhum dado desse cadastro será substituído nesta prévia.", "dica"));
+        } else conteudo.append(criar("p", "Nenhum cadastro associado a esta linha na prévia.", "dica"));
       }
       listar();
     }

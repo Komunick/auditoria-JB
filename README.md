@@ -83,10 +83,42 @@ Com a permissão adicional `clientes.exportar`, **Baixar relatório completo
 ativos na tela. O relatório inclui resumo, conferência, duplicidades, origens e
 uma aba **Correções** com campos vazios para anotar propostas. O arquivo é
 conferido pelo SHA-256 da prévia antes da geração. As propostas são anotações
-para a equipe: esse relatório ainda não é aceito como arquivo de importação.
+para a equipe e podem ser reenviadas para conferência na etapa seguinte;
+o relatório não permite gravação direta no cadastro.
 Nenhum responsável é associado automaticamente e nenhum cadastro é gravado.
 Contrato e validação em
 [`specs/019-relatorio-base-fiscal/`](specs/019-relatorio-base-fiscal/).
+
+A etapa de **Correções e prévia de importação** (spec 020) recebe esse relatório
+revisado junto da fonte original. Preencha as propostas na aba Correções sem
+alterar as colunas originais: vazio preserva o valor anterior; `manter`/`ignorar`
+resolvem duplicidades, e ignorar exige justificativa. A prévia distingue novas
+empresas, cadastros existentes, conflitos, pendências e ocorrências ignoradas,
+mostrando os valores anteriores, propostas e origem de cada alteração.
+
+A consulta cadastral é somente leitura, sem migrar o banco. **Esta etapa não
+grava empresas nem oferece confirmação de carga.** Regime, sem movimento e nomes
+de responsáveis não são aplicados como características ou vínculos de usuários.
+Uma confirmação de carga deve revalidar a fonte e o cadastro. Contratos e aceite:
+[`specs/020-correcoes-previa-base-fiscal/`](specs/020-correcoes-previa-base-fiscal/).
+
+A **Confirmação da importação** (spec 021) acrescenta uma ação separada para quem
+tem `clientes.importar_base_fiscal`, além das permissões de Clientes e importar.
+Depois de resolver pendências e conflitos, **Preparar importação** confere os dois
+arquivos e mostra uma prévia atualizada. A pessoa revisa as quantidades e marca
+o aceite antes de confirmar. Preparações duram 30 minutos e pertencem à sessão.
+
+A confirmação relê os arquivos e consulta novamente o cadastro dentro da
+transação. Inclui somente novas empresas, preserva as já cadastradas e registra
+um recibo imutável com origem e decisões. Se o cadastro mudar, exige nova revisão;
+se a operação for repetida, devolve o mesmo recibo sem duplicar empresas. Falhas
+desfazem a carga inteira. A concessão da nova permissão é explícita para usuários
+comuns; administradores seguem o acesso implícito existente.
+
+Responsáveis, carteira, características fiscais e tarefas continuam dependendo
+de configuração separada. A entrega foi preparada para validação local com dados
+fictícios; a carga real exige aprovação da base e execução autorizada. Contratos:
+[`specs/021-importacao-base-fiscal/`](specs/021-importacao-base-fiscal/).
 
 ## Patrimônio (aba 7, web)
 
