@@ -135,10 +135,15 @@ def main():
         assert not any(isinstance(v, (bytes, dict, list)) for v in metadados.values())
         assert cnpj not in str(metadados) and 'Empresa sintética' not in str(metadados)
         assert confirmar(token).status_code == 404, 'Outro usuário não pode usar token'
+        alheia = adm.delete(PREFIXO + token)
+        assert alheia.status_code == 404 and alheia.headers['cache-control'] == 'no-store'
+        assert alheia.json()['detail']['code'] == 'BASE_FISCAL_TOKEN_INVALIDO'
+        assert token in rc._preparacoes_base_fiscal, 'Outro usuário não pode descartar a preparação'
         outra_sessao = cliente()
         assert outra_sessao.post('/api/login', json=dict(usuario='operador_carga_3', senha='teste-carga-021')).status_code == 200
         assert confirmar(token, outra_sessao).status_code == 404
         assert outra_sessao.delete(PREFIXO + token).status_code == 404
+        assert token in rc._preparacoes_base_fiscal, 'Outra sessão do mesmo usuário não pode descartar'
         for texto in ('', 'true', 'IMPORTAR', 'importar empresas'):
             assert confirmar(token, perfis[3], confirmacao=texto).status_code == 422
         assert not banco.exists() and not stores
@@ -146,12 +151,26 @@ def main():
         # Permissão revogada após a preparação não pode confirmar.
         assert adm.put(f'/api/admin/usuarios/{ids[3]}/permissoes', json={'permissoes': PERMISSOES[:2]}).status_code == 200
         assert confirmar(token, perfis[3]).status_code == 403
+        revogada = perfis[3].delete(PREFIXO + token)
+        assert revogada.status_code == 403 and revogada.headers['cache-control'] == 'no-store'
+        assert token in rc._preparacoes_base_fiscal
         assert adm.put(f'/api/admin/usuarios/{ids[3]}/permissoes', json={'permissoes': PERMISSOES}).status_code == 200
-        assert perfis[3].delete(PREFIXO + token).status_code == 200
+        descartada = perfis[3].delete(PREFIXO + token)
+        assert descartada.status_code == 200 and descartada.json() == {'ok': True}
+        assert descartada.headers['cache-control'] == 'no-store'
+        assert token not in rc._preparacoes_base_fiscal
+        repetida = perfis[3].delete(PREFIXO + token)
+        assert repetida.status_code == 410 and repetida.headers['cache-control'] == 'no-store'
+        assert repetida.json()['detail']['code'] == 'BASE_FISCAL_TOKEN_EXPIRADO'
         assert confirmar(token, perfis[3]).status_code == 410
+        assert not banco.exists() and not stores, 'Descartar e repetir descarte não abrem banco de escrita'
 
         token = preparar()
         rc._agora = lambda: originais[2]() + timedelta(minutes=31)
+        expirada = adm.delete(PREFIXO + token)
+        assert expirada.status_code == 410 and expirada.headers['cache-control'] == 'no-store'
+        assert expirada.json()['detail']['code'] == 'BASE_FISCAL_TOKEN_EXPIRADO'
+        assert token not in rc._preparacoes_base_fiscal
         assert confirmar(token).status_code == 410
         rc._agora = originais[2]
         assert not banco.exists() and not stores
@@ -322,6 +341,8 @@ def main():
         token3 = preparar(perfis[3], f3, r3)
         assert perfis[3].post('/api/logout').status_code == 200
         assert confirmar(token3, perfis[3], f3, r3).status_code == 401
+        assert perfis[3].delete(PREFIXO + token3).status_code == 401
+        assert token3 in rc._preparacoes_base_fiscal, 'Sem sessão não há autoridade para descartar'
 
         caminho_original = rc.caminho_db_clientes
         quebrado = Path(_DADOS.name) / 'cadastro-invalido.db'
@@ -331,6 +352,8 @@ def main():
             indisponivel = adm.post(PREPARAR, files=arquivos(f3, r3), data=hashes(f3, r3))
             assert indisponivel.status_code == 503 and indisponivel.headers['cache-control'] == 'no-store'
             assert confirmar(token2, f=f2, r=r2).status_code == 404, 'Token preso ao banco'
+            assert adm.delete(PREFIXO + token2).status_code == 404
+            assert token2 in rc._preparacoes_base_fiscal, 'Banco diferente não deve descartar a preparação'
         finally:
             rc.caminho_db_clientes = caminho_original
         simular_original = rc._simular_base_fiscal

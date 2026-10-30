@@ -51,6 +51,15 @@ commit, push, merge ou deploy.
     têm `Cache-Control: no-store`. A trilha geral contém apenas ação e contagens,
     sem dados de empresas, hashes ou nomes de arquivos. Nenhuma saída usa dados
     reais nos testes ou no repositório público.
+11. Limpar prévia remove a seleção dos arquivos e os controles da confirmação,
+    além de descartar a preparação no servidor pelo endpoint existente. Se a
+    preparação estiver em trânsito, descartar seu token ao receber a resposta,
+    sem reativar a tela. Repetição/expiração são terminais; falhas de comunicação,
+    permissão ou sessão mantêm aviso e permitem nova tentativa. Não enviar o
+    token com outra identidade nem interpretar 404 como descarte confirmado.
+    Se a resposta se perder sem um token utilizável, informar que o cancelamento
+    não pôde ser confirmado e aguardar expiração. Descarte não desfaz uma
+    confirmação já enviada; nesse caso preservar aviso explícito ao operador.
 
 ## Fora de escopo
 
