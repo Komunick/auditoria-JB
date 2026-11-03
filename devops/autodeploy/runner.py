@@ -61,7 +61,7 @@ class Config:
         backup_dir="/var/backups/auditoria-jb-autodeploy", secrets_backup_dir="/etc/auditoria-jb/autodeploy-backups",
         configuration_paths=[], secret_paths=[], health_url="http://127.0.0.1:8600",
         allowed_skips=[], excluded_tests=[], command_timeout=300, test_timeout=600, total_test_timeout=3600,
-        health_timeout=60, maintenance_timeout=900)
+        health_timeout=60, maintenance_timeout=900, dependency_transition=None)
 
     @classmethod
     def from_dict(cls, data):
@@ -87,6 +87,13 @@ class Config:
             raise DeployError("config_users")
         if not re.fullmatch(r"[A-Za-z0-9_.-]+\.service", obj.service) or not SHA.fullmatch(obj.control_plane_digest):
             raise DeployError("config_identity")
+        transition = obj.dependency_transition
+        if transition is not None:
+            if (not isinstance(transition, dict) or set(transition) != {"from_sha", "target_tree"}
+                    or any(not isinstance(value, str) or not SHA.fullmatch(value) for value in transition.values())
+                    or any(len(value) != len(obj.control_plane_digest) for value in transition.values())):
+                raise DeployError("config_dependency_transition")
+            obj.dependency_transition = transition.copy()
         health = urlparse(obj.health_url)
         if health.scheme != "http" or health.hostname != "127.0.0.1" or not health.port or health.path not in {"", "/"} or health.query or health.fragment or health.username:
             raise DeployError("config_health_url")
@@ -761,11 +768,20 @@ class Host:
             raise DeployError("control_plane_requires_install")
         changes = self.git(["diff", "--no-ext-diff", "--no-textconv", "--name-only", current, target, "--"]).splitlines()
         names = {"pyproject.toml", "setup.py", "setup.cfg", "poetry.lock", "uv.lock", "Pipfile", "Pipfile.lock", "package.json", "package-lock.json"}
+        approved_transition = None
         if any(PurePosixPath(n).name in names or re.fullmatch(r"requirements[^/]*\.txt", PurePosixPath(n).name) for n in changes):
-            raise DeployError("dependencies_require_maintenance")
+            transition = self.c.dependency_transition
+            # A aprovacao administrativa fixa origem e conteudo integral. O SHA
+            # do merge pode mudar; uma arvore diferente nunca herda a autorizacao.
+            if (transition is None or transition["from_sha"] != current
+                    or self.git(["rev-parse", target + "^{tree}"]) != transition["target_tree"]):
+                raise DeployError("dependencies_require_maintenance")
+            approved_transition = transition.copy()
         self.space()
         self.capture_crontab()
         self.revision = dict(current_sha=current, target_sha=target)
+        if approved_transition is not None:
+            self.revision["dependency_transition"] = approved_transition
         return self.revision
 
     def capture_crontab(self):

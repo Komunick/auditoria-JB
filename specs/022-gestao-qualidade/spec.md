@@ -9,6 +9,11 @@ Em 03/11/2026, foi autorizada a publicação do código por commit, push do bran
 da spec e PR para `dev`. Merge, deploy, alterações em produção e no Linear
 continuam fora do escopo autorizado.
 
+Autorização posterior em 03/11/2026: resolver os pré-requisitos do executor,
+promover pelo fluxo de PR/merge commit e publicar na arm07, com backups e
+validação. Não inclui importar empresas reais nem alterar o Linear. A aprovação
+não distribui novas permissões a usuários nem configura um bucket S3.
+
 ## Cobertura do pedido
 
 1. Atividades por setor: integrar clientes, setores, carteiras, tarefas avulsas e

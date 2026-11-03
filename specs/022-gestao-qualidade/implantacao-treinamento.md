@@ -2,10 +2,10 @@
 
 Este roteiro atende ao item 10 da solicitação de TI descrita na
 [spec 022](spec.md). É uma proposta de implantação para aprovação futura.
-O software foi validado localmente com dados sintéticos. A autorização de
-03/11/2026 permite publicar o código em PR para `dev`; não autoriza merge,
-deploy, configuração da VM, importação de empresas, concessão de permissões
-ou uso de dados reais.
+O software foi validado localmente com dados sintéticos. A autorização posterior
+de 03/11/2026 inclui preparar o executor, promover o código pelo fluxo de PRs e
+publicar na arm07 com backups e validação. Importação real, concessão de permissões,
+configuração de S3 e treinamento/piloto continuam sujeitos às decisões próprias.
 
 Os responsáveis são definidos por função: responsável técnico, gestor do
 escritório, líderes de setor e colaboradores participantes. Datas, participantes,
@@ -175,13 +175,18 @@ Somente após aprovação de publicação e do SHA exato:
    “Preparar a instalação” do README do autodeploy, preservando as configurações
    adicionais e os segredos separados. Não executar instalador do checkout
    gravável pelo usuário da aplicação.
-3. Preparar as dependências aprovadas conforme a manutenção do ambiente e
-   reinstalar o executor a partir do pacote conferido, com o timer ainda parado.
-   Não contornar `control_plane_requires_install` nem alterar o digest para
-   simular uma instalação. Repetir o preflight descrito no procedimento atual.
+3. Conservar backup do venv e `pip freeze` anteriores à instalação de dependências.
+   Resolver os novos pacotes em ambiente isolado, revisar diferenças e conferir
+   versões e `pip check`. Preparar o runtime e reinstalar o executor a partir do
+   pacote conferido, com o timer ainda parado. A mudança de manifests requer a
+   transição administrativa do README: SHA atual e árvore candidata exatos,
+   informados juntos por `--dependencies-from-sha` e `--dependencies-target-tree`.
+   Não contornar os gates nem alterar o digest para simular uma instalação.
 4. Promover a versão aprovada pelo fluxo de PR/merge commit do projeto e
-   conferir o candidato efetivo. Reativar o timer somente quando o primeiro
-   ciclo estiver autorizado. Deixar o executor avançar o checkout; não fazer
+   conferir o candidato efetivo e sua árvore aprovada. Só então executar
+   `--check` e `enable`: antes do merge, o digest novo pode não corresponder ao
+   pacote da main antiga. Reativar o timer somente quando o primeiro ciclo
+   estiver autorizado. Deixar o executor avançar o checkout; não fazer
    avanço manual para produzir um no-op aparente.
 5. Acompanhar testes isolados, backup anterior, migração de cópia de trabalho,
    preservação dos inventários, atualização, backup posterior e saúde final.
