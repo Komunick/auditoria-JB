@@ -45,6 +45,14 @@ class Permissao:
 
 # Ordem do catalogo = ordem de exibicao na tela de administracao.
 CATALOGO: tuple[Permissao, ...] = (
+    Permissao('aba.qualidade', 'Gestão da qualidade', GRUPO_ABAS),
+    Permissao('qualidade.registrar', 'Registrar ocorrências, planos e horas', 'Gestão da qualidade'),
+    Permissao('qualidade.gerir', 'Gerir registros dos setores sob responsabilidade', 'Gestão da qualidade'),
+    Permissao('qualidade.validar', 'Validar planos e encerrar ocorrências', 'Gestão da qualidade'),
+    Permissao('qualidade.todas', 'Consultar qualidade de todos os setores', 'Gestão da qualidade',
+              'Visão global. Alterações e custos exigem permissões próprias.'),
+    Permissao('qualidade.exportar', 'Exportar relatórios da qualidade', 'Gestão da qualidade'),
+    Permissao('qualidade.custos', 'Consultar e informar custo/hora', 'Gestão da qualidade'),
     # ------------------------------------------------------------------
     # Abas: portao de entrada de cada ferramenta
     Permissao("aba.comparador", "1. Comparador SPED x SEFAZ", GRUPO_ABAS,

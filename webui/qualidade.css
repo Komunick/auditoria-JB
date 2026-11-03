@@ -1,0 +1,192 @@
+/* Gestão da qualidade — extensão do tema JB, sem estilos fora da aba. */
+.qualidade-app {
+  --qua-raio: 18px;
+  color: var(--texto);
+  max-width: 1560px;
+  margin: 0 auto;
+  padding: 8px 0 32px;
+  font-family: var(--fonte-ui);
+}
+.qualidade-app *, .qua-modal-fundo * { box-sizing: border-box; }
+.qualidade-app h2, .qualidade-app h3, .qualidade-app h4, .qua-modal h3 {
+  color: var(--texto); line-height: 1.25; letter-spacing: -.025em;
+}
+.qualidade-app h2 { font-size: clamp(1.65rem, 2.7vw, 2.35rem); margin: 8px 0 12px; font-weight: 700; }
+.qualidade-app h3 { font-size: 1.18rem; margin: 0 0 14px; }
+.qualidade-app h4 { font-size: 1rem; margin: 18px 0 12px; }
+.qualidade-app p, .qua-modal p { line-height: 1.6; }
+.qua-cabecalho { display: flex; justify-content: space-between; align-items: flex-start; gap: 24px; margin: 0 0 26px; }
+.qua-cabecalho > div:first-child { max-width: 790px; }
+.qua-sobretitulo { margin: 0; color: var(--dourado-texto); font-size: .68rem; font-weight: 750; letter-spacing: .17em; line-height: 1.5; }
+.qua-subtitulo { color: var(--texto-suave); font-size: .85rem; margin: 0 0 14px; }
+.qua-cabecalho .qua-subtitulo { font-size: .94rem; margin: 0; }
+.qua-acoes { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; }
+.qualidade-app button, .qua-modal button {
+  min-height: 38px; border-radius: 9px; border: 1px solid var(--borda-forte);
+  padding: 9px 15px; background: var(--papel); color: var(--texto);
+  font: 600 .8rem/1.3 var(--fonte-ui); cursor: pointer; transition: background .15s, border-color .15s, box-shadow .15s;
+}
+.qualidade-app button:hover:not(:disabled), .qua-modal button:hover:not(:disabled) { background: var(--papel-2); border-color: var(--menta-texto); }
+.qualidade-app button:focus-visible, .qua-modal button:focus-visible,
+.qualidade-app input:focus-visible, .qualidade-app select:focus-visible, .qualidade-app summary:focus-visible,
+.qua-modal input:focus-visible, .qua-modal select:focus-visible, .qua-modal textarea:focus-visible,
+.qualidade-app .qua-tabela-wrap:focus-visible { outline: 2px solid var(--foco); outline-offset: 3px; }
+.qualidade-app button:disabled, .qua-modal button:disabled { opacity: .5; cursor: not-allowed; }
+.qualidade-app button.botao-primario, .qua-modal button.botao-primario { background: var(--acao-fundo); border-color: transparent; color: var(--acao-texto); }
+.qualidade-app button.botao-primario:hover:not(:disabled), .qua-modal button.botao-primario:hover:not(:disabled) { background: var(--acao-fundo); box-shadow: 0 0 0 3px var(--menta-linha); }
+.qua-filtros { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; background: var(--papel); padding: 22px; border: 1px solid var(--borda); border-radius: var(--qua-raio); box-shadow: var(--sombra-1); }
+.qua-campo { display: flex; flex-direction: column; min-width: 0; gap: 7px; font-size: .76rem; color: var(--texto-suave); font-weight: 600; }
+.qua-campo input, .qua-campo select, .qua-campo textarea {
+  width: 100%; min-width: 0; min-height: 40px; padding: 10px 11px; border: 1px solid var(--borda-forte); border-radius: 8px;
+  background: var(--papel); color: var(--texto); font: 400 .84rem/1.4 var(--fonte-ui);
+}
+.qua-campo textarea { resize: vertical; min-height: 110px; }
+.qua-campo small { font-weight: 400; line-height: 1.45; color: var(--texto-suave); }
+.qua-campo input:disabled, .qua-campo select:disabled { opacity: .55; background: var(--papel-2); }
+.qua-filtros > button { width: max-content; min-width: 128px; }
+.qua-filtros > button:last-child { justify-self: start; }
+.qua-nav { display: flex; gap: 4px; padding: 8px 0 0; margin: 22px 0 0; border-bottom: 1px solid var(--borda); overflow-x: auto; }
+.qua-nav button { white-space: nowrap; border-radius: 9px 9px 0 0; border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--texto-suave); padding: 13px 16px 14px; }
+.qua-nav button:hover:not(:disabled) { border-color: transparent; background: var(--papel-2); }
+.qua-nav button.ativa { color: var(--menta-texto); background: var(--menta-suave); border-bottom-color: var(--menta-texto); }
+.qua-status { color: var(--texto-suave); font-size: .75rem; margin: 14px 0 5px; }
+.qua-contexto { color: var(--texto-suave); font-size: .76rem; margin: 0 0 20px; }
+.qua-erro { color: var(--erro); font-size: .83rem; line-height: 1.6; }
+.qua-erro:not(:empty) { padding: 12px 14px; border-radius: 10px; background: var(--erro-suave); border: 1px solid var(--erro-linha); }
+.qua-conteudo { min-height: 240px; }
+.qua-conteudo[aria-busy="true"] { opacity: .6; }
+.qua-foco { display: flex; align-items: center; justify-content: space-between; gap: 36px; padding: 30px 32px; border-radius: var(--qua-raio); background: linear-gradient(120deg, #171b30 0%, #0b0b14 62%, #29293f 100%); color: #d4d6e2; box-shadow: var(--sombra-1); }
+.qua-foco > div:first-child { max-width: 640px; }
+.qua-foco .qua-sobretitulo { color: #e8c177; }
+.qua-foco h3 { color: #f2f6f0; font-size: clamp(1.3rem, 2vw, 1.65rem); margin: 10px 0; }
+.qua-foco p:not(.qua-sobretitulo) { font-size: .86rem; margin: 0; }
+.qua-progresso { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 190px; padding: 15px 0 15px 30px; border-left: 1px solid #ffffff26; text-align: center; }
+.qua-progresso strong { color: #f2cf87; font: 600 2.7rem/1.2 var(--fonte-dados); letter-spacing: -.06em; }
+.qua-progresso span { font-size: .82rem; }
+.qua-progresso small { font-size: .71rem; color: #b6bbcf; }
+.qua-dimensoes { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 18px 0; }
+.qua-dimensao { display: flex; flex-direction: column; gap: 8px; padding: 20px 22px; border: 1px solid var(--borda); border-radius: 14px; background: var(--papel); }
+.qua-dimensao > span { font-size: .74rem; color: var(--texto-suave); }
+.qua-dimensao strong { font: 600 1.7rem/1.2 var(--fonte-dados); color: var(--texto); }
+.qua-dimensao small { color: var(--texto-suave); font-size: .73rem; line-height: 1.45; }
+.qua-semaforo { display: flex; flex-wrap: wrap; gap: 9px; margin: 6px 0 24px; }
+.qua-badge { display: inline-flex; align-items: center; gap: 7px; padding: 5px 9px; border-radius: 6px; font-size: .7rem; line-height: 1.5; font-weight: 600; white-space: normal; }
+.qua-badge::before { content: ""; flex: 0 0 5px; width: 5px; height: 5px; background: currentColor; border-radius: 100%; }
+.qua-verde { background: var(--ok-suave); color: var(--ok); }
+.qua-amarelo { background: var(--alerta-suave); color: var(--alerta); }
+.qua-vermelho { background: var(--erro-suave); color: var(--erro); }
+.qua-neutro { background: var(--papel-2); color: var(--texto-suave); }
+.qua-kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 22px; }
+.qua-kpi { display: flex; flex-direction: column; align-items: flex-start; gap: 10px; padding: 22px; border: 1px solid var(--borda); border-radius: 14px; background: var(--papel); }
+.qua-kpi > span { font-size: .78rem; font-weight: 600; color: var(--texto-suave); }
+.qua-kpi > strong { font: 600 1.85rem/1.2 var(--fonte-dados); letter-spacing: -.045em; }
+.qua-kpi > small { font-size: .73rem; color: var(--texto-suave); }
+.qua-kpi details { padding-top: 4px; margin-top: auto; width: 100%; font-size: .72rem; color: var(--texto-suave); }
+.qua-kpi summary { cursor: pointer; font-weight: 500; color: var(--menta-texto); }
+.qua-kpi details p { margin: 10px 0 0; }
+.qua-painel-colunas { display: grid; grid-template-columns: 1.35fr 1fr; gap: 20px; margin-bottom: 20px; align-items: start; }
+.qua-bloco { background: var(--papel); border: 1px solid var(--borda); border-radius: var(--qua-raio); padding: 24px; margin-bottom: 20px; }
+.qua-painel-colunas > .qua-bloco { margin: 0; height: 100%; }
+.qua-alerta { border-bottom: 1px solid var(--borda); }
+.qua-alerta:last-child { border-bottom: 0; }
+.qua-alerta summary { display: flex; gap: 10px; align-items: center; padding: 14px 0; color: var(--texto); font-size: .81rem; font-weight: 600; cursor: pointer; }
+.qua-alerta summary::after { content: "+"; margin-left: auto; font-size: 1.05rem; color: var(--texto-suave); }
+.qua-alerta[open] summary::after { content: "−"; }
+.qua-alerta-item { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 6px 16px; padding: 12px 0 14px; border-top: 1px dashed var(--borda); }
+.qua-alerta-item > span { font-size: .82rem; overflow-wrap: anywhere; }
+.qua-alerta-item > small { grid-column: 1; font-size: .72rem; color: var(--texto-suave); }
+.qua-alerta-item > button { grid-column: 2; grid-row: 1 / 3; }
+.qua-custo-total { display: block; margin: 22px 0 2px; font: 600 1.8rem/1.2 var(--fonte-dados); letter-spacing: -.035em; }
+.qua-custo-total + p { font-size: .79rem; color: var(--texto-suave); margin: 6px 0 16px; }
+.qua-aviso { font-size: .8rem; padding: 12px 14px; background: var(--alerta-suave); color: var(--alerta); border-radius: 9px; border: 1px solid var(--alerta-linha); }
+.qualidade-app button.qua-link { padding: 5px 0; border: 0; background: transparent; color: var(--menta-texto); text-align: left; min-height: 32px; }
+.qualidade-app button.qua-link:hover:not(:disabled) { background: transparent; text-decoration: underline; }
+.qua-vazio { display: flex; flex-direction: column; justify-content: center; align-items: center; min-height: 160px; text-align: center; padding: 32px 22px; border: 1px dashed var(--borda-forte); border-radius: 12px; }
+.qua-vazio strong { font-size: .9rem; font-weight: 600; }
+.qua-vazio p { max-width: 430px; margin: 10px 0 0; font-size: .8rem; color: var(--texto-suave); }
+.qua-tabela-wrap { max-width: 100%; overflow-x: auto; border: 1px solid var(--borda); border-radius: 10px; }
+.qua-tabela { width: 100%; border-collapse: collapse; font-size: .79rem; text-align: left; }
+.qua-tabela th { background: var(--cabecalho-tabela); color: var(--cabecalho-texto); padding: 12px 14px; font-size: .7rem; line-height: 1.45; font-weight: 650; white-space: nowrap; }
+.qua-tabela td { padding: 14px; border-bottom: 1px solid var(--borda); vertical-align: middle; max-width: 320px; min-width: 80px; overflow-wrap: anywhere; line-height: 1.5; }
+.qua-tabela tr:last-child td { border-bottom: 0; }
+.qua-tabela tbody tr:hover { background: var(--linha-alt); }
+.qua-tabela td:first-child { min-width: 170px; }
+.qua-tabela td .qua-link { white-space: nowrap; }
+.qua-secundario { display: block; font-size: .71rem; color: var(--texto-suave); margin-top: 4px; }
+.qua-metodologia { padding: 18px 22px; border-radius: 12px; background: var(--papel-2); color: var(--texto-suave); font-size: .78rem; }
+.qua-metodologia summary { cursor: pointer; color: var(--texto); font-weight: 600; }
+.qua-metodologia p { margin: 14px 0 0; }
+.qua-lista-topo { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 18px; }
+.qua-lista-topo .qua-subtitulo { margin: 0; }
+.qua-detalhe { background: var(--papel); border: 1px solid var(--dourado-linha); border-radius: var(--qua-raio); margin-top: 24px; padding: 28px; box-shadow: var(--sombra-2); }
+.qua-detalhe[hidden] { display: none; }
+.qua-detalhe > h3 { max-width: 900px; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 12px; }
+.qua-detalhe .qua-fechar { float: right; margin-left: 15px; }
+.qua-ficha { display: grid; grid-template-columns: 110px minmax(0, 1fr) 110px minmax(0, 1fr); gap: 12px 16px; margin: 24px 0; font-size: .8rem; }
+.qua-ficha dt { color: var(--texto-suave); }
+.qua-ficha dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.qua-evidencias { padding-top: 6px; }
+.qua-evidencias .qua-campo { max-width: 480px; margin-bottom: 10px; }
+.qualidade-app button.qua-vinculo { display: block; width: 100%; text-align: left; margin: 8px 0; background: var(--papel-2); overflow-wrap: anywhere; }
+.qua-historico { margin-top: 26px; border-top: 1px solid var(--borda); }
+.qua-historico article { position: relative; margin-left: 5px; padding: 6px 0 16px 20px; border-left: 1px solid var(--borda-forte); }
+.qua-historico article::before { content: ""; position: absolute; left: -4px; top: 11px; width: 7px; height: 7px; border-radius: 50%; background: var(--dourado-texto); }
+.qua-historico article strong { font-size: .8rem; }
+.qua-historico article small { display: block; color: var(--texto-suave); font-size: .72rem; margin: 5px 0; }
+.qua-historico article p { font-size: .82rem; margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.qua-historico article details { margin-top: 12px; color: var(--texto-suave); font-size: .76rem; }
+.qua-historico article summary { cursor: pointer; color: var(--menta-texto); }
+.qua-relatorios > p { max-width: 760px; font-size: .87rem; color: var(--texto-suave); }
+.qua-relatorios > .qua-sobretitulo { font-size: .68rem; color: var(--dourado-texto); }
+.qua-relatorio-formatos { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 24px; }
+.qua-relatorio-formatos .qua-bloco { display: flex; flex-direction: column; align-items: flex-start; }
+.qua-relatorio-formatos h4 { margin: 20px 0 10px; font-size: 1.2rem; }
+.qua-relatorio-formatos p { margin: 0 0 24px; font-size: .84rem; color: var(--texto-suave); }
+.qua-relatorio-formatos button { margin-top: auto; }
+.qua-formato { display: inline-flex; padding: 10px 12px; border: 1px solid var(--dourado-linha); border-radius: 9px; background: var(--dourado-suave); color: var(--dourado-texto); font: 600 .73rem/1.4 var(--fonte-dados); letter-spacing: .07em; }
+.qua-modelos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 24px; }
+.qua-modelos .qua-bloco { margin: 0; }
+.qua-modelos h4 { margin-top: 0; }
+.qua-modelos ul { padding-left: 18px; color: var(--texto-suave); font-size: .82rem; line-height: 1.6; margin: 18px 0; }
+.qua-modelos li { margin: 8px 0; }
+.qua-modelos + p { margin-top: 20px; }
+.qua-modal-fundo { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 24px; background: #091b25a6; backdrop-filter: blur(4px); }
+.qua-modal { display: block; width: min(720px, 100%); max-height: calc(100dvh - 48px); overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--borda-forte); border-radius: 20px; padding: 30px; background: var(--papel); color: var(--texto); box-shadow: var(--sombra-3); font-family: var(--fonte-ui); }
+.qua-modal h3 { margin: 0 0 12px; font-size: 1.35rem; }
+.qua-form-grade { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; margin-top: 22px; }
+.qua-campo-largo { grid-column: 1 / -1; }
+.qua-form-acoes { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--borda); }
+@media (max-width: 1050px) {
+  .qua-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .qua-filtros { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .qua-painel-colunas { grid-template-columns: 1fr; }
+  .qua-ficha { grid-template-columns: 110px minmax(0, 1fr); }
+}
+@media (max-width: 680px) {
+  .qualidade-app { padding-top: 0; }
+  .qua-cabecalho { flex-direction: column; gap: 16px; }
+  .qua-filtros { padding: 17px; gap: 14px; border-radius: 14px; }
+  .qua-foco { padding: 24px; flex-direction: column; align-items: stretch; gap: 22px; }
+  .qua-progresso { border-left: 0; border-top: 1px solid #ffffff26; padding: 20px 0 0; }
+  .qua-dimensoes { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .qua-dimensao { padding: 17px; }
+  .qua-kpis { gap: 10px; }
+  .qua-kpi { padding: 17px; }
+  .qua-kpi > strong { font-size: 1.5rem; }
+  .qua-bloco, .qua-detalhe { padding: 20px; }
+  .qua-relatorio-formatos, .qua-modelos { grid-template-columns: 1fr; }
+  .qua-lista-topo { align-items: flex-start; flex-direction: column; }
+  .qua-modal-fundo { padding: 10px; }
+  .qua-modal { padding: 22px; max-height: calc(100dvh - 20px); border-radius: 14px; }
+  .qua-form-grade { grid-template-columns: 1fr; }
+}
+@media (max-width: 390px) {
+  .qua-filtros, .qua-kpis { grid-template-columns: 1fr; }
+  .qua-nav button { padding-left: 12px; padding-right: 12px; }
+  .qua-ficha { grid-template-columns: 1fr; gap: 6px; }
+  .qua-ficha dd { margin-bottom: 10px; }
+  .qua-form-acoes { flex-direction: column-reverse; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .qualidade-app *, .qua-modal-fundo * { transition: none !important; scroll-behavior: auto !important; }
+}

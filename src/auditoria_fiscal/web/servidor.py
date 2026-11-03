@@ -33,6 +33,7 @@ from .rotas_nfse import router as rotas_nfse
 from .rotas_extracao import router as rotas_extracao
 from .rotas_produtos import router as rotas_produtos
 from .rotas_tarefas import router as rotas_tarefas, criar_store as criar_store_tarefas
+from .rotas_qualidade import router as rotas_qualidade, criar_store as criar_store_qualidade
 from .agendador import Agendador
 
 
@@ -42,18 +43,23 @@ def _usuarios_alertas():
         if not pessoa['ativo']:
             continue
         usuario=Usuario(pessoa['id'],pessoa['nome'],pessoa['usuario'],pessoa['admin'])
-        if not permissoes.tem_permissao(usuario,'aba.tarefas'):
+        pode_tarefas=permissoes.tem_permissao(usuario,'aba.tarefas')
+        pode_qualidade=permissoes.tem_permissao(usuario,'aba.qualidade')
+        if not (pode_tarefas or pode_qualidade):
             continue
-        resultado.append(dict(pessoa,pode_setor=permissoes.tem_permissao(usuario,'tarefas.setor')))
+        resultado.append(dict(pessoa,pode_tarefas=pode_tarefas,pode_qualidade=pode_qualidade,
+            pode_setor=permissoes.tem_permissao(usuario,'tarefas.setor'),
+            pode_qualidade_gerir=permissoes.tem_permissao(usuario,'qualidade.gerir') or permissoes.tem_permissao(usuario,'qualidade.validar'),
+            pode_qualidade_todas=permissoes.tem_permissao(usuario,'qualidade.todas')))
     return resultado
 
 
 @asynccontextmanager
 async def _ciclo_de_vida(app):
     # Migração antes de atender; a thread tem suas próprias conexões SQLite.
-    store=criar_store_tarefas()
+    store=criar_store_qualidade()
     store.fechar()
-    agendador=Agendador(criar_store_tarefas,_usuarios_alertas)
+    agendador=Agendador(criar_store_qualidade,_usuarios_alertas)
     app.state.tarefas_agendador=agendador
     agendador.iniciar()
     try:
@@ -114,6 +120,12 @@ def _gravar_cookie_sessao(response: Response, request: Request,
 def criar_app() -> FastAPI:
     app = FastAPI(title="Auditoria Fiscal Web", docs_url=None, redoc_url=None, lifespan=_ciclo_de_vida)
     app.middleware("http")(auditoria.middleware_historico)
+    @app.middleware('http')
+    async def qualidade_privada(request, call_next):
+        resposta = await call_next(request)
+        if request.url.path.startswith('/api/qualidade/'):
+            resposta.headers['Cache-Control'] = 'no-store'
+        return resposta
     # Registrado por ultimo = a camada mais externa: Host e Origin sao
     # conferidos antes de qualquer rota (requisicao recusada nao vira linha
     # do historico nem tentativa de login) e toda resposta da API, inclusive
@@ -275,6 +287,7 @@ def criar_app() -> FastAPI:
     app.include_router(rotas_nfse)
     app.include_router(rotas_clientes)
     app.include_router(rotas_tarefas)
+    app.include_router(rotas_qualidade)
 
     # O mount estatico e' curinga em "/": tem de ser o ULTIMO. Registrado
     # antes, engoliria /api/conciliacao/** e a ferramenta responderia 404 do
