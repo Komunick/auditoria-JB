@@ -696,7 +696,7 @@ class TarefasStore(ClientesStore):
     def _normalizar_filtros_tarefas(filtros):
         filtros = dict(filtros or {})
         validos = {"cliente_id", "setor_id", "responsavel_usuario_id", "competencia", "situacao",
-                   "vencimento_de", "vencimento_ate", "sem_responsavel", "abertas", "texto", "pendente_conferencia", "fila"}
+                   "vencimento_de", "vencimento_ate", "sem_responsavel", "abertas", "texto", "titulo", "pendente_conferencia", "fila"}
         if set(filtros) - validos:
             raise regras.ErroTarefas("FILTRO_INVALIDO", "Filtro de tarefas desconhecido.")
         if "texto" in filtros:
@@ -705,6 +705,18 @@ class TarefasStore(ClientesStore):
             filtros["texto"] = filtros["texto"].strip()
             if not filtros["texto"]:
                 filtros.pop("texto")
+        if "titulo" in filtros:
+            if not isinstance(filtros["titulo"], str) or len(filtros["titulo"]) > 200:
+                raise regras.ErroTarefas("FILTRO_INVALIDO", "O título da tarefa deve ter até 200 caracteres.")
+            filtros["titulo"] = filtros["titulo"].strip()
+            if not filtros["titulo"]:
+                filtros.pop("titulo")
+        for campo in ("vencimento_de", "vencimento_ate"):
+            if filtros.get(campo):
+                filtros[campo] = _data(filtros[campo])
+        if (filtros.get("vencimento_de") and filtros.get("vencimento_ate")
+                and filtros["vencimento_de"] > filtros["vencimento_ate"]):
+            raise regras.ErroTarefas("FILTRO_INVALIDO", "A data inicial de vencimento não pode ser posterior à data final.")
         fila = filtros.get("fila")
         if fila not in (None, "") and (not isinstance(fila, str) or fila not in TarefasStore._condicoes_fila()):
             raise regras.ErroTarefas("FILTRO_INVALIDO", "Fila de tarefas desconhecida.")
@@ -776,6 +788,9 @@ class TarefasStore(ClientesStore):
             termo = str(filtros["texto"]).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             onde.append("(t.titulo LIKE ? ESCAPE '\\' OR t.cliente_nome LIKE ? ESCAPE '\\')")
             valores.extend(("%" + termo + "%", "%" + termo + "%"))
+        if filtros.get("titulo"):
+            onde.append("t.titulo=?")
+            valores.append(filtros["titulo"])
         if filtros.get("fila"):
             onde.append(self._condicoes_fila()[filtros["fila"]])
         if onde:
@@ -799,6 +814,23 @@ class TarefasStore(ClientesStore):
         itens = [self._tarefa_dict(r, hoje) for r in self._conn.execute(
             "SELECT t.*" + consulta + " ORDER BY " + ordem + " LIMIT ? OFFSET ?", (*valores, limite, offset))]
         return {"itens": itens, "total": total, "offset": offset, "limite": limite}
+
+    def opcoes_filtros_tarefas(self, hoje=None, escopo_usuario_id=None, escopo_setores=None, todas=False):
+        """Títulos e total do escopo completo; independentes da página e dos filtros."""
+        hoje = self._hoje(hoje)
+        propria = not self._conn.in_transaction
+        if propria:
+            self._conn.execute("BEGIN")
+        try:
+            consulta, valores = self._consulta_tarefas({}, hoje, escopo_usuario_id, escopo_setores,
+                                                       todas, self.configuracao()["tarefas_alerta_dias"])
+            total = self._conn.execute("SELECT COUNT(*)" + consulta, valores).fetchone()[0]
+            titulos = [r[0] for r in self._conn.execute("SELECT DISTINCT t.titulo" + consulta
+                       + " ORDER BY t.titulo COLLATE NOCASE,t.titulo", valores)]
+            return {"titulos": titulos, "total_escopo": total}
+        finally:
+            if propria:
+                self._conn.rollback()
 
     def painel_tarefas(self, filtros=None, hoje=None, pagina=1, limite=10, fila="pendentes",
                        escopo_usuario_id=None, escopo_setores=None, todas=False):
