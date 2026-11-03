@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from datetime import date, timedelta
 from email.message import EmailMessage
 
+from ..core.qualidade_indicadores import calcular_painel
 from ..core.tarefas import ErroTarefas, validar_email, data_salvador
 
 def email_valido(valor: str) -> bool:
@@ -46,7 +47,7 @@ class ConfigSMTP:
                    remetente=env.get('AUDITORIA_SMTP_REMETENTE', '').strip(), tls=tls)
 
 
-def montar_resumos(store, usuarios: list[dict], hoje: date) -> dict:
+def _montar_tarefas(store, usuarios: list[dict], hoje: date) -> dict:
     """Uma tarefa por pessoa, mesmo quando carteira e chefia se sobrepõem."""
     ativos = {u['id']: u for u in usuarios if u.get('ativo', True)}
     setores = {s['id']: s for s in store.listar_setores() if s.get('ativo', True)}
@@ -83,6 +84,8 @@ def montar_resumos(store, usuarios: list[dict], hoje: date) -> dict:
             if chefe in ativos and ativos[chefe].get('pode_setor', True):
                 destinos.add(chefe)
             for uid in destinos & ativos.keys():
+                if not ativos[uid].get('pode_tarefas', True):
+                    continue
                 resumo = resumos.setdefault(uid, dict(usuario=ativos[uid], tarefas=[],
                     quantidades=dict(vencendo=0, atrasadas=0, conferencias=0, aguardando=0)))
                 resumo['tarefas'].append(dict(tarefa, alerta_conferencia=bool(conferencia)))
@@ -95,20 +98,98 @@ def montar_resumos(store, usuarios: list[dict], hoje: date) -> dict:
     return resumos
 
 
+def montar_resumos(store, usuarios: list[dict], hoje: date) -> dict:
+    """Mantém um resumo por pessoa/dia e complementa o legado sem ampliar acesso.
+
+    As flags são calculadas pelo servidor a partir das permissões e das abas.
+    Sem flags novas, acesso de qualidade é negado. Stores anteriores à spec 022
+    continuam emitindo somente o resumo de tarefas que já suportavam.
+    """
+    resumos = _montar_tarefas(store, usuarios, hoje)
+    if not all(callable(getattr(store, nome, None)) for nome in ('listar_ocorrencias', 'listar_planos')):
+        return resumos
+    ativos = {u['id']: u for u in usuarios if u.get('ativo', True)}
+    setores = {s['id']: s for s in store.listar_setores() if s.get('ativo', True)}
+    tarefas, offset = [], 0
+    while True:
+        pagina = store.listar_tarefas(hoje=hoje, todas=True, offset=offset, limite=500)
+        tarefas.extend(pagina['itens'])
+        offset += len(pagina['itens'])
+        if not pagina['itens'] or offset >= pagina['total']:
+            break
+    # Horas e custos não são necessários para alertas e nunca são consultados.
+    ocorrencias, planos = store.listar_ocorrencias(), store.listar_planos()
+    cfg = store.configuracao()
+    donos, chefes = {}, {}
+    def efetivo(sid, titular):
+        chave = (sid, titular)
+        if chave not in donos:
+            donos[chave] = store.responsavel_efetivo(sid, titular, hoje) if titular else None
+        return donos[chave]
+    for sid, setor in setores.items():
+        chefes[sid] = efetivo(sid, setor.get('responsavel_usuario_id'))
+    for uid, usuario in ativos.items():
+        pode_tarefas = usuario.get('pode_tarefas', True)
+        pode_qualidade = usuario.get('pode_qualidade', False)
+        global_ = bool(pode_qualidade and usuario.get('pode_qualidade_todas', False))
+        if not (pode_tarefas or pode_qualidade):
+            continue
+        def permitido(registro, tarefa=False):
+            sid = registro.get('setor_id')
+            if sid not in setores or not (pode_tarefas if tarefa else pode_qualidade):
+                return False
+            lider = chefes[sid] == uid and usuario.get('pode_setor', True) if tarefa else (
+                chefes[sid] == uid and usuario.get('pode_qualidade_gerir', False))
+            if global_ or lider:
+                return True
+            # Conferência exige chefia; o executor não recebe convite para revisar
+            # o próprio trabalho. A autoria histórica não concede acesso atual.
+            if tarefa and registro.get('situacao') == 'concluida' and registro.get('exige_conferencia'):
+                return False
+            return efetivo(sid, registro.get('responsavel_usuario_id')) == uid
+        ts = [t for t in tarefas if permitido(t, tarefa=True)]
+        os = [o for o in ocorrencias if permitido(o)]
+        ps = [p for p in planos if permitido(p)]
+        painel = calcular_painel(ts, os, ps, [], hoje=hoje,
+            proximos_dias=int(cfg.get('tarefas_alerta_dias', 3)),
+            dias_sem_movimento=int(cfg.get('qualidade_sem_movimento_dias', 7)))
+        alertas = [a for a in painel['alertas'] if a['quantidade']]
+        if not alertas:
+            continue
+        resumo = resumos.setdefault(uid, dict(usuario=usuario, tarefas=[],
+            quantidades=dict(vencendo=0, atrasadas=0, conferencias=0, aguardando=0)))
+        resumo['alertas_qualidade'] = alertas
+        resumo['quantidades'].update({'qualidade_' + a['tipo']: a['quantidade'] for a in alertas})
+    return resumos
+
+
 def _mensagem(resumo, cfg, hoje):
     mensagem = EmailMessage()
     mensagem['From'] = cfg.remetente
     mensagem['To'] = resumo['usuario']['email']
     mensagem['Subject'] = f'Tarefas e prazos — {hoje:%d/%m/%Y}'
     linhas = ['Resumo interno de tarefas e prazos', f'Data: {hoje:%d/%m/%Y}', '']
-    for tarefa in resumo['tarefas']:
+    # Os alertas já incluem as tarefas do resumo antigo. Não repete as linhas.
+    for tarefa in ([] if resumo.get('alertas_qualidade') else resumo['tarefas']):
         indicacao = 'aguarda conferência' if tarefa['alerta_conferencia'] else tarefa['situacao'].replace('_', ' ')
         intervalo = tarefa.get('origem', {}).get('intervalo', '')
         ocorrencia = f" | ocorrência {tarefa.get('ocorrencia', 1)} ({intervalo})" if intervalo else ''
         prazo = f"prazo {tarefa['vencimento']}" if tarefa.get('vencimento') else 'Sem vencimento'
         linhas.append(f"• {tarefa.get('cliente_nome', '')} — {tarefa['titulo']} | "
                       f"{prazo}{ocorrencia} | {indicacao}")
-    linhas.extend(['', 'Consulte a aba Tarefas e prazos no sistema para registrar o andamento.'])
+    for alerta in resumo.get('alertas_qualidade', []):
+        linhas.extend(['', f"{alerta['rotulo']}: {alerta['quantidade']}"])
+        for item in alerta['itens']:
+            prazo = f"prazo {item['prazo']}" if item.get('prazo') else 'Sem vencimento'
+            linhas.append(f"• {item['entidade']} #{item['id']} — {item['titulo']} | {prazo}")
+        if alerta.get('truncado'):
+            linhas.append(f"Exibidos {len(alerta['itens'])} de {alerta['quantidade']} registros; consulte o sistema para a lista completa.")
+    abas = []
+    if resumo['usuario'].get('pode_tarefas', True):
+        abas.append('Tarefas e prazos')
+    if resumo['usuario'].get('pode_qualidade', False):
+        abas.append('Qualidade')
+    linhas.extend(['', f"Consulte {' e '.join(abas)} no sistema para registrar o andamento."])
     mensagem.set_content('\n'.join(linhas))
     return mensagem
 

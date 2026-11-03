@@ -977,8 +977,8 @@ class Host:
             original = inventory()
             (Path(snapshot) / "inventory-before.json").write_text(json.dumps(original), encoding="utf-8")
             # Apenas o store, sem importar servidor, lifespan, agendador ou cofre.
-            code = ("import sqlite3; from auditoria_fiscal.ferramentas.tarefas_store import TarefasStore; "
-                    "s=TarefasStore(__import__('sys').argv[1]); s.fechar()")
+            code = ("from auditoria_fiscal.ferramentas.qualidade_store import QualidadeStore; "
+                    "s=QualidadeStore(__import__('sys').argv[1]); s.fechar()")
             self.sandbox([str(self.work / "runtime/bin/python"), "-B", "-c", code, str(working / "clientes.db")], timeout=120)
             self.sandbox(["/usr/bin/python3", "-I", str(Path(__file__).resolve()), "--helper-integrity", str(working)], timeout=120)
             expected = inventory(original)

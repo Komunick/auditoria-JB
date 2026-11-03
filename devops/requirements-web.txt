@@ -37,3 +37,7 @@ brazilfiscalreport>=1.0
 # NFS-e Fase 2 (certificado A1, assinatura XML e mTLS com a Sefin) e
 # cofre de senhas e leitura de certificado da aba 9 (spec 012)
 cryptography>=42
+
+# Evidências privadas da gestão da qualidade (S3 e verificação de imagens)
+boto3>=1.35
+Pillow>=10.4

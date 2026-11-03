@@ -193,7 +193,7 @@ Depois dos testes e antes de mudar o checkout, cria `hold`, para a aplicação e
 faz cópias recuperáveis de dados,
 código, venv e configuração. Os seis bancos são verificados em cópias de trabalho,
 incluindo integridade e chaves estrangeiras. O ensaio de migração atual abre
-`TarefasStore` sobre a cópia de `clientes.db`, sem servidor, agendador ou envio de
+`QualidadeStore` (incluindo as migrações de clientes e tarefas) sobre a cópia de `clientes.db`, sem servidor, agendador ou envio de
 e-mail. Migrações em outros stores exigem revisão explícita desse ensaio. Os
 backups originais não são abertos para validação.
 

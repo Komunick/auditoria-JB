@@ -7,6 +7,7 @@
    sao repetidos aqui: saem do proprio botao da lateral (clonados), para nao
    existirem dois lugares para renomear uma ferramenta. */
 const RESUMO_FERRAMENTAS = {
+  qualidade: "Acompanha ocorrências, planos de ação, indicadores, horas e custo dos serviços.",
   comparador: "Cruza o SPED com a relação da SEFAZ e aponta o que falta de "
             + "cada lado.",
   diff: "Compara dois arquivos SPED campo a campo e lista as divergências.",

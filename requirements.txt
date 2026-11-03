@@ -33,3 +33,7 @@ cryptography>=42
 
 # Testes da versao web (TestClient)
 httpx>=0.27
+
+# Evidências privadas da gestão da qualidade (S3 e verificação de imagens)
+boto3>=1.35
+Pillow>=10.4
