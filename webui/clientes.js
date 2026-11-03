@@ -185,17 +185,69 @@ const BaseFiscalUI = {
       criar("p", "A aba ZERADAS indica empresas sem movimento que continuam na carteira. Não significa inatividade, baixa ou dispensa de obrigações.", "dica"));
     const entrada = criar("input"); entrada.type = "file"; entrada.accept = ".xlsx"; entrada.id = "bf-arquivo";
     const ler = botao("Conferir base Fiscal", "bf-ler", carregar); ler.className = "botao-primario";
-    const limpar = botao("Limpar prévia", "bf-limpar", () => invalidar("Prévia limpa. Escolha um arquivo XLSX.", true));
+    const limpar = botao("Limpar prévia", "bf-limpar", () => invalidar("Prévia removida da tela. Escolha um arquivo XLSX.", true));
     const envio = criar("div", "", "linha-form");
     envio.append(campo("Arquivo XLSX (até 20 MB)", entrada), ler, limpar);
     const status = criar("p", "Escolha uma planilha para conferir.", "status"); status.id = "bf-status";
     status.setAttribute("role", "status"); status.setAttribute("aria-live", "polite");
+    const statusDescarte = criar("p", "", "status"); statusDescarte.id = "bf-descarte-status";
+    statusDescarte.setAttribute("role", "status"); statusDescarte.setAttribute("aria-live", "polite");
+    statusDescarte.hidden = true;
+    const avisoConfirmacao = criar("p", "", "status conc-erro"); avisoConfirmacao.id = "bf-descarte-confirmacao";
+    avisoConfirmacao.setAttribute("role", "status"); avisoConfirmacao.hidden = true;
     const resultado = criar("div"); resultado.id = "bf-resultado";
-    alvo.append(envio, status, resultado);
+    alvo.append(envio, status, statusDescarte, avisoConfirmacao, resultado);
     let consulta = 0, previa = null, arquivoConferido = null, pessoaConferida = null;
     let baixando = false, relatorio = null, limparRevisao = () => {};
+    // Manter apenas metadados em memória até o servidor confirmar o descarte.
+    // Uma preparação em trânsito também precisa ser descartada quando responder.
+    const preparacoes = new Set();
+    function atualizarDescarte() {
+      const pendentes = [...preparacoes].filter(p => p.descartar);
+      statusDescarte.hidden = false; statusDescarte.className = "status";
+      if (pendentes.some(p => p.falha || p.incerta)) {
+        statusDescarte.className = "status conc-erro";
+        statusDescarte.textContent = pendentes.some(p => p.incerta)
+          ? "Não foi possível confirmar o cancelamento: a resposta da preparação não trouxe uma referência válida. Aguarde a expiração da preparação no servidor."
+          : "Não foi possível confirmar o cancelamento no servidor. Verifique sua conexão e sessão e clique em Limpar prévia para tentar novamente.";
+      } else if (pendentes.length) {
+        statusDescarte.textContent = pendentes.some(p => p.pendente)
+          ? "Aguardando a resposta da preparação para cancelar no servidor…"
+          : "Cancelando a preparação no servidor…";
+      } else {
+        statusDescarte.textContent = "Cancelamento confirmado: as preparações anteriores não estão disponíveis para confirmar no servidor.";
+      }
+    }
+    async function descartarPreparacao(p) {
+      p.descartar = true;
+      if (p.confirmacaoEnviada) {
+        avisoConfirmacao.hidden = false;
+        avisoConfirmacao.textContent = "Uma confirmação de importação já foi enviada. Cancelar a preparação não desfaz uma importação que tenha sido concluída. Confira o cadastro antes de continuar.";
+      }
+      if (p.cancelando || p.pendente || p.incerta) { atualizarDescarte(); return; }
+      // Nunca enviar o token de uma identidade anterior usando a nova sessão.
+      if (Sessao.usuario !== p.pessoa || !permitido() || !Sessao.pode("clientes.importar_base_fiscal")) {
+        p.falha = true; atualizarDescarte(); return;
+      }
+      p.cancelando = true; p.falha = false; atualizarDescarte();
+      try {
+        const resposta = await api(`/api/clientes/base-fiscal/importacao/${encodeURIComponent(p.token)}`, {method: "DELETE"});
+        if (resposta?.ok !== true) throw new Error("Descarte não confirmado.");
+        preparacoes.delete(p);
+      } catch (erro) {
+        // 404 pode ser um token de outra sessão; só 410 garante indisponibilidade.
+        if (erro.status === 410 && erro.codigo === "BASE_FISCAL_TOKEN_EXPIRADO") preparacoes.delete(p);
+        else p.falha = true;
+      } finally {
+        p.cancelando = false; atualizarDescarte();
+      }
+    }
+    function descartarPreparacoes() {
+      for (const p of preparacoes) void descartarPreparacao(p);
+    }
     function invalidar(mensagem, limparArquivo = false) {
       limparRevisao(); limparRevisao = () => {};
+      descartarPreparacoes();
       consulta += 1; previa = null; resultado.textContent = "";
       arquivoConferido = null; pessoaConferida = null; baixando = false; relatorio = null;
       status.textContent = mensagem; status.className = "status";
@@ -441,6 +493,7 @@ const BaseFiscalUI = {
         !dados.linhas.some(l => l.status === "conflito" || l.status === "pendente");
       function limpar() {
         versao += 1; ocupada = false; saida.textContent = ""; saida.setAttribute("aria-busy", "false");
+        descartarPreparacoes();
         gerar.disabled = !fonteAtual() || !arquivoValido(correcoes.files[0]);
       }
       limparRevisao = () => { limpar(); correcoes.value = ""; gerar.disabled = true; };
@@ -509,18 +562,30 @@ const BaseFiscalUI = {
           mensagem.textContent = "Revalidando os arquivos e o cadastro para preparar a confirmação…";
           const corpo = new FormData(); corpo.append("arquivo", fonte); corpo.append("correcoes", arquivo);
           corpo.append("hash_esperado", dados.hash_arquivo); corpo.append("hash_correcoes_esperado", dados.hash_correcoes);
+          const controle = {pessoa, pendente: true, token: null, descartar: false};
+          preparacoes.add(controle);
           try {
             const resposta = await api("/api/clientes/base-fiscal/importacao/preparar", {method: "POST", body: corpo});
-            if (!atual()) return;
-            if (resposta?.formato !== "base_fiscal_confirmacao_v1" || typeof resposta.token !== "string" ||
-                !resposta.token.trim() || resposta.token.length > 512 || !Number.isInteger(resposta.expira_em_minutos) ||
+            controle.pendente = false;
+            if (typeof resposta?.token === "string" && resposta.token.trim() && resposta.token.length <= 512) controle.token = resposta.token;
+            else controle.incerta = true;
+            if (!atual() || controle.descartar) { await descartarPreparacao(controle); return; }
+            if (resposta?.formato !== "base_fiscal_confirmacao_v1" || !controle.token || !Number.isInteger(resposta.expira_em_minutos) ||
                 resposta.expira_em_minutos <= 0 || !previaValida(resposta.previa, dados.hash_correcoes) || !apta(resposta.previa)) {
               throw new Error("Não foi possível conferir a preparação recebida. Gere uma nova prévia.");
             }
             desenharRevisao(saida, resposta.previa);
-            oferecerConfirmacao(resposta, arquivo, revisao);
+            oferecerConfirmacao(resposta, arquivo, revisao, controle);
             mensagem.textContent = "Cadastro revalidado. Confira a prévia atualizada e as quantidades antes de confirmar. Nenhuma empresa foi gravada nesta preparação.";
           } catch (erro) {
+            controle.pendente = false;
+            if (!controle.token && erro.status >= 400 && erro.status < 500) {
+              preparacoes.delete(controle);
+              if (controle.descartar) atualizarDescarte();
+            } else {
+              if (!controle.token) controle.incerta = true;
+              await descartarPreparacao(controle);
+            }
             if (!atual()) return;
             carga.textContent = ""; mensagem.className = "status conc-erro";
             mensagem.textContent = `${erro.message || "Não foi possível preparar a importação."} Gere uma nova prévia antes de tentar novamente.`;
@@ -531,7 +596,7 @@ const BaseFiscalUI = {
         }
       }
 
-      function oferecerConfirmacao(preparacao, arquivo, revisao) {
+      function oferecerConfirmacao(preparacao, arquivo, revisao, controle) {
         const dados = preparacao.previa, totais = dados.contagens;
         const carga = criar("section"); carga.setAttribute("aria-label", "Confirmar inclusão de empresas");
         const aceite = criar("input"); aceite.type = "checkbox"; aceite.id = "bf-importacao-aceite";
@@ -558,6 +623,7 @@ const BaseFiscalUI = {
           mensagem.textContent = "Conferindo e registrando a importação…";
           const corpo = new FormData(); corpo.append("arquivo", fonte); corpo.append("correcoes", arquivo);
           corpo.append("confirmacao", "IMPORTAR EMPRESAS");
+          controle.confirmacaoEnviada = true;
           try {
             const resposta = await api(`/api/clientes/base-fiscal/importacao/${encodeURIComponent(preparacao.token)}/confirmar`, {method: "POST", body: corpo});
             if (!atual()) return;

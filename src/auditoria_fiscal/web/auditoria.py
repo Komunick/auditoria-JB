@@ -69,6 +69,14 @@ def _a(slug, descricao, categoria, permissao="", aba="") -> tuple[str, Acao]:
 
 # Registro unico das acoes auditaveis. A chave e o slug usado nas rotas.
 ACOES: dict[str, Acao] = dict((
+    _a('qualidade.consultar', 'Consultou a gestão da qualidade', CAT_NAVEGACAO, aba='qualidade'),
+    _a('qualidade.registrar', 'Registrou uma ocorrência, plano ou horas', CAT_MUTACAO,
+       'qualidade.registrar', 'qualidade'),
+    _a('qualidade.alterar', 'Atualizou um registro da qualidade', CAT_MUTACAO, aba='qualidade'),
+    _a('qualidade.anexar', 'Anexou evidência da qualidade', CAT_MUTACAO, aba='qualidade'),
+    _a('qualidade.download', 'Baixou evidência da qualidade', CAT_DOWNLOAD, aba='qualidade'),
+    _a('qualidade.exportar', 'Exportou relatório da qualidade', CAT_DOWNLOAD,
+       'qualidade.exportar', 'qualidade'),
     _a("tarefas.executar", "Alterou uma tarefa", CAT_MUTACAO, aba="tarefas"),
     _a("tarefas.configurar", "Configurou tarefas e carteira", CAT_MUTACAO,
        "tarefas.configurar", "tarefas"),

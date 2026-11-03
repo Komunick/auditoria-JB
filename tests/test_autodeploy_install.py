@@ -146,9 +146,28 @@ def main():
             assert str(unit) in config["configuration_paths"]
             assert config["allowed_skips"] == ["test_fdb_reader.py", "test_web_produtos_fdb.py"]
             assert config["excluded_tests"] == ["test_ui_smoke.py"]
+            assert "dependency_transition" not in config
             assert "ConditionPathExists=!/var/lib/auditoria-jb-autodeploy/hold" in paths["guard"].read_text()
             assert not any("enable" in c or "--check" in c or "--once" in c for c in calls), calls
             first = paths["config"].read_bytes()
+            # Autorizacao administrativa exige origem e arvore exatas, sem escrita parcial.
+            for origin, target in (("a" * 40, None), (None, "b" * 40), ("main", "b" * 40),
+                                   ("a" * 40, "dev"), ("a" * 40, "b" * 64), ("a" * 40, "B" * 40)):
+                try:
+                    module.install(source, cofre, [], digest,
+                                   dependencies_from_sha=origin, dependencies_target_tree=target)
+                except module.InstallError: pass
+                else: raise AssertionError("Instalou autorizacao de dependencias invalida")
+                assert paths["config"].read_bytes() == first
+            module.install(source, cofre, [], digest,
+                           dependencies_from_sha="a" * 40, dependencies_target_tree="b" * 40)
+            approval = json.loads(paths["config"].read_text())["dependency_transition"]
+            assert approval == {"from_sha": "a" * 40, "target_tree": "b" * 40}
+            assert not any("enable" in c or "--check" in c or "--once" in c for c in calls), calls
+            module.install(source, cofre, [], digest)
+            assert paths["config"].read_bytes() == first, "Reinstalacao sem flags manteve autorizacao antiga"
+            assert any(json.loads(p.read_text()).get("dependency_transition") == approval
+                       for p in paths["state"].glob("install-backups/*/config"))
             values["ActiveState"]="active"
             try: module.install(source, cofre, [], digest)
             except module.InstallError: pass
@@ -198,6 +217,19 @@ def main():
     assert parsed.allowed_skips == ["test_fdb_reader.py", "test_web_produtos_fdb.py"]
     assert parsed.excluded_tests == ["test_ui_smoke.py"]
     assert parsed.health_url == "http://127.0.0.1:8600"
+    # Flags aceitas exclusivamente na preparacao administrativa, nunca em enable.
+    arguments = [str(ROOT), "install", "--control-plane-digest", "c" * 40,
+                 "--dependencies-from-sha", "a" * 40, "--dependencies-target-tree", "b" * 40]
+    with patch.object(module, "install") as install, patch.object(module, "enable") as enable:
+        module.main(arguments)
+        assert install.call_args.kwargs == dict(dependencies_from_sha="a" * 40, dependencies_target_tree="b" * 40)
+        assert not enable.called
+    for flags in (["--dependencies-from-sha", "a" * 40], ["--dependencies-target-tree", "b" * 40]):
+        with patch.object(module, "enable") as enable:
+            try: module.main([str(ROOT), "enable", *flags])
+            except module.InstallError: pass
+            else: raise AssertionError("enable aceitou alteracao de dependencias")
+            assert not enable.called
     print("OK - auto-deploy install: host, serviço, paths root, config, backup e ativação condicionada")
     return 0
 

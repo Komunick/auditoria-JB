@@ -209,9 +209,16 @@ def package_digest(source, oid_length):
     return tree(source).hex()
 
 
-def install(source, cofre_env, additional, control_plane_digest):
+def install(source, cofre_env, additional, control_plane_digest, *, dependencies_from_sha=None, dependencies_target_tree=None):
     if not isinstance(control_plane_digest, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", control_plane_digest):
         raise InstallError("Informe o OID da árvore devops/autodeploy explicitamente revisada.")
+    transition = None
+    if dependencies_from_sha is not None or dependencies_target_tree is not None:
+        if any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", value)
+               or len(value) != len(control_plane_digest)
+               for value in (dependencies_from_sha, dependencies_target_tree)):
+            raise InstallError("A transição de dependências exige SHA de origem e OID da árvore de destino completos e revisados.")
+        transition = dict(from_sha=dependencies_from_sha, target_tree=dependencies_target_tree)
     verify_host_service()
     verify_controller_stopped()
     secure_root_path(source)
@@ -255,6 +262,8 @@ def install(source, cofre_env, additional, control_plane_digest):
         "command_timeout": 300, "test_timeout": 600,
         "total_test_timeout": 3600, "health_timeout": 60,
     }
+    if transition is not None:
+        config["dependency_transition"] = transition
     sources["config"] = (json.dumps(config, indent=2, sort_keys=True) + "\n").encode()
     sources["guard"] = GUARD.encode()
     with controller_lock():
@@ -297,14 +306,18 @@ def main(argv=None):
     parser.add_argument("source", type=Path)
     parser.add_argument("action", choices=("install", "enable"))
     parser.add_argument("--control-plane-digest", help="OID Git da árvore devops/autodeploy explicitamente aprovada.")
+    parser.add_argument("--dependencies-from-sha", help="SHA exato do checkout anterior à manutenção de dependências; exige --dependencies-target-tree.")
+    parser.add_argument("--dependencies-target-tree", help="OID da árvore completa do candidato aprovado após manutenção de dependências; exige --dependencies-from-sha.")
     parser.add_argument("--cofre-env", type=Path, default=Path("/etc/auditoria-jb/cofre.env"))
     parser.add_argument("--configuration-path", action="append", default=[], type=Path,
                         help="Arquivo adicional root-owned a incluir no backup de configuração; repetível.")
     args = parser.parse_args(argv)
     os.umask(0o077)
     if args.action == "install":
-        install(args.source, args.cofre_env, args.configuration_path, args.control_plane_digest)
-    elif args.control_plane_digest or args.configuration_path or args.cofre_env != Path("/etc/auditoria-jb/cofre.env"):
+        install(args.source, args.cofre_env, args.configuration_path, args.control_plane_digest,
+                dependencies_from_sha=args.dependencies_from_sha, dependencies_target_tree=args.dependencies_target_tree)
+    elif (args.control_plane_digest or args.configuration_path or args.cofre_env != Path("/etc/auditoria-jb/cofre.env")
+          or args.dependencies_from_sha is not None or args.dependencies_target_tree is not None):
         raise InstallError("Argumentos de configuração só se aplicam a install.")
     else:
         enable()

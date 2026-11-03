@@ -621,6 +621,83 @@ def test_crontab_preflight_sem_cron_e_falha(pasta):
         assert h.crontab_snapshot["content"] == "45 7 * * * comando-sintetico\n"
 
 
+def test_transicao_dependencias_limitada():
+    base = dict(schema_version=1, repository="/srv/app", repository_url="https://github.com/test/example.git",
+        venv="/srv/app/.venv", data_dir="/srv/data", service="auditoria-jb.service", control_plane_digest="c" * 40)
+    approval = dict(from_sha="a" * 40, target_tree="d" * 40)
+    assert ad.Config.from_dict(base).dependency_transition is None
+    assert ad.Config.from_dict({**base, "dependency_transition": None}).dependency_transition is None
+    for invalid in (True, [], {}, {"from_sha": "a" * 40}, {**approval, "any": True},
+                    {**approval, "from_sha": "main"}, {**approval, "target_tree": "dev"},
+                    {**approval, "from_sha": 12}, {**approval, "target_tree": None},
+                    {**approval, "target_tree": "D" * 40}, {**approval, "target_tree": "d" * 64}):
+        try: ad.Config.from_dict({**base, "dependency_transition": invalid})
+        except ad.DeployError as exc: assert exc.code == "config_dependency_transition"
+        else: raise AssertionError("Autorizacao de dependencias invalida aceita")
+
+    def host(transition=None, *, current="a" * 40, target="b" * 40, tree="d" * 40,
+             changes="requirements.txt\ndevops/requirements-web.txt", control="c" * 40):
+        h = HostFalso(atual=current, alvo=target)
+        h.c = ad.Config.from_dict({**base, "dependency_transition": transition})
+        h.health = lambda: 123
+        h.clean_checkout = lambda: h.atual
+        h.space = lambda: h.evento("space")
+        h.capture_crontab = lambda: h.evento("read_cron")
+        def git(args):
+            if args[0] in {"fetch", "merge-base"}: return ""
+            if args == ["rev-parse", "refs/remotes/origin/main"]: return h.alvo
+            if args == ["rev-parse", h.alvo + ":devops/autodeploy"]: return control
+            if args == ["rev-parse", h.alvo + "^{tree}"]: return tree
+            if args[0] == "diff": return changes
+            raise AssertionError("Comando Git inesperado: " + str(args))
+        h.git = git
+        h.preflight = lambda: ad.Host.preflight(h)
+        return h
+
+    with patch.object(ad, "protected_window", return_value=False):
+        for transition, options in ((None, {}), (approval, {"current": "e" * 40}),
+                                    (approval, {"tree": "e" * 40}),
+                                    (approval, {"target": "e" * 40, "tree": "f" * 40})):
+            h = host(transition, **options)
+            assert ad.Runner(h).run() == 1
+            assert h.estado["error"] == "dependencies_require_maintenance"
+            assert h.ativo and not h.held and "stop" not in h.eventos and "tests" not in h.eventos
+        # O SHA do merge pode diferir; somente a arvore integral aprovada autoriza.
+        for target in ("b" * 40, "e" * 40):
+            h = host(approval, target=target)
+            assert ad.Runner(h).run() == 0 and h.estado["result"] == "deployed"
+            assert h.estado["last_deploy"]["dependency_transition"] == approval
+            assert h.eventos.index("tests") < h.eventos.index("maintenance") < h.eventos.index("stop")
+            assert "backup_pre" in h.eventos and "backup_post" in h.eventos and "migration" in h.eventos
+        # Nem aprovacao exata dispensa pacote de controle ou saude/testes.
+        h = host(approval, control="f" * 40)
+        assert ad.Runner(h).run() == 1 and h.estado["error"] == "control_plane_requires_install"
+        assert "stop" not in h.eventos
+        h = host(approval); h.falha = "tests"
+        assert ad.Runner(h).run() == 1 and h.estado["error"] == "falha_sintetica"
+        assert "stop" not in h.eventos
+        # Check registra a autorizacao sem parar; noop futuro nao a reutiliza.
+        h = host(approval)
+        assert ad.Runner(h).run(check=True) == 0 and h.estado["result"] == "checked"
+        assert h.estado["dependency_transition"] == approval and "tests" not in h.eventos
+        h = host(approval, current="b" * 40, changes="")
+        h.estado = {"last_deploy": {"target_sha": "b" * 40}}
+        assert ad.Runner(h).run() == 0 and h.estado["result"] == "noop"
+        assert "dependency_transition" not in h.estado and "stop" not in h.eventos
+        h = host(approval, current="b" * 40, target="e" * 40)
+        assert ad.Runner(h).run() == 1 and h.estado["error"] == "dependencies_require_maintenance"
+        # Alteracoes de aplicacao sem manifests continuam sem autorizacao extra.
+        h = host(changes="webui/qualidade.js")
+        assert ad.Runner(h).run() == 0 and "dependency_transition" not in h.estado
+        # Todos os manifestos ja protegidos continuam bloqueados por padrao.
+        for manifest in ("requirements-dev.txt", "nested/requirements-web.txt", "pyproject.toml",
+                         "setup.py", "setup.cfg", "poetry.lock", "uv.lock", "Pipfile", "Pipfile.lock",
+                         "package.json", "nested/package-lock.json"):
+            h = host(changes=manifest)
+            assert ad.Runner(h).run() == 1 and h.estado["error"] == "dependencies_require_maintenance"
+            assert "stop" not in h.eventos
+
+
 def test_backup_sem_crontab_usa_captura_previa(pasta):
     root = Path(pasta) / "backup_sem_cron"
     root.mkdir()
@@ -660,6 +737,7 @@ def main():
     test_politica_falha_e_candidato_rejeitado()
     test_janela_temporal()
     test_config_ambiente_e_sandbox()
+    test_transicao_dependencias_limitada()
     test_saude_urls_e_ambiente()
     test_abertura_por_ancestrais()
     with tempfile.TemporaryDirectory(prefix="autodeploy_sintetico_") as pasta:

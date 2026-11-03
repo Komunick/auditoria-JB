@@ -28,12 +28,17 @@ const doc={listeners:{},
 const elementos=e=>[e,...e.children.flatMap(elementos)],alvo=doc.createElement('section');
 const get=id=>elementos(alvo).find(e=>e.id===id);
 const basicas=['aba.clientes','clientes.importar'],permissaoCarga='clientes.importar_base_fiscal';
-let permissoes=new Set(basicas),pedidos=[],leituras=[],chamadas=[];
+let permissoes=new Set(basicas),pedidos=[],leituras=[],chamadas=[],descartes=[],reterDescartes=false;
 const ctx={document:doc,console,Abas:{registrar(){}},
   Sessao:{usuario:{id:1},pode:p=>permissoes.has(p)},
   FormData:class{constructor(){this.itens=[];}append(k,v){this.itens.push([k,v]);}},
   apiUpload(url,arquivo){return new Promise((resolve,reject)=>leituras.push({resolve,reject}));},
-  api(url,opcoes){chamadas.push({url,opcoes});return new Promise((resolve,reject)=>pedidos.push({resolve,reject}));},
+  api(url,opcoes){
+    chamadas.push({url,opcoes});
+    if(opcoes.method==='DELETE')return reterDescartes
+      ? new Promise((resolve,reject)=>descartes.push({resolve,reject,url,opcoes})) : Promise.resolve({ok:true});
+    return new Promise((resolve,reject)=>pedidos.push({resolve,reject}));
+  },
 };
 vm.createContext(ctx);vm.runInContext(fs.readFileSync('webui/clientes.js','utf8'),ctx);
 ctx.alvo=alvo;vm.runInContext('BaseFiscalUI.montar(alvo)',ctx);
@@ -52,9 +57,9 @@ const preparacao={formato:'base_fiscal_confirmacao_v1',token:'token-sintetico',e
 const recibo={formato:'base_fiscal_resultado_v1',importacao_id:17,repetida:false,
   contagens:{incluidas:2,existentes:1,ignoradas:1},hash_arquivo:fonte.hash_arquivo,hash_correcoes:previa.hash_correcoes,criado_em:'2026-10-30T12:10:00+00:00'};
 async function base(){
-  const arquivo={name:'fonte-sintetica.xlsx',size:100};get('bf-arquivo').files=[arquivo];await get('bf-arquivo').emit('change');
+  const arquivo={name:'fonte-sintetica.xlsx',size:100};get('bf-arquivo').files=[arquivo];get('bf-arquivo').value='fonte-sintetica.xlsx';await get('bf-arquivo').emit('change');
   const fim=get('bf-ler').emit('click');leituras.shift().resolve(fonte);await fim;
-  const correcoes={name:'correcoes-sinteticas.xlsx',size:100};get('bf-correcoes').files=[correcoes];await get('bf-correcoes').emit('change');
+  const correcoes={name:'correcoes-sinteticas.xlsx',size:100};get('bf-correcoes').files=[correcoes];get('bf-correcoes').value='correcoes-sinteticas.xlsx';await get('bf-correcoes').emit('change');
   return {arquivo,correcoes};
 }
 async function revisar(dados=previa){
@@ -70,7 +75,60 @@ async function pronta(){
 async function aceitar(){get('bf-importacao-aceite').checked=true;await get('bf-importacao-aceite').emit('change');}
 async function confirmar(){const fim=get('bf-importacao-confirmar').emit('click'),pedido=pedidos.shift();assert(pedido);return {fim,pedido};}
 const erro=(codigo,mensagem='Revisão necessária')=>Object.assign(new Error(mensagem),{codigo,status:codigo===410?410:409});
+const concluirDescarte=async(resposta={ok:true},falha=null)=>{
+  const pedido=descartes.shift();assert(pedido,'Limpar deve cancelar a preparação no servidor');
+  assert.strictEqual(pedido.url,'/api/clientes/base-fiscal/importacao/token-sintetico');
+  assert.strictEqual(pedido.opcoes.method,'DELETE');assert(!pedido.opcoes.body,'Descarte não reenvia planilhas');
+  if(falha)pedido.reject(falha);else pedido.resolve(resposta);
+  await new Promise(resolve=>setImmediate(resolve));
+};
 (async()=>{
+  permissoes.add(permissaoCarga);
+  await pronta();reterDescartes=true;
+  const fonteAntiga=get('bf-arquivo'),relatorioAntigo=get('bf-correcoes'),confirmacaoAntiga=get('bf-importacao-confirmar');
+  await get('bf-limpar').emit('click');
+  assert.strictEqual(fonteAntiga.value,'');assert.strictEqual(relatorioAntigo.value,'');
+  assert(!get('bf-importacao-aceite'));assert(!get('bf-importacao-confirmar'));
+  assert(get('bf-descarte-confirmacao').hidden,'Limpeza sem confirmação não sugere importação enviada');
+  assert.strictEqual(get('bf-resultado').textContent,'');
+  assert.strictEqual(descartes.length,1,'Limpar deve cancelar a preparação no servidor');
+  assert(/cancelando|aguardando/i.test(get('bf-descarte-status').textContent));
+  let n=chamadas.length;await get('bf-limpar').emit('click');assert.strictEqual(chamadas.length,n,'Duplo clique não duplica o DELETE');
+  await concluirDescarte();assert(/confirmado/i.test(get('bf-descarte-status').textContent));
+  n=chamadas.length;await get('bf-limpar').emit('click');await confirmacaoAntiga.emit('click');
+  assert.strictEqual(chamadas.length,n,'Limpeza repetida ou botão antigo não reutilizam token');
+
+  for(const falha of [new Error('Rede perdida'),Object.assign(new Error('Sem permissão'),{status:403}),
+      Object.assign(new Error('Outra sessão'),{status:404}),Object.assign(new Error('Falha interna'),{status:500}),
+      Object.assign(new Error('410 sem contrato conhecido'),{status:410}),null]){
+    await pronta();await get('bf-limpar').emit('click');
+    await concluirDescarte(falha?undefined:{ok:false},falha);
+    assert(/não foi possível confirmar o cancelamento/i.test(get('bf-descarte-status').textContent));
+    assert(!get('bf-importacao-confirmar'),'Falha no cancelamento não restaura a confirmação');
+    await get('bf-limpar').emit('click');await concluirDescarte();
+    assert(/confirmado/i.test(get('bf-descarte-status').textContent));
+  }
+  for(const motivo of ['expirou','já descartada']){
+    await pronta();await get('bf-limpar').emit('click');
+    await concluirDescarte(undefined,Object.assign(new Error(motivo),{status:410,codigo:'BASE_FISCAL_TOKEN_EXPIRADO'}));
+    assert(/confirmado/i.test(get('bf-descarte-status').textContent));
+  }
+  await pronta();permissoes.delete(permissaoCarga);n=chamadas.length;
+  await get('bf-limpar').emit('click');assert.strictEqual(chamadas.length,n,'Não enviar token sem permissão');
+  assert(/não foi possível confirmar o cancelamento/i.test(get('bf-descarte-status').textContent));
+  permissoes.add(permissaoCarga);await get('bf-limpar').emit('click');await concluirDescarte();
+  await base();await revisar();let atrasada=await preparar();
+  await get('bf-limpar').emit('click');
+  assert.strictEqual(descartes.length,0,'Ainda não há token para cancelar');
+  assert(/aguardando/i.test(get('bf-descarte-status').textContent));
+  // Iniciar outra prévia não deve perder a preparação anterior nem ser limpo por sua resposta.
+  await base();await revisar();const revisaoNova=get('bf-importacao-resultado').textContent;
+  atrasada.pedido.resolve(preparacao);await new Promise(resolve=>setImmediate(resolve));
+  assert(!get('bf-importacao-aceite'));await concluirDescarte();await atrasada.fim;
+  assert.strictEqual(get('bf-importacao-resultado').textContent,revisaoNova);
+  assert(!get('bf-importacao-aceite'),'Resposta atrasada não reativa a confirmação');
+  assert(!chamadas.some(c=>c.url.endsWith('/confirmar')),'Cenários de limpeza não enviam confirmação');
+  reterDescartes=false;permissoes=new Set(basicas);
   await base();await revisar();assert(!get('bf-importacao-preparar'),'Permissão antiga não autoriza preparar a carga');
   permissoes.add(permissaoCarga);
   for(const bloqueio of ['pendente','conflito']){
@@ -125,7 +183,7 @@ const erro=(codigo,mensagem='Revisão necessária')=>Object.assign(new Error(men
     const antigo=get('bf-importacao-confirmar');antes=chamadas.length;
     if(perda==='arquivo'){get('bf-correcoes').files=[{name:'nova.xlsx',size:100}];await get('bf-correcoes').emit('change');}
     else if(perda==='identidade')ctx.Sessao.usuario={id:2};else if(perda==='sessao')doc.dispatchEvent({type:'sessao:encerrada'});else permissoes.delete(perda);
-    await antigo.emit('click');assert.strictEqual(chamadas.length,antes,perda+' deve impedir envio obsoleto');
+    await antigo.emit('click');assert(!chamadas.slice(antes).some(c=>c.opcoes.method!=='DELETE'),perda+' deve impedir envio obsoleto');
   }
   for(const perda of ['arquivo','identidade',permissaoCarga,'sessao']){
     permissoes=new Set([...basicas,permissaoCarga]);await pronta();await aceitar();atual=await confirmar();
@@ -143,10 +201,30 @@ const erro=(codigo,mensagem='Revisão necessária')=>Object.assign(new Error(men
   assert(!get('bf-importacao-aceite'),'Não oferecer aceite de quantidades que divergem das linhas apresentadas');
   await pronta();await aceitar();atual=await confirmar();atual.pedido.resolve({...recibo,hash_arquivo:'d'.repeat(64)});await atual.fim;
   assert(!get('bf-importacao-recibo'),'Não exibir recibo de outros arquivos');
-  console.log('OK - confirmação Fiscal UI: revisão fresca, aceite, idempotência, erros e isolamento de arquivo/sessão');
+  for(const momento of ['em voo','resposta perdida']){
+    await pronta();await aceitar();atual=await confirmar();
+    if(momento==='resposta perdida'){atual.pedido.reject(new Error('Rede perdida'));await atual.fim;}
+    await get('bf-limpar').emit('click');
+    if(momento==='em voo'){atual.pedido.resolve(recibo);await atual.fim;}
+    assert(!get('bf-importacao-recibo'),'Não reexibir o resultado removido');
+    assert(!get('bf-descarte-confirmacao').hidden);
+    assert(/não desfaz uma importação/i.test(get('bf-descarte-confirmacao').textContent),'Descarte não comprova rollback de confirmação '+momento);
+  }
+  // Uma resposta perdida nunca deve ser apresentada como cancelamento concluído.
+  await base();await revisar();atual=await preparar();await get('bf-limpar').emit('click');
+  atual.pedido.reject(new Error('Resposta perdida'));await atual.fim;
+  assert(/não foi possível confirmar o cancelamento/i.test(get('bf-descarte-status').textContent));
+  assert(/expiração/i.test(get('bf-descarte-status').textContent));assert(!get('bf-importacao-aceite'));
+  assert(!alvo.textContent.includes('token-sintetico'),'Token não deve ser exposto na interface');
+  console.log('OK - confirmação Fiscal UI: descarte, retry, expiração, resposta atrasada, aceite e isolamento de arquivo/sessão');
 })().catch(e=>{console.error(e);process.exitCode=1;});
 '''
-    return subprocess.run([node, "-e", script], cwd=raiz, check=False).returncode
+    resultado = subprocess.run([node, "-e", script], cwd=raiz, check=False,
+                               capture_output=True, encoding="utf-8", timeout=60)
+    print(resultado.stdout, end="")
+    print(resultado.stderr, end="")
+    # Node pode terminar com exit 0 quando uma Promise ficou sem resolução.
+    return resultado.returncode or int("OK - confirmação Fiscal UI:" not in resultado.stdout)
 
 
 if __name__ == "__main__":
