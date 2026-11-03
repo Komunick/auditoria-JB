@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from datetime import date
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from ..core import tarefas as regras
@@ -343,8 +343,16 @@ def catalogo(usuario: Usuario=Depends(exigir_aba('tarefas'))):
                     situacoes=[dict(chave=k,rotulo=v) for k,v in regras.SITUACOES.items()])
 
 
+@router.get('/opcoes-filtros')
+def opcoes_filtros(visao: str='minhas', usuario: Usuario=Depends(exigir_aba('tarefas'))):
+    with _store(leitura=True) as s:
+        hoje = _hoje()
+        dados = s.opcoes_filtros_tarefas(hoje=hoje, **_escopo(s, usuario, visao, hoje=hoje))
+        return JSONResponse(dados, headers={'Cache-Control': 'no-store'})
+
+
 def _filtros(setor_id=None,cliente_id=None,responsavel_usuario_id=None,competencia='',situacao='',vencimento_de='',vencimento_ate='',sem_responsavel=False,
-             texto='',fila='',abertas=False,pendente_conferencia=False):
+             texto='',fila='',abertas=False,pendente_conferencia=False,titulo=''):
     return TarefasStore._normalizar_filtros_tarefas(
         {k:v for k,v in locals().items() if v is not None and v != '' and v is not False})
 
@@ -364,26 +372,26 @@ def _listar(s,u,visao, pagina,limite, filtros, hoje=None):
 def listar(visao:str='minhas',setor_id:int|None=None,cliente_id:int|None=None,
            responsavel_usuario_id:int|None=None,competencia:str='',situacao:str='',
            vencimento_de:str='',vencimento_ate:str='',sem_responsavel:bool=False,
-            texto:str='',fila:str='',abertas:bool=False,pendente_conferencia:bool=False,
+            texto:str='',fila:str='',abertas:bool=False,pendente_conferencia:bool=False,titulo:str='',
            pagina:int=1,limite:int=50,usuario:Usuario=Depends(exigir_aba('tarefas'))):
     with _store() as s:
         return _listar(s,usuario,visao,pagina,limite,_filtros(setor_id,cliente_id,responsavel_usuario_id,
                       competencia,situacao,vencimento_de,vencimento_ate,sem_responsavel,
-                      texto,fila,abertas,pendente_conferencia))
+                      texto,fila,abertas,pendente_conferencia,titulo))
 
 
 @router.get('/painel')
 def painel(visao:str='cliente',setor_id:int|None=None,cliente_id:int|None=None,
            responsavel_usuario_id:int|None=None,competencia:str='',situacao:str='',
            vencimento_de:str='',vencimento_ate:str='',sem_responsavel:bool=False,
-           texto:str='',fila:str='pendentes',abertas:bool=False,pendente_conferencia:bool=False,
+           texto:str='',fila:str='pendentes',abertas:bool=False,pendente_conferencia:bool=False,titulo:str='',
            pagina:int=1,limite:int=10,usuario:Usuario=Depends(exigir_aba('tarefas'))):
     # Escopo, totais, substituicoes e pagina observam a mesma versao do banco.
     with _store(leitura=True) as s:
         hoje = _hoje()
         filtros = _filtros(setor_id,cliente_id,responsavel_usuario_id,competencia,situacao,
                            vencimento_de,vencimento_ate,sem_responsavel,texto,
-                           abertas=abertas,pendente_conferencia=pendente_conferencia)
+                           abertas=abertas,pendente_conferencia=pendente_conferencia,titulo=titulo)
         dados = s.painel_tarefas(filtros,hoje,pagina,limite,fila,
                                  **_escopo(s,usuario,visao,setor_id,hoje))
         usuarios = {p['id']:p for p in auth.listar_usuarios()}
@@ -420,11 +428,11 @@ def avisos(request:Request,usuario:Usuario=Depends(exigir_aba('tarefas'))):
 def exportar(request:Request,visao:str='minhas',setor_id:int|None=None,cliente_id:int|None=None,
              responsavel_usuario_id:int|None=None,competencia:str='',situacao:str='',
              vencimento_de:str='',vencimento_ate:str='',sem_responsavel:bool=False,
-              texto:str='',fila:str='',abertas:bool=False,pendente_conferencia:bool=False,
+              texto:str='',fila:str='',abertas:bool=False,pendente_conferencia:bool=False,titulo:str='',
              usuario:Usuario=Depends(acesso('tarefas.exportar'))):
     with _store() as s:
         filtros=_filtros(setor_id,cliente_id,responsavel_usuario_id,competencia,situacao,vencimento_de,vencimento_ate,sem_responsavel,
-                         texto,fila,abertas,pendente_conferencia)
+                         texto,fila,abertas,pendente_conferencia,titulo)
         hoje = _hoje()
         itens=[];pagina=1
         while True:
