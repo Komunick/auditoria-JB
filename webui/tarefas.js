@@ -8,7 +8,7 @@ const TarefasUI = {
     sem_vencimento: "Pendentes sem vencimento", sem_responsavel: "Pendentes sem responsável"},
   contexto(valor = {}) {
     const origem = valor.filtros || {}, filtros = {visao: this.visaoConsulta(origem.visao || "cliente")};
-    for (const chave of ["cliente_id", "setor_id", "responsavel_usuario_id", "competencia", "texto", "situacao",
+    for (const chave of ["cliente_id", "setor_id", "responsavel_usuario_id", "competencia", "titulo", "texto", "situacao",
       "vencimento_de", "vencimento_ate", "sem_responsavel", "abertas", "pendente_conferencia"])
       if (origem[chave] !== undefined && origem[chave] !== null && origem[chave] !== "" && origem[chave] !== false)
         filtros[chave] = origem[chave];
@@ -94,6 +94,26 @@ const TarefasUI = {
   selecao(itens, ids) { return itens.filter(t => ids.has(t.id)).map(t => ({id: t.id, revision: t.revision})); },
   podeLote(t) { return !!t.pode_gerir && ["a_fazer", "em_andamento", "aguardando_cliente", "devolvida"].includes(t.situacao); },
   visaoConsulta(visao) { return ["minhas", "setor", "cliente"].includes(visao) ? visao : "cliente"; },
+  erroFiltros(p) {
+    if (p.vencimento_de && p.vencimento_ate && p.vencimento_de > p.vencimento_ate)
+      return "A data inicial do vencimento deve ser anterior ou igual à data final.";
+    const semResponsavel = p.sem_responsavel || p.fila === "sem_responsavel";
+    if (p.visao === "minhas" && semResponsavel)
+      return "Minhas tarefas mostra apenas tarefas atribuídas a você. Para consultar tarefas sem responsável, use Setor ou Agenda do cliente.";
+    if (p.responsavel_usuario_id && semResponsavel)
+      return "Escolha um responsável ou Sem responsável; esses filtros não podem ser combinados.";
+    if (p.fila === "sem_vencimento" && (p.vencimento_de || p.vencimento_ate))
+      return "A fila Sem vencimento não pode ser combinada com datas de vencimento. Limpe as datas ou escolha outra fila.";
+    if (["conferida", "dispensada"].includes(p.situacao) && (p.abertas || p.pendente_conferencia || (p.fila && p.fila !== "todas")))
+      return "A situação escolhida não corresponde aos filtros de pendências. Use Todas as tarefas e desmarque Só pendentes e Só para conferir.";
+    return "";
+  },
+  mensagemVazia(p, totalEscopo) {
+    if (!totalEscopo) return p.visao === "minhas"
+      ? "Você ainda não tem tarefas atribuídas nesta visão. Consulte Setor ou Agenda do cliente para ver as tarefas às quais tem acesso."
+      : "Ainda não há tarefas disponíveis nesta visão. Os filtros apenas consultam tarefas já cadastradas ou geradas.";
+    return "Nenhuma tarefa corresponde a esta combinação de filtros. Use Limpar para voltar à listagem desta visão. Competência e vencimento podem estar em meses diferentes.";
+  },
   ajuste(v, revision) {
     const dados = {cliente_id: Number(v.cliente_id), obrigacao_id: Number(v.obrigacao_id), tipo: v.ajuste_tipo,
       regra_vencimento: v.ajuste_tipo === "vencimento" ? this.regra(v) : null,
@@ -362,8 +382,9 @@ Abas.registrar("tarefas", container => {
         <button type="button" data-visao="importar">Importar carteira</button>
       </nav>
       <section id="tar-listagem">
-        <form id="tar-filtros" class="linha-form">
-          <label>Buscar tarefa ou cliente<input id="tar-texto" type="search" maxlength="200" placeholder="Digite um nome ou tarefa"></label>
+        <p id="tar-escopo" class="dica"></p>
+        <form id="tar-filtros" class="linha-form" aria-describedby="tar-filtros-ajuda">
+          <label>Tarefa<select id="tar-titulo"></select></label>
           <label>Cliente<select id="tar-cliente"></select></label>
           <label>Setor<select id="tar-setor"></select></label>
           <label>Responsável<select id="tar-responsavel"></select></label>
@@ -372,12 +393,14 @@ Abas.registrar("tarefas", container => {
           <label>Fila<select id="tar-fila"></select></label>
           <label>Vence de<input id="tar-de" type="date"></label>
           <label>Vence até<input id="tar-ate" type="date"></label>
+          <label>Busca complementar (opcional)<input id="tar-texto" type="search" maxlength="200" placeholder="Parte do nome da tarefa ou cliente"></label>
           <label class="permissao"><input type="checkbox" id="tar-sem-responsavel">Sem responsável</label>
           <label class="permissao"><input type="checkbox" id="tar-abertas">Só pendentes</label>
           <label class="permissao"><input type="checkbox" id="tar-pendente-conferencia">Só para conferir</label>
           <button type="submit" class="botao-primario">Filtrar</button>
           <button type="button" id="tar-limpar">Limpar</button>
         </form>
+        <p id="tar-filtros-ajuda" class="dica">Escolha apenas os filtros necessários; todos serão aplicados juntos. Competência é o mês de referência, e vencimento é a data de entrega. A lista Tarefa inclui as tarefas avulsas desta visão.</p>
         <p class="dica tar-legenda"><span class="tar-cor verde">No prazo</span><span class="tar-cor amarelo">Em atenção</span>
           <span class="tar-cor vermelho">Atrasada ou devolvida</span>As datas e situações também aparecem por escrito.</p>
         <div id="tar-lote" class="linha-form oculto"><span id="tar-selecao">Nenhuma selecionada</span></div>
@@ -424,7 +447,7 @@ Abas.registrar("tarefas", container => {
   function filtros() {
     const p = {visao: u.visaoConsulta(s.visao)};
     for (const [id, chave] of [["cliente", "cliente_id"], ["setor", "setor_id"], ["responsavel", "responsavel_usuario_id"],
-      ["competencia", "competencia"], ["situacao", "situacao"], ["texto", "texto"], ["fila", "fila"], ["de", "vencimento_de"], ["ate", "vencimento_ate"]]) {
+      ["competencia", "competencia"], ["situacao", "situacao"], ["titulo", "titulo"], ["texto", "texto"], ["fila", "fila"], ["de", "vencimento_de"], ["ate", "vencimento_ate"]]) {
       if ($(`tar-${id}`).value) p[chave] = $(`tar-${id}`).value;
     }
     if ($("tar-sem-responsavel").checked) p.sem_responsavel = "true";
@@ -453,14 +476,33 @@ Abas.registrar("tarefas", container => {
     $("tar-todas").disabled = !disponiveis.length;
     $("tar-todas").indeterminate = s.selecionadas.size > 0 && !$("tar-todas").checked;
   }
+  function limparResultados(mensagem) {
+    s.itens = []; s.selecionadas.clear(); atualizarSelecao();
+    const tbody = $("tar-tabela").querySelector("tbody"); tbody.textContent = "";
+    const tr = u.el("tr"), td = u.el("td", mensagem, "tar-vazio"); td.colSpan = 8;
+    tr.append(td); tbody.append(tr);
+    $("tar-pagina").textContent = "";
+    $("tar-anterior").disabled = true; $("tar-proxima").disabled = true;
+  }
   async function carregar() {
     if (!sessaoValida()) return false;
     const chamada = ++s.consulta;
     ++s.detalheConsulta; $("tar-detalhe").classList.add("oculto");
-    s.selecionadas.clear(); atualizarSelecao();
+    const consulta = filtros(), erro = u.erroFiltros(consulta);
+    if (erro) { limparResultados("Ajuste os filtros indicados acima para consultar as tarefas."); status(erro, true); return false; }
+    limparResultados("Carregando tarefas…");
     status("Carregando tarefas…");
     try {
-      const r = await api("/api/tarefas?" + new URLSearchParams({...filtros(), pagina: s.pagina}));
+      // Opções usam todo o escopo autorizado, sem encolher com filtros ou paginação.
+      const opcoes = await api("/api/tarefas/opcoes-filtros?" + new URLSearchParams({visao: consulta.visao}));
+      if (chamada !== s.consulta || !sessaoValida()) return false;
+      const atuais = opcoes.titulos || [], selecionado = $("tar-titulo").value;
+      const titulos = atuais.map(titulo => ({valor: titulo, rotulo: titulo}));
+      if (selecionado && !atuais.includes(selecionado))
+        titulos.push({valor: selecionado, rotulo: `${selecionado} (sem tarefas nesta visão)`});
+      // A edição mais recente continua no formulário; a consulta usa o que foi submetido.
+      u.opcoes($("tar-titulo"), titulos, "Todas as tarefas", selecionado);
+      const r = await api("/api/tarefas?" + new URLSearchParams({...consulta, pagina: s.pagina}));
       if (chamada !== s.consulta || !sessaoValida()) return false;
       s.itens = r.itens; s.pagina = r.pagina; s.selecionadas.clear();
       const tbody = $("tar-tabela").querySelector("tbody"); tbody.textContent = "";
@@ -480,12 +522,15 @@ Abas.registrar("tarefas", container => {
         if (t.nao_se_aplica_mais) estado.append(u.el("small", "Não se aplica mais — avaliar dispensa", "tar-secundario"));
         tr.append(estado); const acoes = u.el("td"); acoes.append(u.botao("Abrir", () => detalhe(t.id))); tr.append(acoes); tbody.append(tr);
       }
-      if (!r.itens.length) { const tr = u.el("tr"), td = u.el("td", "Nenhuma tarefa encontrada com estes filtros.", "tar-vazio"); td.colSpan = 8; tr.append(td); tbody.append(tr); }
+      if (!r.itens.length) { const tr = u.el("tr"), td = u.el("td", u.mensagemVazia(consulta, opcoes.total_escopo), "tar-vazio"); td.colSpan = 8; tr.append(td); tbody.append(tr); }
       $("tar-pagina").textContent = `${r.total} tarefa(s) · Página ${r.pagina} de ${Math.max(1, r.paginas)}`;
       $("tar-anterior").disabled = r.pagina <= 1; $("tar-proxima").disabled = r.pagina >= r.paginas;
       atualizarSelecao(); status("");
       AvisoTarefas.mostrar().catch(e => { if (chamada === s.consulta && sessaoValida()) status("Tarefas carregadas. Não foi possível atualizar o aviso: " + e.message, true); }); return true;
-    } catch (e) { if (chamada === s.consulta && sessaoValida()) status(e.message, true); return false; }
+    } catch (e) {
+      if (chamada === s.consulta && sessaoValida()) { limparResultados("Não foi possível consultar as tarefas. Tente Atualizar."); status(e.message, true); }
+      return false;
+    }
   }
   async function detalhe(id) {
     const consulta = ++s.detalheConsulta;
@@ -793,6 +838,10 @@ Abas.registrar("tarefas", container => {
     $("tar-configuracao").classList.toggle("oculto", visao !== "configuracao"); $("tar-importar").classList.toggle("oculto", visao !== "importar");
     $("tar-responsavel").disabled = visao === "minhas";
     $("tar-sem-responsavel").disabled = visao === "minhas";
+    $("tar-escopo").textContent = visao === "minhas"
+      ? "Minhas tarefas: somente as tarefas atribuídas a você, inclusive substituições vigentes."
+      : visao === "setor" ? "Setor: tarefas dos setores que você pode consultar. Use os filtros para restringir a listagem."
+      : "Agenda do cliente: tarefas dos clientes e setores aos quais você tem acesso. Escolha um cliente ou consulte todos os disponíveis.";
     if (visao === "minhas") { $("tar-responsavel").value = ""; $("tar-sem-responsavel").checked = false; }
     $("tar-detalhe").classList.add("oculto");
     ++s.detalheConsulta;
@@ -809,7 +858,15 @@ Abas.registrar("tarefas", container => {
   $("tar-todas").addEventListener("change", e => { s.selecionadas.clear(); if (e.target.checked) s.itens.filter(t => u.podeLote(t)).forEach(t => s.selecionadas.add(t.id));
     $("tar-tabela").querySelectorAll("tbody input").forEach((cb, i) => { cb.checked = s.selecionadas.has(s.itens[i].id); }); atualizarSelecao(); });
   $("tar-filtros").addEventListener("submit", e => { e.preventDefault(); s.pagina = 1; carregar(); });
-  $("tar-limpar").addEventListener("click", () => { $("tar-filtros").reset(); s.pagina = 1; carregar(); });
+  function limparFiltros() {
+    $("tar-filtros").reset();
+    // Defaults explícitos também para opções reconstruídas após Atualizar.
+    for (const id of ["titulo", "texto", "cliente", "setor", "responsavel", "competencia", "situacao", "de", "ate"]) $(`tar-${id}`).value = "";
+    $("tar-fila").value = "todas";
+    for (const id of ["sem-responsavel", "abertas", "pendente-conferencia"]) $(`tar-${id}`).checked = false;
+    s.pagina = 1;
+  }
+  $("tar-limpar").addEventListener("click", () => { limparFiltros(); carregar(); });
   $("tar-anterior").addEventListener("click", () => { s.pagina = Math.max(1, s.pagina - 1); carregar(); });
   $("tar-proxima").addEventListener("click", () => { s.pagina += 1; carregar(); });
   $("tar-atualizar").addEventListener("click", async () => { try { await catalogo(); abrirVisao(s.visao); } catch (e) { status(e.message, true); } });
@@ -827,7 +884,8 @@ Abas.registrar("tarefas", container => {
     try {
       const c = u.contexto(valor); await pronto;
       if (chamada !== s.contextoConsulta || !sessaoValida()) return;
-      $("tar-filtros").reset();
+      limparFiltros();
+      if (c.filtros.titulo) u.opcoes($("tar-titulo"), [{valor: c.filtros.titulo, rotulo: c.filtros.titulo}], "Todas as tarefas", c.filtros.titulo);
       for (const [id, chave] of [["cliente", "cliente_id"], ["setor", "setor_id"], ["responsavel", "responsavel_usuario_id"],
         ["competencia", "competencia"], ["situacao", "situacao"], ["texto", "texto"], ["de", "vencimento_de"], ["ate", "vencimento_ate"]])
         $(`tar-${id}`).value = c.filtros[chave] ?? "";
