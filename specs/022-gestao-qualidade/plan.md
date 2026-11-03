@@ -3,6 +3,9 @@
 Implementação local autorizada em 30/10/2026. Base: dev após PR #28,
 merge `15d90f17d7c4a41390df7f56ff21ff1c8621cada`. Em 03/11/2026, foi autorizada
 a publicação do branch por commit, push e PR para `dev`, sem merge ou deploy.
+Posteriormente, no mesmo dia, foram autorizadas a correção do executor, promoção
+por PR/merge commit e implantação verificada na arm07. A transição administrativa
+de dependências e sua ordem operacional estão no README do autodeploy e no roteiro.
 
 ## Arquitetura e dados
 

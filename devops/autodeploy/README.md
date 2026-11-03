@@ -95,6 +95,37 @@ são copiadas para uma pasta única, datada, em
 `/var/lib/auditoria-jb-autodeploy/install-backups/`. Arquivos idênticos não geram
 nova cópia. Nenhum backup é apagado ou sobrescrito automaticamente.
 
+### Transição administrativa de dependências
+
+Alterações de manifests continuam recusadas por padrão com
+`dependencies_require_maintenance`. Para uma atualização explicitamente revisada,
+o instalador aceita **juntas** `--dependencies-from-sha SHA_ATUAL` e
+`--dependencies-target-tree ARVORE_CANDIDATA`. Isso registra a autorização privada
+`dependency_transition` com `from_sha` e `target_tree`. O executor exige que ambos
+correspondam exatamente ao checkout atual e à árvore do candidato; não basta
+instalar pacotes ou aprovar somente um branch móvel. A árvore permite o merge
+commit da promoção sem autorizar outro conteúdo. Outros alvos continuam bloqueados.
+
+Antes de preparar o runtime, conservar cópia recuperável do venv anterior e seu
+`pip freeze`: o backup pré-deploy do executor ocorrerá **depois** dessa preparação.
+Resolver dependências em cópia isolada, preservando versões existentes quando
+compatíveis; revisar inclusões, upgrades e remoções. Conferir versões efetivas e
+`pip check`; os testes com clientes simulados não comprovam a instalação do SDK.
+O executor não instala dependências e conserva testes, backups, ensaio da migração,
+inventários e saúde obrigatórios mesmo com a transição autorizada.
+
+Sequência de manutenção: pausar timer, aguardar executor encerrar, preparar e
+verificar runtime/pacote aprovados, instalar com a transição exata e manter timer
+parado. Depois do merge autorizado, conferir que `main` contém a árvore aprovada;
+**somente então** executar `--check` e `enable`. Antes do merge, o novo digest pode
+ser incompatível com o pacote da `main` antiga. Não avançar manualmente o checkout,
+não adulterar o estado e não remover verificações para produzir um no-op.
+
+Após sucesso, o checkout deixa de corresponder ao SHA de origem autorizado, de
+modo que a autorização não libera futuras mudanças de dependências. O registro
+pode ser removido em uma manutenção posterior; sua permanência não autoriza outro
+par de origem e árvore. Uma nova transição exige revisão administrativa própria.
+
 ## Configuração
 
 Exemplo sem segredos; o OID deve ser substituído pelo valor aprovado. O instalador

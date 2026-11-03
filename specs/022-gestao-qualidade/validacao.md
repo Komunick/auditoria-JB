@@ -72,4 +72,31 @@ em produção e no Linear.
 As regras reais da carteira, concessão de acessos, configuração do S3/backup de
 objetos e ativação de SMTP dependem da implantação aprovada e das definições do
 escritório. Validação estrutural de anexos não é análise antimalware. A janela
-administrativa de reinstalação do executor permanece documentada, não executada.
+administrativa de reinstalação do executor foi autorizada posteriormente, conforme
+a seção seguinte; o registro anterior descreve o estado ao preparar o PR inicial.
+
+## Correção do executor para publicação — 03/11/2026
+
+O gate original recusava toda mudança de manifests, mesmo após a instalação
+administrativa de pacotes. A autorização opcional `dependency_transition` fixa
+SHA de origem e árvore completa do candidato. Os dois valores são obrigatórios,
+validados e registrados pelo instalador em configuração privada; outro par
+continua recusado. Não há instalação automática, alteração de estado para simular
+sucesso ou remoção dos testes, backups, ensaio de migração e verificações de saúde.
+
+RED reproduzido nos dois testes do executor antes da alteração. GREEN em
+`test_autodeploy.py` e `test_autodeploy_install.py`, repetido por revisão
+independente sem achados bloqueantes. Casos cobrem ausência/par inválido, origem
+ou árvore divergente, merge com SHA diferente e mesma árvore, recusa de alvo
+futuro, check/no-op, registro da transição e backup da configuração anterior.
+
+Regressão completa posterior à correção: **101 scripts, 99 aprovados, 2 ignorados
+por Firebird indisponível, zero falhas e nenhuma alteração funcional durante a
+execução**. Logs e manifestos privados em
+`tmp/validacao-spec022-20261103-101204`, fora do Git. `git diff --check` aprovado.
+
+A sequência operacional foi corrigida: timer pausado, backup do runtime anterior,
+resolução isolada de dependências, instalação administrativa conferida, promoção
+da árvore aprovada e somente depois preflight/ativação. Na preparação da arm07,
+cinco pacotes foram resolvidos por versão/hash em cópia do venv, sem atualizar ou
+remover pacotes anteriores; `pip check` aprovado. S3 real continua não configurado.

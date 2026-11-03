@@ -10,7 +10,10 @@
 - [x] T008 Revisão independente, segurança, migração e regressão completa.
 - [x] T009 Preview navegável com dados sintéticos e evidências por item do PDF.
 - [x] T010 Roteiro de implantação e treinamento; limites operacionais documentados.
+- [x] T011 Transição administrativa de dependências restrita a SHA de origem e
+  árvore candidata, testes RED/GREEN e revisão independente do executor.
 
-Aceite local: [validacao.md](validacao.md). Commit, push e PR para `dev` foram
-autorizados em 03/11/2026. Merge, implantação e configuração em produção não
-fazem parte desta entrega e não foram executados.
+Aceite local: [validacao.md](validacao.md). Publicação autorizada posteriormente
+em 03/11/2026, incluindo correção do executor, PRs por merge commit e implantação
+verificada na arm07. O resultado operacional deve ser conferido no relatório da
+implantação; tarefas de código concluídas não comprovam deploy por si sós.
