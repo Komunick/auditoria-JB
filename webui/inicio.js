@@ -297,7 +297,7 @@ const CentralUI = {
           if (s.filtros[campo] && !valido(s.filtros[campo])) { delete s.filtros[campo]; s.pagina = 1; }
         }
         const visoes = [{valor: "cliente", rotulo: "Todo o meu acesso"}, {valor: "minhas", rotulo: "Minhas tarefas"}];
-        if ((c.setores_geridos || []).length || Sessao.pode("tarefas.todas")) {
+        if (u.setoresConsultaveis(c).length || Sessao.pode("tarefas.todas")) {
           visoes.push({valor: "setor", rotulo: "Visão dos setores"});
         }
         const visaoValida = valor => visoes.some(i => i.valor === valor);

@@ -85,6 +85,16 @@ CREATE TRIGGER IF NOT EXISTS trg_tarefa_evento_sem_update BEFORE UPDATE ON taref
  BEGIN SELECT RAISE(ABORT,'Evento de tarefa e imutavel.'); END;
 CREATE TRIGGER IF NOT EXISTS trg_tarefa_evento_sem_delete BEFORE DELETE ON tarefa_evento
  BEGIN SELECT RAISE(ABORT,'Evento de tarefa e imutavel.'); END;
+CREATE TABLE IF NOT EXISTS tarefa_execucao_autorizacao (
+ id INTEGER PRIMARY KEY, tarefa_id INTEGER NOT NULL REFERENCES tarefa(id),
+ executor_usuario_id INTEGER NOT NULL, solicitante_usuario_id INTEGER NOT NULL,
+ decidido_por INTEGER, estado TEXT NOT NULL CHECK(estado IN ('pendente','autorizada','recusada','revogada')),
+ contexto TEXT NOT NULL, motivo TEXT NOT NULL, decisao_motivo TEXT NOT NULL DEFAULT '',
+ criada_em TEXT NOT NULL, decidida_em TEXT NOT NULL DEFAULT '');
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tarefa_execucao_atual
+ ON tarefa_execucao_autorizacao(tarefa_id,executor_usuario_id) WHERE estado IN ('pendente','autorizada');
+CREATE INDEX IF NOT EXISTS idx_tarefa_execucao_usuario
+ ON tarefa_execucao_autorizacao(executor_usuario_id,estado,tarefa_id);
 CREATE TABLE IF NOT EXISTS geracao (
  id INTEGER PRIMARY KEY, competencia TEXT NOT NULL, setor_id INTEGER NOT NULL REFERENCES setor(id),
  disparo TEXT NOT NULL, usuario_login TEXT NOT NULL, criada_em TEXT NOT NULL, contagens TEXT NOT NULL);
@@ -146,8 +156,10 @@ def _bool(valor):
 
 
 class TarefasStore(ClientesStore):
-    def __init__(self, db_path, *, usuario_ativo=None, agora_fn=None):
+    def __init__(self, db_path, *, usuario_ativo=None, agora_fn=None, usuario_pode_executar=None):
         self.usuario_ativo = usuario_ativo or (lambda uid: True)
+        # Uma integracao deve fornecer a permissao atual; nao ha concessao implicita.
+        self.usuario_pode_executar = usuario_pode_executar or (lambda uid: False)
         self.agora_fn = agora_fn or (lambda: datetime.now(timezone.utc))
         super().__init__(db_path)
 
@@ -737,7 +749,7 @@ class TarefasStore(ClientesStore):
             "sem_responsavel": f"({pendentes} AND t.responsavel_usuario_id IS NULL)",
         }
 
-    def _consulta_tarefas(self, filtros, hoje, escopo_usuario_id, escopo_setores, todas, alerta_dias):
+    def _consulta_tarefas(self, filtros, hoje, escopo_usuario_id, escopo_setores, todas, alerta_dias, escopo_tarefas=None):
         """Um predicado parametrizado para lista, exportacao e totais autorizados."""
         onde, valores = [], []
         efetivo = "COALESCE((SELECT sub.substituto_usuario_id FROM substituicao sub WHERE sub.titular_usuario_id=t.responsavel_usuario_id AND (sub.setor_id=t.setor_id OR sub.setor_id IS NULL) AND sub.inicio<=? AND sub.fim>=? ORDER BY sub.id DESC LIMIT 1),t.responsavel_usuario_id)"
@@ -755,6 +767,10 @@ class TarefasStore(ClientesStore):
                 setores = sorted({_id(i) for i in escopo_setores})
                 escopos.append("t.setor_id IN (" + ",".join("?" for _ in setores) + ")")
                 valores.extend(setores)
+            if escopo_tarefas:
+                tarefas = sorted({_id(i) for i in escopo_tarefas})
+                escopos.append("t.id IN (" + ",".join("?" for _ in tarefas) + ")")
+                valores.extend(tarefas)
             onde.append("(" + " OR ".join(escopos) + ")" if escopos else "0=1")
         for campo in ("cliente_id", "setor_id"):
             if filtros.get(campo) not in (None, ""):
@@ -798,11 +814,11 @@ class TarefasStore(ClientesStore):
         return consulta, valores
 
     def listar_tarefas(self, filtros=None, hoje=None, offset=0, limite=100,
-                      escopo_usuario_id=None, escopo_setores=None, todas=False):
+                      escopo_usuario_id=None, escopo_setores=None, todas=False, escopo_tarefas=None):
         filtros = self._normalizar_filtros_tarefas(filtros)
         hoje = self._hoje(hoje)
         consulta, valores = self._consulta_tarefas(filtros, hoje, escopo_usuario_id, escopo_setores,
-                                                  todas, self.configuracao()["tarefas_alerta_dias"])
+                                                  todas, self.configuracao()["tarefas_alerta_dias"], escopo_tarefas)
         total = self._conn.execute("SELECT COUNT(*)" + consulta, valores).fetchone()[0]
         limite, offset = max(1, min(2000, int(limite))), max(0, int(offset))
         ordem = "(t.vencimento=''),t.vencimento,t.cliente_nome,t.id"
@@ -815,7 +831,7 @@ class TarefasStore(ClientesStore):
             "SELECT t.*" + consulta + " ORDER BY " + ordem + " LIMIT ? OFFSET ?", (*valores, limite, offset))]
         return {"itens": itens, "total": total, "offset": offset, "limite": limite}
 
-    def opcoes_filtros_tarefas(self, hoje=None, escopo_usuario_id=None, escopo_setores=None, todas=False):
+    def opcoes_filtros_tarefas(self, hoje=None, escopo_usuario_id=None, escopo_setores=None, todas=False, escopo_tarefas=None):
         """Títulos e total do escopo completo; independentes da página e dos filtros."""
         hoje = self._hoje(hoje)
         propria = not self._conn.in_transaction
@@ -823,7 +839,7 @@ class TarefasStore(ClientesStore):
             self._conn.execute("BEGIN")
         try:
             consulta, valores = self._consulta_tarefas({}, hoje, escopo_usuario_id, escopo_setores,
-                                                       todas, self.configuracao()["tarefas_alerta_dias"])
+                                                       todas, self.configuracao()["tarefas_alerta_dias"], escopo_tarefas)
             total = self._conn.execute("SELECT COUNT(*)" + consulta, valores).fetchone()[0]
             titulos = [r[0] for r in self._conn.execute("SELECT DISTINCT t.titulo" + consulta
                        + " ORDER BY t.titulo COLLATE NOCASE,t.titulo", valores)]
@@ -833,7 +849,7 @@ class TarefasStore(ClientesStore):
                 self._conn.rollback()
 
     def painel_tarefas(self, filtros=None, hoje=None, pagina=1, limite=10, fila="pendentes",
-                       escopo_usuario_id=None, escopo_setores=None, todas=False):
+                       escopo_usuario_id=None, escopo_setores=None, todas=False, escopo_tarefas=None):
         if type(pagina) is not int or pagina < 1 or type(limite) is not int or not 1 <= limite <= 200:
             raise regras.ErroTarefas("FILTRO_INVALIDO", "Paginação inválida.")
         base = self._normalizar_filtros_tarefas(filtros)
@@ -846,7 +862,7 @@ class TarefasStore(ClientesStore):
             self._conn.execute("BEGIN")
         try:
             alerta = self.configuracao()["tarefas_alerta_dias"]
-            consulta, valores = self._consulta_tarefas(base, hoje, escopo_usuario_id, escopo_setores, todas, alerta)
+            consulta, valores = self._consulta_tarefas(base, hoje, escopo_usuario_id, escopo_setores, todas, alerta, escopo_tarefas)
             categorias = self._condicoes_fila()
             medidas = {"abertas": "t.situacao IN ('a_fazer','em_andamento','aguardando_cliente','devolvida')",
                        **{chave: categorias[chave] for chave in ("pendentes", "atrasadas", "proximas",
@@ -864,7 +880,7 @@ class TarefasStore(ClientesStore):
                 "SELECT t.responsavel_efetivo_id AS id,COUNT(*) AS total," + somas(grupo) + consulta
                 + " GROUP BY t.responsavel_efetivo_id ORDER BY (id IS NULL),id", valores)]
             itens = self.listar_tarefas({**base, "fila": fila}, hoje, (pagina-1)*limite, limite,
-                                       escopo_usuario_id, escopo_setores, todas)
+                                       escopo_usuario_id, escopo_setores, todas, escopo_tarefas)
             return {"hoje": hoje.isoformat(), "fuso": "America/Bahia", "alerta_dias": alerta,
                     "filtros": base, "resumo": resumo, "por_responsavel": responsaveis,
                     "fila": {"itens": itens["itens"], "total": itens["total"], "pagina": pagina,
@@ -997,6 +1013,158 @@ class TarefasStore(ClientesStore):
     def eventos(self, tarefa_id):
         self._um("tarefa", tarefa_id)
         return [dict(r) for r in self._conn.execute("SELECT * FROM tarefa_evento WHERE tarefa_id=? ORDER BY id", (tarefa_id,))]
+
+    # Autorizacao individual de execucao ---------------------------------
+    def _membro_executor(self, setor_id, uid):
+        if uid is None or not self.usuario_ativo(uid) or not self.usuario_pode_executar(uid):
+            return None
+        r = self._conn.execute("SELECT id FROM setor_membro WHERE setor_id=? AND usuario_id=? AND ate=''", (setor_id, uid)).fetchone()
+        return r[0] if r else None
+
+    def responsavel_delegacao(self, tarefa, hoje=None):
+        """Responsavel efetivo elegivel para decidir apoio, ou None."""
+        setor = self._um("setor", tarefa["setor_id"])
+        titular = tarefa["responsavel_usuario_id"]
+        efetivo = self.responsavel_efetivo(setor["id"], titular, hoje)
+        if (not setor["ativo"] or titular is None or not self.usuario_ativo(titular)
+                or not self._conn.execute("SELECT 1 FROM setor_membro WHERE setor_id=? AND usuario_id=? AND ate=''", (setor["id"], titular)).fetchone()
+                or not self._membro_executor(setor["id"], efetivo)):
+            return None
+        return efetivo
+
+    def _contexto_execucao(self, tarefa, executor_id, hoje=None):
+        """Contexto verificavel em leitura, sem renovar concessoes antigas.
+
+        IDs de vinculos e eventos distinguem sair/voltar e A->B->A, mesmo
+        no mesmo segundo. Substituicoes iniciadas invalidam o contexto anterior
+        inclusive depois que o titular retorna. Atividade/permissao de usuario
+        sao consultadas na integracao atual, sem copiar o banco de autenticacao.
+        """
+        sid, titular = tarefa["setor_id"], tarefa["responsavel_usuario_id"]
+        efetivo = self.responsavel_delegacao(tarefa, hoje)
+        executor_vinculo = self._membro_executor(sid, executor_id)
+        if efetivo is None or executor_vinculo is None or efetivo == executor_id:
+            return None
+        titular_vinculo = self._conn.execute("SELECT id FROM setor_membro WHERE setor_id=? AND usuario_id=? AND ate=''", (sid, titular)).fetchone()[0]
+        efetivo_vinculo = self._membro_executor(sid, efetivo)
+        marco_tarefa = self._conn.execute("SELECT COALESCE(MAX(id),0) FROM tarefa_evento WHERE tarefa_id=? AND (tipo='responsavel' OR (tipo='situacao' AND para IN ('a_fazer','devolvida')))", (tarefa["id"],)).fetchone()[0]
+        marco_carteira = self._conn.execute("SELECT COALESCE(MAX(id),0) FROM alteracao WHERE entidade='cliente' AND entidade_id=? AND campo=?", (tarefa["cliente_id"], f"carteira:{sid}")).fetchone()[0]
+        # O cadastro e auditado; renomear o setor nao encerra autorizacoes.
+        marco_setor = self._conn.execute("SELECT COALESCE(MAX(id),0) FROM alteracao WHERE entidade='setor' AND entidade_id=? AND campo='cadastro' AND json_extract(antes,'$.ativo') IS NOT json_extract(depois,'$.ativo')", (sid,)).fetchone()[0]
+        # Datas futuras podem ser cadastradas fora da ordem cronologica. MAX(id)
+        # sozinho deixaria uma substituicao antiga em ID passar despercebida.
+        marco_substituicao = [r[0] for r in self._conn.execute("SELECT id FROM substituicao WHERE titular_usuario_id=? AND (setor_id=? OR setor_id IS NULL) AND inicio<=? ORDER BY id", (titular, sid, self._hoje(hoje).isoformat()))]
+        return {"titular": titular, "efetivo": efetivo, "titular_vinculo": titular_vinculo,
+                "efetivo_vinculo": efetivo_vinculo, "executor_vinculo": executor_vinculo,
+                "marco_tarefa": marco_tarefa, "marco_carteira": marco_carteira,
+                "marco_setor": marco_setor, "marco_substituicao": marco_substituicao}
+
+    def _autorizacao_execucao_dict(self, registro, tarefa=None, hoje=None):
+        item = dict(registro)
+        tarefa = tarefa or self._um("tarefa", item["tarefa_id"])
+        contexto = self._contexto_execucao(tarefa, item["executor_usuario_id"], hoje)
+        original = json.loads(item.pop("contexto"))
+        item["vigente"] = bool(item["estado"] in ("pendente", "autorizada") and contexto is not None
+                               and original == contexto)
+        item["revision"] = tarefa["revision"]
+        return item
+
+    def autorizacoes_execucao(self, tarefa_id, hoje=None):
+        tarefa = self._um("tarefa", tarefa_id)
+        return [self._autorizacao_execucao_dict(r, tarefa, hoje) for r in self._conn.execute(
+            "SELECT * FROM tarefa_execucao_autorizacao WHERE tarefa_id=? ORDER BY id", (tarefa["id"],))]
+
+    def pode_executar_delegado(self, tarefa, usuario_id, hoje=None):
+        # Nunca usar revision/situacao de um DTO anterior para liberar execucao.
+        atual = self._um("tarefa", tarefa["id"] if isinstance(tarefa, dict) else tarefa)
+        if atual["situacao"] not in ABERTAS:
+            return False
+        uid = _id(usuario_id)
+        r = self._conn.execute("SELECT * FROM tarefa_execucao_autorizacao WHERE tarefa_id=? AND executor_usuario_id=? AND estado='autorizada'", (atual["id"], uid)).fetchone()
+        return bool(r and self._autorizacao_execucao_dict(r, atual, hoje)["vigente"])
+
+    def tarefas_autorizadas(self, usuario_id, hoje=None):
+        uid = _id(usuario_id)
+        if not self.usuario_ativo(uid) or not self.usuario_pode_executar(uid):
+            return []
+        return sorted({r["tarefa_id"] for r in self._conn.execute(
+            "SELECT * FROM tarefa_execucao_autorizacao WHERE executor_usuario_id=? AND estado='autorizada'", (uid,))
+            if self._autorizacao_execucao_dict(r, hoje=hoje)["vigente"]})
+
+    def _validar_dono_execucao(self, tarefa, usuario_id, hoje=None):
+        if self.responsavel_delegacao(tarefa, hoje) != _id(usuario_id):
+            raise PermissionError("Somente o responsável efetivo desta tarefa pode autorizar ou decidir o apoio.")
+
+    def _validar_alvo_execucao(self, tarefa, executor_id, hoje=None):
+        uid = _id(executor_id)
+        if uid == self.responsavel_efetivo(tarefa["setor_id"], tarefa["responsavel_usuario_id"], hoje):
+            raise regras.ErroTarefas("EXECUTOR_INVALIDO", "O responsável já executa a tarefa; selecione outro membro do setor.")
+        contexto = self._contexto_execucao(tarefa, uid, hoje)
+        if contexto is None:
+            raise regras.ErroTarefas("EXECUTOR_INVALIDO", "O apoio exige responsável e executor ativos, vinculados ao setor e com permissão de execução.")
+        return uid, contexto
+
+    def _evento_execucao(self, tarefa, registro, de, para, motivo, usuario_id, usuario_login):
+        comentario = f"Autorização #{registro['id']} para o executor #{registro['executor_usuario_id']}: {motivo}"
+        self._evento(tarefa, "execucao", de, para, comentario, usuario_id, usuario_login)
+
+    def _criar_autorizacao_execucao(self, tarefa_id, executor_id, revision, motivo, estado, usuario_id, usuario_login, hoje):
+        tarefa = self._um("tarefa", tarefa_id)
+        self._revision(tarefa, revision)
+        motivo = _texto(motivo, "Motivo", 4000)
+        if tarefa["situacao"] not in ABERTAS:
+            raise regras.ErroTarefas("TAREFA_FECHADA", "O apoio só pode ser solicitado ou autorizado em tarefa aberta.")
+        if estado == "autorizada":
+            self._validar_dono_execucao(tarefa, usuario_id, hoje)
+        executor_id, contexto = self._validar_alvo_execucao(tarefa, executor_id, hoje)
+        anterior = self._conn.execute("SELECT * FROM tarefa_execucao_autorizacao WHERE tarefa_id=? AND executor_usuario_id=? AND estado IN ('pendente','autorizada')", (tarefa["id"], executor_id)).fetchone()
+        if anterior:
+            if self._autorizacao_execucao_dict(anterior, tarefa, hoje)["vigente"]:
+                raise regras.ErroTarefas("EXECUCAO_DUPLICADA", "Já existe pedido ou autorização vigente para essa pessoa. Consulte o registro antes de decidir.")
+            justificativa = "Contexto anterior alterado; nova solicitação ou autorização registrada."
+            self._conn.execute("UPDATE tarefa_execucao_autorizacao SET estado='revogada',decidido_por=?,decidida_em=?,decisao_motivo=? WHERE id=?", (usuario_id, self._agora(), justificativa, anterior["id"]))
+            self._evento_execucao(tarefa, anterior, anterior["estado"], "revogada", justificativa, usuario_id, usuario_login)
+        decidiu = estado == "autorizada"
+        rid = self._conn.execute("INSERT INTO tarefa_execucao_autorizacao(tarefa_id,executor_usuario_id,solicitante_usuario_id,decidido_por,estado,contexto,motivo,decisao_motivo,criada_em,decidida_em) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                                 (tarefa["id"], executor_id, usuario_id, usuario_id if decidiu else None, estado,
+                                  _json(contexto), motivo, motivo if decidiu else "", self._agora(), self._agora() if decidiu else "")).lastrowid
+        registro = self._conn.execute("SELECT * FROM tarefa_execucao_autorizacao WHERE id=?", (rid,)).fetchone()
+        self._conn.execute("UPDATE tarefa SET revision=revision+1,atualizada_em=? WHERE id=?", (self._agora(), tarefa["id"]))
+        self._evento_execucao(tarefa, registro, "", estado, motivo, usuario_id, usuario_login)
+        return self._autorizacao_execucao_dict(registro, hoje=hoje)
+
+    def autorizar_execucao(self, tarefa_id, executor_id, revision, motivo, *, usuario_id=0, usuario_login="", hoje=None):
+        return self._transacao(lambda conn: self._criar_autorizacao_execucao(
+            tarefa_id, executor_id, revision, motivo, "autorizada", usuario_id, usuario_login, hoje))
+
+    def solicitar_execucao(self, tarefa_id, revision, motivo, *, usuario_id=0, usuario_login="", hoje=None):
+        return self._transacao(lambda conn: self._criar_autorizacao_execucao(
+            tarefa_id, _id(usuario_id), revision, motivo, "pendente", usuario_id, usuario_login, hoje))
+
+    def decidir_execucao(self, tarefa_id, autorizacao_id, acao, revision, motivo, *, usuario_id=0, usuario_login="", hoje=None):
+        def gravar(conn):
+            tarefa = self._um("tarefa", tarefa_id)
+            self._revision(tarefa, revision)
+            self._validar_dono_execucao(tarefa, usuario_id, hoje)
+            justificativa = _texto(motivo, "Motivo", 4000)
+            r = conn.execute("SELECT * FROM tarefa_execucao_autorizacao WHERE id=? AND tarefa_id=?", (_id(autorizacao_id), tarefa["id"])).fetchone()
+            if r is None:
+                raise LookupError("Autorização de execução não encontrada nesta tarefa.")
+            transicoes = {"aprovar": ("pendente", "autorizada"),
+                          "recusar": ("pendente", "recusada"), "revogar": ("autorizada", "revogada")}
+            if acao not in transicoes or r["estado"] != transicoes[acao][0]:
+                raise regras.ErroTarefas("DECISAO_INVALIDA", "A decisão não corresponde ao estado atual do pedido ou autorização.")
+            novo_estado = transicoes[acao][1]
+            if novo_estado == "autorizada":
+                if tarefa["situacao"] not in ABERTAS:
+                    raise regras.ErroTarefas("TAREFA_FECHADA", "Uma tarefa encerrada não pode receber autorização de execução.")
+                if not self._autorizacao_execucao_dict(r, tarefa, hoje)["vigente"]:
+                    raise regras.ErroTarefas("AUTORIZACAO_DESATUALIZADA", "O contexto da tarefa mudou. Solicite ou registre uma nova autorização.")
+            conn.execute("UPDATE tarefa_execucao_autorizacao SET estado=?,decidido_por=?,decidida_em=?,decisao_motivo=? WHERE id=?", (novo_estado, usuario_id, self._agora(), justificativa, r["id"]))
+            conn.execute("UPDATE tarefa SET revision=revision+1,atualizada_em=? WHERE id=?", (self._agora(), tarefa["id"]))
+            self._evento_execucao(tarefa, r, r["estado"], novo_estado, justificativa, usuario_id, usuario_login)
+            return self._autorizacao_execucao_dict(conn.execute("SELECT * FROM tarefa_execucao_autorizacao WHERE id=?", (r["id"],)).fetchone(), hoje=hoje)
+        return self._transacao(gravar)
 
     # Importacao confirmada; nenhuma criacao de cliente por suposicao ------
     def importar_carteira(self, linhas, setor_id, responsavel_usuario_id, hash_arquivo, nome_arquivo,

@@ -99,7 +99,7 @@ const TarefasUI = {
       return "A data inicial do vencimento deve ser anterior ou igual à data final.";
     const semResponsavel = p.sem_responsavel || p.fila === "sem_responsavel";
     if (p.visao === "minhas" && semResponsavel)
-      return "Minhas tarefas mostra apenas tarefas atribuídas a você. Para consultar tarefas sem responsável, use Setor ou Agenda do cliente.";
+      return "Minhas tarefas mostra tarefas atribuídas a você ou com execução autorizada. Para consultar tarefas sem responsável, use Setor ou Agenda do cliente.";
     if (p.responsavel_usuario_id && semResponsavel)
       return "Escolha um responsável ou Sem responsável; esses filtros não podem ser combinados.";
     if (p.fila === "sem_vencimento" && (p.vencimento_de || p.vencimento_ate))
@@ -110,7 +110,7 @@ const TarefasUI = {
   },
   mensagemVazia(p, totalEscopo) {
     if (!totalEscopo) return p.visao === "minhas"
-      ? "Você ainda não tem tarefas atribuídas nesta visão. Consulte Setor ou Agenda do cliente para ver as tarefas às quais tem acesso."
+      ? "Você ainda não tem tarefas atribuídas ou com execução autorizada nesta visão. Consulte Setor ou Agenda do cliente para ver as tarefas às quais tem acesso."
       : "Ainda não há tarefas disponíveis nesta visão. Os filtros apenas consultam tarefas já cadastradas ou geradas.";
     return "Nenhuma tarefa corresponde a esta combinação de filtros. Use Limpar para voltar à listagem desta visão. Competência e vencimento podem estar em meses diferentes.";
   },
@@ -132,6 +132,8 @@ const TarefasUI = {
     return `${texto}; ${ajuste}`;
   },
   setoresGeridos(c) { return (c.setores || []).filter(s => (c.setores_geridos || []).includes(s.id)); },
+  setoresConsultaveis(c) { return (c.setores || []).filter(s => (c.setores_consultaveis || c.setores_geridos || []).includes(s.id)); },
+  estadoExecucao(estado) { return ({pendente: "Aguardando aprovação", autorizada: "Autorizada", recusada: "Recusada", revogada: "Revogada"})[estado] || estado; },
   usuariosSetor(c, setorId) {
     const setor = (c.setores || []).find(s => s.id === Number(setorId));
     const membros = (setor?.membros || []).map(m => typeof m === "object" ? m.usuario_id : m);
@@ -461,6 +463,9 @@ Abas.registrar("tarefas", container => {
     const resposta = await api("/api/tarefas/catalogo");
     if (!sessaoValida()) return;
     s.catalogo = resposta;
+    const consultaSetor = pode("tarefas.todas") || u.setoresConsultaveis(s.catalogo).length > 0;
+    $("tar-nav").querySelector('[data-visao="setor"]').classList.toggle("oculto", !consultaSetor);
+    if (s.visao === "setor" && !consultaSetor) s.visao = "minhas";
     for (const [id, itens, vazio] of [["tar-cliente", s.catalogo.clientes, "Todos os clientes"],
       ["tar-setor", s.catalogo.setores, "Todos os setores"], ["tar-responsavel", pessoas(), "Todos"],
       ["tar-imp-setor", setoresGeridos(), "Escolha o setor"], ["tar-imp-responsavel", u.usuariosSetor(s.catalogo, $("tar-imp-setor").value), "Escolha o responsável"]]) {
@@ -514,6 +519,7 @@ Abas.registrar("tarefas", container => {
         escolher.addEventListener("change", () => { if (escolher.checked) s.selecionadas.add(t.id); else s.selecionadas.delete(t.id); atualizarSelecao(); });
         const tdEscolher = u.el("td"); tdEscolher.append(escolher); tr.append(tdEscolher);
         const titulo = u.el("td"); titulo.append(u.el("strong", t.titulo), u.el("small", t.cliente_nome || "", "tar-secundario"));
+        if (t.execucao_delegada === true) titulo.append(u.el("small", "Execução autorizada para você", "tar-secundario"));
         if (u.ocorrencia(t)) titulo.append(u.el("small", u.ocorrencia(t), "tar-secundario")); tr.append(titulo);
         for (const texto of [t.setor_nome || "—", t.responsavel_efetivo_nome || t.responsavel_nome || nomePessoa(t.responsavel_efetivo_id ?? t.responsavel_usuario_id),
           t.competencia || "Avulsa", u.vencimento(t.vencimento)]) tr.append(u.el("td", texto));
@@ -553,6 +559,10 @@ Abas.registrar("tarefas", container => {
       for (const ajuste of t.origem?.ajustes || []) alvo.append(u.el("p", `Ajuste do cliente: ${ajuste.motivo}`, "dica"));
     } else alvo.append(u.el("p", "Origem: tarefa avulsa.", "dica"));
     if (t.nao_se_aplica_mais) alvo.append(u.el("p", "A obrigação não se aplica mais às características atuais. A tarefa foi preservada; o responsável pode dispensá-la com motivo.", "aviso"));
+    if (t.execucao_delegada === true) alvo.append(u.el("p", "Você tem autorização para executar somente esta tarefa. O responsável pela carteira permanece o mesmo.", "dica"));
+    else if (!t.pode_executar && !t.pode_gerir) alvo.append(u.el("p", t.execucao?.pode_solicitar === true
+      ? "Você pode consultar esta tarefa. Para executá-la, solicite a autorização do responsável."
+      : "Esta tarefa está disponível para consulta.", "dica"));
     const acoes = u.el("div", undefined, "acoes");
     const destinos = t.transicoes || ({a_fazer: ["em_andamento", "aguardando_cliente"], em_andamento: ["concluida", "aguardando_cliente"],
       aguardando_cliente: ["em_andamento", "concluida"], devolvida: ["em_andamento", "aguardando_cliente", "concluida"], concluida: t.exige_conferencia ? ["conferida", "devolvida"] : []}[t.situacao] || []);
@@ -588,12 +598,54 @@ Abas.registrar("tarefas", container => {
       {nome: "comentario", rotulo: "Comentário", tipo: "textarea", obrigatorio: true}], async v => {
         await api(`/api/tarefas/${id}/comentarios`, {json: {comentario: v.comentario, revision: t.revision}}); await carregar(); await detalhe(id);
       })));
-    alvo.append(acoes, u.el("h4", "Histórico"));
+    alvo.append(acoes);
+    const execucao = t.execucao || {}, registros = execucao.registros || [];
+    if (execucao.pode_autorizar === true || execucao.pode_solicitar === true || registros.length) {
+      const bloco = u.el("section", undefined, "conc-bloco");
+      bloco.append(u.el("h4", "Autorizações de execução"),
+        u.el("p", "A autorização vale somente para esta tarefa e mantém o responsável original. Pedidos aguardam a aprovação dele.", "dica"));
+      const motivo = {nome: "motivo", rotulo: "Motivo", tipo: "textarea", obrigatorio: true, maxLength: 4000};
+      const enviar = async (rota, dados) => {
+        if (!sessaoValida()) throw new Error("Sua sessão mudou. Feche o formulário e abra a tarefa novamente.");
+        await api(`/api/tarefas/${id}/execucao/${rota}`, {json: {...dados, revision: t.revision}});
+        if (!sessaoValida()) return;
+        await carregar(); await detalhe(id);
+      };
+      const botoes = u.el("div", undefined, "acoes");
+      if (execucao.pode_autorizar === true && execucao.candidatos?.length) botoes.append(u.botao("Autorizar execução", () => u.form("Autorizar execução", [
+        {nome: "usuario_id", rotulo: "Quem poderá executar", tipo: "select", opcoes: execucao.candidatos, vazio: "Escolha a pessoa", obrigatorio: true}, motivo],
+        v => enviar("autorizar", {usuario_id: Number(v.usuario_id), motivo: v.motivo}),
+        "A pessoa poderá iniciar, concluir e comentar somente esta tarefa. Você continua responsável e pode revogar a autorização.")));
+      if (execucao.pode_solicitar === true) botoes.append(u.botao("Solicitar execução", () => u.form("Solicitar execução", [motivo],
+        v => enviar("solicitar", {motivo: v.motivo}),
+        "O responsável precisa aprovar seu pedido antes de você iniciar ou concluir. A autorização valerá para somente esta tarefa.")));
+      bloco.append(botoes);
+      for (const registro of registros) {
+        const item = u.el("div", undefined, "conc-bloco");
+        item.append(u.el("strong", `${registro.executor_nome || nomePessoa(registro.executor_usuario_id)} · ${u.estadoExecucao(registro.estado)}`));
+        if (registro.vigente === false && ["pendente", "autorizada"].includes(registro.estado)) item.append(u.el("p", "Sem validade atual. É necessária uma nova autorização para executar.", "dica"));
+        if (registro.solicitante_nome) item.append(u.el("p", `Registrado por ${registro.solicitante_nome}${registro.criada_em ? " em " + new Date(registro.criada_em).toLocaleString("pt-BR") : ""}`));
+        if (registro.decidido_nome) item.append(u.el("p", `Decisão de ${registro.decidido_nome}${registro.decidida_em ? " em " + new Date(registro.decidida_em).toLocaleString("pt-BR") : ""}`));
+        if (registro.motivo) item.append(u.el("p", registro.motivo));
+        if (registro.decisao_motivo && registro.decisao_motivo !== registro.motivo) item.append(u.el("p", registro.decisao_motivo));
+        const decisoes = u.el("div", undefined, "acoes");
+        for (const [acao, rotulo] of [["aprovar", "Aprovar"], ["recusar", "Recusar"], ["revogar", "Revogar"]]) {
+          if (registro[`pode_${acao}`] !== true) continue;
+          decisoes.append(u.botao(rotulo, () => u.form(`${rotulo} execução`, [motivo],
+            v => enviar(`${registro.id}/decidir`, {acao, motivo: v.motivo}),
+            `${registro.executor_nome || nomePessoa(registro.executor_usuario_id)} · ${t.titulo}. A decisão ficará no histórico desta tarefa.`)));
+        }
+        item.append(decisoes); bloco.append(item);
+      }
+      alvo.append(bloco);
+    }
+    alvo.append(u.el("h4", "Histórico"));
     const lista = u.el("ol", undefined, "tar-historico");
     for (const e of t.eventos || []) {
       const li = u.el("li"); li.append(u.el("strong", `${e.usuario_login || "Sistema"} · ${new Date(e.criado_em).toLocaleString("pt-BR")}`));
       const dePara = e.tipo === "situacao" ? `${u.rotuloSituacao(e.de)} → ${u.rotuloSituacao(e.para)}`
         : e.tipo === "vencimento" ? `Vencimento alterado: ${u.vencimento(e.de)} → ${u.vencimento(e.para)}`
+        : e.tipo === "execucao" ? `Execução: ${e.de ? u.estadoExecucao(e.de) + " → " : ""}${u.estadoExecucao(e.para)}`
         : ({criada: "Tarefa criada", comentario: "Comentário", responsavel: "Responsável alterado"}[e.tipo] || e.tipo);
       li.append(u.el("p", dePara)); if (e.comentario) li.append(u.el("p", e.comentario));
       if (e.substituindo_usuario_id) li.append(u.el("small", `Substituindo ${nomePessoa(e.substituindo_usuario_id)}`)); lista.append(li);
@@ -612,7 +664,7 @@ Abas.registrar("tarefas", container => {
       {nome: "exige_conferencia", rotulo: "Exigir conferência do responsável do setor", tipo: "checkbox"}], async v => {
         const r = await api("/api/tarefas/avulsas", {json: {...v, cliente_id: Number(v.cliente_id), setor_id: Number(v.setor_id), responsavel_usuario_id: v.responsavel_usuario_id ? Number(v.responsavel_usuario_id) : null}});
         abrirVisao("setor"); if (r.id) await detalhe(r.id);
-      });
+      }, "Uma tarefa avulsa é criada uma vez. Para repetir nos próximos meses, cadastre uma obrigação em Configuração e defina a carteira do cliente.");
   }
   function lote(acao) {
     const tarefas = u.selecao(s.itens, s.selecionadas);
@@ -637,7 +689,7 @@ Abas.registrar("tarefas", container => {
         await api("/api/tarefas/geracao/confirmar", {json: {token: previa.token}});
         $("tar-competencia").value = v.competencia; $("tar-setor").value = v.setor_id; $("tar-cliente").value = v.cliente_id;
         abrirVisao("setor"); toast("Geração concluída.");
-      }, "Você verá as ocorrências e suas datas antes de confirmar. Nenhuma obrigação é criada automaticamente no catálogo.");
+      }, "Você verá as ocorrências e suas datas antes de confirmar. Use esta prévia para completar uma competência já processada, depois de cadastrar uma obrigação ou mudar a carteira. As tarefas existentes não serão duplicadas.");
   }
   function secao(titulo, ajuda, novo, itens, texto, editar) {
     const bloco = u.el("div", undefined, "conc-bloco tar-config-bloco"), topo = u.el("div", undefined, "tar-cabecalho");
@@ -697,7 +749,7 @@ Abas.registrar("tarefas", container => {
           regra_vencimento: u.regra(v), condicao: {todas: v.todas, alguma: v.alguma, nenhuma: v.nenhuma},
           inicio_antecedencia_dias: u.antecedencia(v),
           exige_conferencia: v.exige_conferencia, ativa: v.ativa, revision: d.revision}, d.id);
-      }, "A alteração valerá para as próximas gerações. Para corrigir o prazo de uma tarefa já gerada, abra seu detalhe e use Alterar vencimento. A regra de origem da tarefa fica preservada.");
+      }, "As obrigações mensais ficam salvas e geram tarefas nos meses seguintes para os clientes que atendem às condições. A carteira define o responsável de cada cliente. Para completar um mês já processado, use Gerar competência e confira a prévia. Para corrigir uma tarefa existente, abra seu detalhe e use Alterar vencimento.");
   }
   function novoAjuste(d = {}) {
     u.form(d.id ? "Editar ajuste do cliente" : "Ajuste de uma obrigação para um cliente", [
@@ -753,7 +805,7 @@ Abas.registrar("tarefas", container => {
           toast("Carteira atualizada.");
         }, "As tarefas abertas do setor acompanham a troca; as concluídas preservam o histórico.")));
       $("tar-configuracao").append(acoes);
-      secao("Obrigações", "O catálogo começa vazio. Cadastre os prazos confirmados pelo escritório.", () => editarObrigacao(), obrigacoesGeridas(),
+      secao("Obrigações", "Cadastre uma vez os prazos confirmados pelo escritório. As obrigações mensais se repetem nos meses seguintes; a carteira distribui as tarefas por cliente. Os integrantes autorizados consultam o setor, e o responsável ou uma pessoa autorizada por ele executa cada tarefa.", () => editarObrigacao(), obrigacoesGeridas(),
         d => `${d.nome} · ${d.periodicidade}${d.exige_conferencia ? " · Exige conferência" : ""}${d.ativa ? "" : " · Inativa"}`, editarObrigacao);
       secao("Ajustes por cliente", "Exceções com motivo e validade, preservadas no histórico.", () => novoAjuste(), s.catalogo.ajustes || [],
         d => `${d.cliente_nome || s.catalogo.clientes.find(c => c.id === d.cliente_id)?.nome || "Cliente"} · ${d.obrigacao_nome || s.catalogo.obrigacoes.find(o => o.id === d.obrigacao_id)?.nome || "Obrigação"} · ${d.tipo} · ${d.motivo}`, novoAjuste);
@@ -858,7 +910,7 @@ Abas.registrar("tarefas", container => {
     $("tar-responsavel").disabled = visao === "minhas";
     $("tar-sem-responsavel").disabled = visao === "minhas";
     $("tar-escopo").textContent = visao === "minhas"
-      ? "Minhas tarefas: somente as tarefas atribuídas a você, inclusive substituições vigentes."
+      ? "Minhas tarefas: tarefas atribuídas a você, inclusive substituições vigentes, e tarefas com execução autorizada para você."
       : visao === "setor" ? "Setor: tarefas dos setores que você pode consultar. Use os filtros para restringir a listagem."
       : "Agenda do cliente: tarefas dos clientes e setores aos quais você tem acesso. Escolha um cliente ou consulte todos os disponíveis.";
     if (visao === "minhas") { $("tar-responsavel").value = ""; $("tar-sem-responsavel").checked = false; }
