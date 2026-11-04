@@ -10,6 +10,7 @@ import threading
 import time
 from contextlib import contextmanager
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -41,8 +42,17 @@ def _usuario_ativo(uid):
     return bool(u and u['ativo'])
 
 
+def _usuario_pode_executar(uid):
+    u = auth.obter_usuario(uid)
+    if not u or not u['ativo']:
+        return False
+    slugs = permissoes.permissoes_do_usuario(uid, u['admin'])
+    return bool(u['admin'] or {'aba.tarefas', 'tarefas.executar'} <= set(slugs))
+
+
 def criar_store():
-    return TarefasStore(caminho_db_clientes(), usuario_ativo=_usuario_ativo)
+    return TarefasStore(caminho_db_clientes(), usuario_ativo=_usuario_ativo,
+                        usuario_pode_executar=_usuario_pode_executar)
 
 
 @contextmanager
@@ -66,6 +76,8 @@ def _store(*, escrita=False, leitura=False):
         raise HTTPException(status, detail={'detail': exc.mensagem, 'code': exc.codigo}) from exc
     except LookupError as exc:
         raise HTTPException(404, detail='Registro não encontrado.') from exc
+    except PermissionError as exc:
+        raise HTTPException(403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(422, detail=str(exc)) from exc
     finally:
@@ -88,6 +100,14 @@ def _geridos(s, u, hoje=None):
     return s.setores_responsavel(u.id, hoje if hoje is not None else _hoje()) if _tem(u, 'tarefas.setor') else []
 
 
+def _consultaveis(s, u, hoje=None):
+    setores = set(_geridos(s, u, hoje))
+    if _tem(u, 'tarefas.consultar_setor') and _usuario_ativo(u.id):
+        setores.update(x['id'] for x in s.listar_setores()
+                       if x['ativo'] and u.id in x.get('membros', []))
+    return sorted(setores)
+
+
 def _exigir_setor(s, u, setor_id):
     if setor_id not in _geridos(s, u):
         raise HTTPException(403, detail='Você não responde por este setor nesta data.')
@@ -97,15 +117,16 @@ def _escopo(s, u, visao='cliente', setor_id=None, hoje=None):
     if visao not in ('minhas', 'setor', 'cliente'):
         raise ValueError('Visão desconhecida.')
     if visao == 'minhas':
-        return dict(escopo_usuario_id=u.id)
+        return dict(escopo_usuario_id=u.id, escopo_tarefas=s.tarefas_autorizadas(u.id, hoje=hoje or _hoje()))
     if _tem(u, 'tarefas.todas'):
         return dict(todas=True)
-    geridos = _geridos(s, u, hoje)
+    consultaveis = _consultaveis(s, u, hoje)
     if visao == 'setor':
-        if not geridos or (setor_id and setor_id not in geridos):
-            raise HTTPException(403, detail='Você não responde por este setor nesta data.')
-        return dict(escopo_setores=geridos)
-    return dict(escopo_usuario_id=u.id, escopo_setores=geridos)
+        if not consultaveis or (setor_id and setor_id not in consultaveis):
+            raise HTTPException(403, detail='Você não pode consultar este setor nesta data.')
+        return dict(escopo_setores=consultaveis)
+    return dict(escopo_usuario_id=u.id, escopo_setores=consultaveis,
+                escopo_tarefas=s.tarefas_autorizadas(u.id, hoje=hoje or _hoje()))
 
 
 def _propria(s, u, t, hoje=None):
@@ -114,8 +135,14 @@ def _propria(s, u, t, hoje=None):
 
 
 def _ver(s, u, t):
-    if not (_tem(u, 'tarefas.todas') or t['setor_id'] in _geridos(s, u) or _propria(s, u, t)):
+    if not (_tem(u, 'tarefas.todas') or t['setor_id'] in _consultaveis(s, u) or _propria(s, u, t)
+            or t['id'] in s.tarefas_autorizadas(u.id, hoje=_hoje())):
         raise HTTPException(403, detail='Esta tarefa não está no seu escopo.')
+
+
+def _pode_executar(s, u, t, hoje=None):
+    return bool(_tem(u, 'tarefas.executar') and
+                (_propria(s, u, t, hoje) or s.pode_executar_delegado(t, u.id, hoje=hoje or _hoje())))
 
 
 def _dto(s, u, t, usuarios=None, hoje=None):
@@ -125,14 +152,50 @@ def _dto(s, u, t, usuarios=None, hoje=None):
         return usuarios.get(uid, {}).get('nome', '')
     efetivo = s.responsavel_efetivo(t['setor_id'], t['responsavel_usuario_id'], hoje) if t.get('responsavel_usuario_id') else None
     gestor = t['setor_id'] in _geridos(s, u, hoje)
+    propria = _propria(s, u, t, hoje)
+    delegada = bool(not propria and s.pode_executar_delegado(t, u.id, hoje=hoje))
     return dict(t, responsavel_efetivo_id=efetivo,
                 responsavel_nome=nome(t.get('responsavel_usuario_id')),
                 responsavel_efetivo_nome=nome(efetivo), concluida_nome=nome(t.get('concluida_por')),
                 conferida_nome=nome(t.get('conferida_por')),
-                 pode_executar=bool(_tem(u, 'tarefas.executar') and _propria(s, u, t, hoje)),
+                 pode_executar=bool(_tem(u, 'tarefas.executar') and (propria or delegada)),
+                 execucao_delegada=delegada,
                  pode_gerir=gestor,
                  pode_reativar=bool(gestor and t['situacao'] == 'dispensada'),
                  pode_alterar_vencimento=bool(gestor and t['situacao'] in regras.ABERTAS))
+
+
+def _execucao(s, u, t):
+    hoje = _hoje()
+    usuarios = {p['id']: p for p in auth.listar_usuarios()}
+    setor = next((x for x in s.listar_setores() if x['id'] == t['setor_id'] and x['ativo']), None)
+    membros = set(setor.get('membros', [])) if setor else set()
+    efetivo = s.responsavel_delegacao(t, hoje)
+    aberta = t['situacao'] in regras.ABERTAS
+    responsavel_valido = efetivo is not None
+    propria = bool(responsavel_valido and efetivo == u.id)
+    pode_autorizar = bool(propria and aberta)
+    registros = s.autorizacoes_execucao(t['id'], hoje=hoje)
+    com_registro = {x['executor_usuario_id'] for x in registros
+                   if x['vigente'] and x['estado'] in ('pendente', 'autorizada')}
+    candidatos = [dict(id=uid, nome=usuarios.get(uid, {}).get('nome', '')) for uid in sorted(membros)
+                  if uid != efetivo and uid not in com_registro and _usuario_pode_executar(uid)] if pode_autorizar else []
+    pode_solicitar = bool(aberta and responsavel_valido and not propria and u.id in membros and
+                         _usuario_pode_executar(u.id) and not any(
+                             x['executor_usuario_id'] == u.id and x['vigente'] and
+                             x['estado'] in ('pendente', 'autorizada') for x in registros))
+    def nome(uid):
+        return usuarios.get(uid, {}).get('nome', '')
+    return dict(pode_autorizar=pode_autorizar, pode_solicitar=pode_solicitar, candidatos=candidatos,
+                registros=[dict(x, executor_nome=nome(x['executor_usuario_id']),
+                    solicitante_nome=nome(x.get('solicitante_usuario_id')), decidido_nome=nome(x.get('decidido_por')),
+                    pode_aprovar=bool(pode_autorizar and x['estado'] == 'pendente' and x['vigente']),
+                    pode_recusar=bool(propria and x['estado'] == 'pendente'),
+                    pode_revogar=bool(propria and x['estado'] == 'autorizada')) for x in registros])
+
+
+def _detalhe(s, u, t):
+    return dict(_dto(s, u, t), eventos=s.eventos(t['id']), execucao=_execucao(s, u, t))
 
 
 def _clientes(s, u):
@@ -143,8 +206,9 @@ def _clientes(s, u):
         permitidos = None
         if not acesso_global:
             permitidos = set()
+            consultaveis = _consultaveis(s, u)
             for c in s.listar_carteiras():
-                if c['setor_id'] in _geridos(s, u) or (c['responsavel_usuario_id'] and
+                if c['setor_id'] in consultaveis or (c['responsavel_usuario_id'] and
                         s.responsavel_efetivo(c['setor_id'],c['responsavel_usuario_id'],_hoje()) == u.id):
                     permitidos.add(c['cliente_id'])
             offset = 0
@@ -300,6 +364,19 @@ class ComentarioEntrada(Entrada):
     revision: int
 
 
+class ExecucaoEntrada(Entrada):
+    revision: int = Field(strict=True, gt=0)
+    motivo: str = Field(min_length=1, max_length=4000)
+
+
+class AutorizarExecucaoEntrada(ExecucaoEntrada):
+    usuario_id: int = Field(strict=True, gt=0)
+
+
+class DecidirExecucaoEntrada(ExecucaoEntrada):
+    acao: Literal['aprovar', 'recusar', 'revogar']
+
+
 class ReferenciaTarefa(Entrada):
     id: int
     revision: int
@@ -348,6 +425,7 @@ def catalogo(usuario: Usuario=Depends(exigir_aba('tarefas'))):
                     substituicoes=[p for p in s.listar_substituicoes() if todos or p.get('setor_id') in visiveis or p['substituto_usuario_id']==usuario.id],
                     feriados=s.feriados(_hoje().year),configuracao=s.configuracao(),
                     email_ativo=ConfigSMTP.de_ambiente().ativo,setores_geridos=geridos,
+                    setores_consultaveis=_consultaveis(s,usuario),
                     pode_configurar=_tem(usuario,'tarefas.configurar'),
                     situacoes=[dict(chave=k,rotulo=v) for k,v in regras.SITUACOES.items()])
 
@@ -533,10 +611,10 @@ def ficha_cliente(cliente_id:int,usuario:Usuario=Depends(exigir_aba('tarefas')))
             raise HTTPException(403,detail='Cliente fora da sua carteira.')
         ficha=s.ficha_cliente(cliente_id)
         if not _tem(usuario,'tarefas.todas'):
-            geridos=_geridos(s,usuario)
-            ficha['carteira']=[c for c in ficha['carteira'] if c['setor_id'] in geridos or
+            consultaveis=_consultaveis(s,usuario)
+            ficha['carteira']=[c for c in ficha['carteira'] if c['setor_id'] in consultaveis or
                               (c['responsavel_usuario_id'] and s.responsavel_efetivo(c['setor_id'],c['responsavel_usuario_id'],_hoje())==usuario.id)]
-            ids={o['id'] for o in s.listar_obrigacoes() if o['setor_id'] in geridos or o['setor_id'] in {c['setor_id'] for c in ficha['carteira']}}
+            ids={o['id'] for o in s.listar_obrigacoes() if o['setor_id'] in consultaveis or o['setor_id'] in {c['setor_id'] for c in ficha['carteira']}}
             ficha['ajustes']=[a for a in ficha.get('ajustes',[]) if a['obrigacao_id'] in ids]
         return ficha
 
@@ -663,9 +741,9 @@ def confirmar_importacao(entrada:ImportacaoEntrada,request:Request,usuario:Usuar
 
 @router.get('/{tarefa_id}')
 def detalhe(tarefa_id:int,usuario:Usuario=Depends(exigir_aba('tarefas'))):
-    with _store() as s:
+    with _store(leitura=True) as s:
         t=s.obter_tarefa(tarefa_id,hoje=_hoje());_ver(s,usuario,t)
-        return dict(_dto(s,usuario,t),eventos=s.eventos(tarefa_id))
+        return _detalhe(s,usuario,t)
 
 
 @router.post('/{tarefa_id}/situacao')
@@ -675,8 +753,8 @@ def situacao(tarefa_id:int,entrada:SituacaoEntrada,request:Request,usuario:Usuar
         gestor=t['setor_id'] in _geridos(s,usuario)
         if entrada.situacao in ('conferida','devolvida','dispensada','a_fazer'):
             _exigir_setor(s,usuario,t['setor_id'])
-        elif not (_tem(usuario,'tarefas.executar') and _propria(s,usuario,t)):
-            raise HTTPException(403,detail='Você só pode executar as próprias tarefas.')
+        elif not _pode_executar(s,usuario,t):
+            raise HTTPException(403,detail='Você só pode executar tarefas próprias ou autorizadas pelo responsável.')
         resultado=s.mudar_situacao(tarefa_id,entrada.situacao,entrada.revision,
                 motivo=entrada.motivo or entrada.comentario,responsavel_setor=gestor,hoje=_hoje(),**_quem(usuario))
         detalhar(request,f'tarefa {tarefa_id}: {entrada.situacao}')
@@ -697,8 +775,44 @@ def vencimento(tarefa_id:int,entrada:VencimentoEntrada,request:Request,usuario:U
 def comentar(tarefa_id:int,entrada:ComentarioEntrada,request:Request,usuario:Usuario=Depends(acesso('tarefas.executar'))):
     with _store(escrita=True) as s:
         t=s.obter_tarefa(tarefa_id,hoje=_hoje())
-        if not ((_tem(usuario,'tarefas.executar') and _propria(s,usuario,t)) or t['setor_id'] in _geridos(s,usuario)):
+        if not (_pode_executar(s,usuario,t) or t['setor_id'] in _geridos(s,usuario)):
             raise HTTPException(403,detail='Você não pode comentar esta tarefa.')
         resultado=s.comentar(tarefa_id,entrada.comentario,entrada.revision,**_quem(usuario))
         detalhar(request,f'comentário na tarefa {tarefa_id}')
         return _dto(s,usuario,resultado)
+
+
+@router.post('/{tarefa_id}/execucao/autorizar')
+def autorizar_execucao(tarefa_id:int,entrada:AutorizarExecucaoEntrada,request:Request,
+                       usuario:Usuario=Depends(acesso('tarefas.executar'))):
+    with _store(escrita=True) as s:
+        t=s.obter_tarefa(tarefa_id,hoje=_hoje())
+        if not (_tem(usuario,'tarefas.executar') and _propria(s,usuario,t)):
+            raise HTTPException(403,detail='Somente o responsável efetivo pode autorizar apoio nesta tarefa.')
+        s.autorizar_execucao(tarefa_id,entrada.usuario_id,entrada.revision,entrada.motivo,hoje=_hoje(),**_quem(usuario))
+        detalhar(request,f'apoio autorizado na tarefa {tarefa_id}')
+        return _detalhe(s,usuario,s.obter_tarefa(tarefa_id,hoje=_hoje()))
+
+
+@router.post('/{tarefa_id}/execucao/solicitar')
+def solicitar_execucao(tarefa_id:int,entrada:ExecucaoEntrada,request:Request,
+                       usuario:Usuario=Depends(acesso('tarefas.executar'))):
+    with _store(escrita=True) as s:
+        t=s.obter_tarefa(tarefa_id,hoje=_hoje())
+        _ver(s,usuario,t)
+        exigir_permissao(usuario,'tarefas.executar','Você não tem permissão para executar tarefas.')
+        s.solicitar_execucao(tarefa_id,entrada.revision,entrada.motivo,hoje=_hoje(),**_quem(usuario))
+        detalhar(request,f'apoio solicitado na tarefa {tarefa_id}')
+        return _detalhe(s,usuario,s.obter_tarefa(tarefa_id,hoje=_hoje()))
+
+
+@router.post('/{tarefa_id}/execucao/{autorizacao_id}/decidir')
+def decidir_execucao(tarefa_id:int,autorizacao_id:int,entrada:DecidirExecucaoEntrada,request:Request,
+                     usuario:Usuario=Depends(acesso('tarefas.executar'))):
+    with _store(escrita=True) as s:
+        t=s.obter_tarefa(tarefa_id,hoje=_hoje())
+        if not (_tem(usuario,'tarefas.executar') and _propria(s,usuario,t)):
+            raise HTTPException(403,detail='Somente o responsável efetivo pode decidir sobre apoio nesta tarefa.')
+        s.decidir_execucao(tarefa_id,autorizacao_id,entrada.acao,entrada.revision,entrada.motivo,hoje=_hoje(),**_quem(usuario))
+        detalhar(request,f'apoio {entrada.acao} na tarefa {tarefa_id}')
+        return _detalhe(s,usuario,s.obter_tarefa(tarefa_id,hoje=_hoje()))

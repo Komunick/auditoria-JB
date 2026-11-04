@@ -237,7 +237,10 @@ CATALOGO: tuple[Permissao, ...] = (
     # Tarefas e prazos: nenhuma concessão automática a usuários existentes.
     Permissao("aba.tarefas", "10. Tarefas e prazos", GRUPO_ABAS,
               "Consultar a própria carteira e tarefas."),
-    Permissao("tarefas.executar", "Executar as próprias tarefas", GRUPO_TAREFAS),
+    Permissao("tarefas.executar", "Executar tarefas próprias ou autorizadas", GRUPO_TAREFAS,
+              "A autorização de apoio vale somente para a tarefa indicada pelo responsável."),
+    Permissao("tarefas.consultar_setor", "Consultar tarefas dos setores em que participa", GRUPO_TAREFAS,
+              "Consulta compartilhada entre membros atuais de setores ativos, sem conceder gestão ou execução."),
     Permissao("tarefas.setor", "Gerir o setor sob sua responsabilidade", GRUPO_TAREFAS,
               "O setor e a substituição vigente são conferidos a cada pedido."),
     Permissao("tarefas.todas", "Consultar todos os setores", GRUPO_TAREFAS),
