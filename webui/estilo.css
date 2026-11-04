@@ -379,6 +379,10 @@ a { color: var(--menta-texto); text-underline-offset: 2px; }
    viewport pode cair entre 920 e 921 e nao casar com nenhum dos dois blocos. */
 @media (min-width: 920.02px) {
   .lateral { transition: width .2s ease, padding .2s ease; }
+  /* A lista rola dentro do espaço disponível, sem invadir o botão do rodapé. */
+  .lateral-marca, .lateral-toggle { flex-shrink: 0; }
+  .lateral > .abas { overflow-y: auto; overflow-x: hidden; }
+  .lateral > .abas > .nav-grupo { flex-shrink: 0; }
   .conteudo { transition: margin-left .2s ease; }
   #tela-app.menu-recolhido .lateral {
     width: var(--lateral-estreita); padding: 20px 10px 14px;
