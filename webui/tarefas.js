@@ -194,6 +194,7 @@ const TarefasUI = {
         if (c.desabilitado) entrada.disabled = true;
         if (c.min !== undefined) entrada.min = c.min;
         if (c.max !== undefined) entrada.max = c.max;
+        if (c.maxLength !== undefined) entrada.maxLength = c.maxLength;
         if (c.placeholder) entrada.placeholder = c.placeholder;
         label.append(entrada);
       }
@@ -284,10 +285,11 @@ const TarefasUI = {
         {valor: "periodos_mes_seguinte", rotulo: "Períodos no mês seguinte (mensal)"},
         {valor: "sem_vencimento", rotulo: "Sem vencimento"}],
         ajuda: "Sem vencimento: a tarefa começa no primeiro dia do mês seguinte e não recebe alertas de prazo."},
-      {nome: "dia", rotulo: "Dia", tipo: "number", min: 1, max: 31, valor: regra.dia || 20,
-        quando: v => ["dia_mes_seguinte", "dia_mes_fixo"].includes(v.tipo), obrigatorio: true},
+      {nome: "dia", rotulo: "Dia do vencimento", tipo: "number", min: 1, max: 31, valor: regra.dia || 20,
+        quando: v => ["dia_mes_seguinte", "dia_mes_fixo"].includes(v.tipo), obrigatorio: true,
+        ajuda: "Dia-base de vencimento no mês definido pela regra. Feriados e fins de semana seguem a opção abaixo."},
       {nome: "inicio_dia", rotulo: "Dia fixo de início (opcional)", tipo: "number", min: 1, max: 31, valor: regra.inicio_dia,
-        quando: v => v.tipo === "dia_mes_seguinte", ajuda: "No mês seguinte à competência, até o dia do vencimento. Use este campo ou a antecedência em dias."},
+        quando: v => v.tipo === "dia_mes_seguinte", ajuda: "Início previsto no mês seguinte à competência, até o dia do vencimento. O andamento é registrado na tarefa. Use este campo ou a antecedência em dias."},
       {nome: "periodos", rotulo: "Períodos do mês seguinte", tipo: "textarea", obrigatorio: true,
         valor: (regra.periodos || []).map(p => `${String(p.inicio).padStart(2, "0")}-${String(p.fim).padStart(2, "0")}`).join("; "),
         placeholder: "01-10; 11-20; 21-30", quando: v => v.tipo === "periodos_mes_seguinte",
@@ -555,6 +557,7 @@ Abas.registrar("tarefas", container => {
     const destinos = t.transicoes || ({a_fazer: ["em_andamento", "aguardando_cliente"], em_andamento: ["concluida", "aguardando_cliente"],
       aguardando_cliente: ["em_andamento", "concluida"], devolvida: ["em_andamento", "aguardando_cliente", "concluida"], concluida: t.exige_conferencia ? ["conferida", "devolvida"] : []}[t.situacao] || []);
     for (const situacao of destinos) {
+      if (situacao === "a_fazer") continue; // Reativação usa sua autorização e confirmação próprias.
       const supervisao = ["conferida", "devolvida", "dispensada"].includes(situacao);
       if (!(supervisao ? t.pode_gerir : t.pode_executar)) continue;
       acoes.append(u.botao(u.rotuloSituacao(situacao), () => u.form(u.rotuloSituacao(situacao), [
@@ -567,6 +570,20 @@ Abas.registrar("tarefas", container => {
       {nome: "comentario", rotulo: "Motivo da dispensa", tipo: "textarea", obrigatorio: true}], async v => {
         await api(`/api/tarefas/${id}/situacao`, {json: {situacao: "dispensada", revision: t.revision, comentario: v.comentario}}); await carregar(); await detalhe(id);
       })));
+    if (t.pode_reativar === true) acoes.append(u.botao("Reativar tarefa", () => u.form("Reativar tarefa", [
+      {nome: "motivo", rotulo: "Motivo da reativação", tipo: "textarea", obrigatorio: true, maxLength: 4000}], async v => {
+        if (!sessaoValida()) throw new Error("Sua sessão mudou. Feche o formulário e abra a tarefa novamente.");
+        await api(`/api/tarefas/${id}/situacao`, {json: {situacao: "a_fazer", revision: t.revision, motivo: v.motivo}});
+        await carregar(); await detalhe(id);
+      }, "A mesma tarefa voltará para A fazer, mantendo responsável, vencimento e histórico. Informe por que a dispensa deve ser desfeita.")));
+    if (t.pode_alterar_vencimento === true) acoes.append(u.botao("Alterar vencimento", () => u.form("Alterar vencimento da tarefa", [
+      {nome: "vencimento", rotulo: "Novo vencimento", tipo: "date", valor: t.vencimento, min: t.inicio || undefined, obrigatorio: true,
+        ajuda: `Vencimento atual: ${u.vencimento(t.vencimento)}.${t.inicio ? " O novo prazo deve ser igual ou posterior ao início previsto, " + u.data(t.inicio) + "." : ""}`},
+      {nome: "motivo", rotulo: "Motivo da alteração", tipo: "textarea", obrigatorio: true, maxLength: 4000}], async v => {
+        if (!sessaoValida()) throw new Error("Sua sessão mudou. Feche o formulário e abra a tarefa novamente.");
+        await api(`/api/tarefas/${id}/vencimento`, {json: {vencimento: v.vencimento, revision: t.revision, motivo: v.motivo}});
+        await carregar(); await detalhe(id);
+      }, "A alteração afeta somente esta tarefa e fica no histórico. A regra da obrigação, as próximas gerações e as outras tarefas permanecem como estão. Informe a data final desejada; não será aplicado ajuste automático de dia útil.")));
     if (t.pode_executar || t.pode_gerir) acoes.append(u.botao("Comentar", () => u.form("Novo comentário", [
       {nome: "comentario", rotulo: "Comentário", tipo: "textarea", obrigatorio: true}], async v => {
         await api(`/api/tarefas/${id}/comentarios`, {json: {comentario: v.comentario, revision: t.revision}}); await carregar(); await detalhe(id);
@@ -575,7 +592,9 @@ Abas.registrar("tarefas", container => {
     const lista = u.el("ol", undefined, "tar-historico");
     for (const e of t.eventos || []) {
       const li = u.el("li"); li.append(u.el("strong", `${e.usuario_login || "Sistema"} · ${new Date(e.criado_em).toLocaleString("pt-BR")}`));
-      const dePara = e.tipo === "situacao" ? `${u.rotuloSituacao(e.de)} → ${u.rotuloSituacao(e.para)}` : ({criada: "Tarefa criada", comentario: "Comentário", responsavel: "Responsável alterado", vencimento: "Vencimento alterado"}[e.tipo] || e.tipo);
+      const dePara = e.tipo === "situacao" ? `${u.rotuloSituacao(e.de)} → ${u.rotuloSituacao(e.para)}`
+        : e.tipo === "vencimento" ? `Vencimento alterado: ${u.vencimento(e.de)} → ${u.vencimento(e.para)}`
+        : ({criada: "Tarefa criada", comentario: "Comentário", responsavel: "Responsável alterado"}[e.tipo] || e.tipo);
       li.append(u.el("p", dePara)); if (e.comentario) li.append(u.el("p", e.comentario));
       if (e.substituindo_usuario_id) li.append(u.el("small", `Substituindo ${nomePessoa(e.substituindo_usuario_id)}`)); lista.append(li);
     }
@@ -678,7 +697,7 @@ Abas.registrar("tarefas", container => {
           regra_vencimento: u.regra(v), condicao: {todas: v.todas, alguma: v.alguma, nenhuma: v.nenhuma},
           inicio_antecedencia_dias: u.antecedencia(v),
           exige_conferencia: v.exige_conferencia, ativa: v.ativa, revision: d.revision}, d.id);
-      }, "A alteração valerá para as próximas gerações. Tarefas já geradas preservam o prazo e a regra de origem.");
+      }, "A alteração valerá para as próximas gerações. Para corrigir o prazo de uma tarefa já gerada, abra seu detalhe e use Alterar vencimento. A regra de origem da tarefa fica preservada.");
   }
   function novoAjuste(d = {}) {
     u.form(d.id ? "Editar ajuste do cliente" : "Ajuste de uma obrigação para um cliente", [

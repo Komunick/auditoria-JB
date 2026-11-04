@@ -928,6 +928,26 @@ class TarefasStore(ClientesStore):
     def mudar_situacao(self, id, situacao, revision, motivo="", responsavel_setor=False, *, usuario_id=0, usuario_login="", hoje=None):
         return self._transacao(lambda conn: self._mudar_sql(id, situacao, revision, motivo, responsavel_setor, usuario_id, usuario_login, hoje))
 
+    def alterar_vencimento(self, id, vencimento, revision, motivo, *, usuario_id=0, usuario_login="", hoje=None):
+        novo = _data(vencimento)
+        motivo = _texto(motivo, "Motivo", 4000)
+        def gravar(conn):
+            tarefa = self._um("tarefa", id)
+            self._revision(tarefa, revision)
+            if tarefa["situacao"] not in ABERTAS:
+                raise regras.ErroTarefas("TAREFA_FECHADA", "Só tarefas abertas podem ter o vencimento alterado. Reative a tarefa dispensada antes de ajustar o prazo.")
+            if novo < tarefa["inicio"]:
+                raise regras.ErroTarefas("DATA_INVALIDA", "O vencimento não pode ser anterior ao início previsto da tarefa.")
+            if novo == tarefa["vencimento"]:
+                raise regras.ErroTarefas("SEM_ALTERACAO", "Informe um vencimento diferente do atual.")
+            # A regra da obrigação e o retrato da geração permanecem na origem.
+            # A correção afeta só esta tarefa e não apaga atraso já registrado.
+            conn.execute("UPDATE tarefa SET vencimento=?,revision=revision+1,atualizada_em=? WHERE id=?",
+                         (novo, self._agora(), id))
+            self._evento(tarefa, "vencimento", tarefa["vencimento"], novo, motivo, usuario_id, usuario_login)
+            return self.obter_tarefa(id, hoje)
+        return self._transacao(gravar)
+
     def comentar(self, id, comentario, revision, *, usuario_id=0, usuario_login="", hoje=None):
         comentario = str(comentario or "").strip()
         if not comentario or len(comentario) > 4000:
