@@ -12,6 +12,16 @@
 - [x] T010 Roteiro de implantação e treinamento; limites operacionais documentados.
 - [x] T011 Transição administrativa de dependências restrita a SHA de origem e
   árvore candidata, testes RED/GREEN e revisão independente do executor.
+- [x] T012 Revisar os dez itens do pedido e unificar o semáforo de ocorrências
+  e planos entre painel, lista e detalhe; testes RED/GREEN e preview local.
+- [x] T013 Corrigir a sobreposição entre Administração e Minimizar o menu;
+  validar rolagem, navegação por teclado e layout responsivo no preview local.
+
+Revisão local de 04/11/2026: [cobertura e pendências](revisao-pdf-20261104.md).
+A correção T012 está preparada para PR para `dev`; sua integração e implantação
+dependem de autorização posterior. T013 foi integrada pelo PR #34 e publicada
+pela promoção #36, com validação autenticada em 04/11/2026. Configuração real e
+treinamento permanecem separados do aceite técnico.
 
 Aceite local: [validacao.md](validacao.md). Publicação autorizada posteriormente
 em 03/11/2026, incluindo correção do executor, PRs por merge commit e implantação

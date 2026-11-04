@@ -70,7 +70,9 @@ def _no_prazo(tarefa):
     return bool(prazo and concluida and concluida <= prazo and not tarefa.get('fora_do_prazo'))
 
 
-def _cor_qualidade(registro, hoje, *, plano=False):
+def classificar_qualidade(registro, hoje, *, plano=False):
+    """Semáforo único de ocorrências e planos, com datas no fuso de Salvador."""
+    hoje = data_salvador(hoje)
     prazo = _dia(registro.get('prazo'))
     encerrado = registro.get('situacao') == 'validado' if plano else registro.get('situacao') in SOLUCIONADAS
     if encerrado:
@@ -193,9 +195,9 @@ def calcular_painel(tarefas, ocorrencias, planos, horas, hoje, usuarios=None, se
             cor = 'amarelo'
         semaforo[cor] += 1
     for ocorrencia in ocorrencias:
-        semaforo[_cor_qualidade(ocorrencia, hoje)] += 1
+        semaforo[classificar_qualidade(ocorrencia, hoje)] += 1
     for plano in planos:
-        semaforo[_cor_qualidade(plano, hoje, plano=True)] += 1
+        semaforo[classificar_qualidade(plano, hoje, plano=True)] += 1
 
     colaboradores = {}
     def colaborador(uid):

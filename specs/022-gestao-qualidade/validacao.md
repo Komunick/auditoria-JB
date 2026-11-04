@@ -100,3 +100,80 @@ resolução isolada de dependências, instalação administrativa conferida, pro
 da árvore aprovada e somente depois preflight/ativação. Na preparação da arm07,
 cinco pacotes foram resolvidos por versão/hash em cópia do venv, sem atualizar ou
 remover pacotes anteriores; `pip check` aprovado. S3 real continua não configurado.
+
+## Revisão do pedido e semáforo — 04/11/2026
+
+A revisão encontrou uma divergência na UI: ocorrências resolvidas/encerradas e
+planos validados eram verdes mesmo após o prazo; não conformidades abertas
+podiam ficar amarelas. Painel, API, lista e detalhe agora reutilizam a mesma
+classificação do núcleo, com datas de Salvador e resultado neutro quando não
+há evidência suficiente de prazo/conclusão.
+
+RED registrado antes da correção em testes de núcleo, HTTP e UI. Baseline e
+regressão final: **19 scripts aprovados, zero pulados, zero falhas**, manifestos
+funcionais inalterados em cada execução. Revisão independente do patch sem
+achados bloqueantes. Nenhuma migração ou mudança de permissões.
+
+Preview sintético autenticado em loopback 8626: cores verificadas no painel,
+nas listas de ocorrências/planos e nos detalhes; histórico de resolução e
+validação preservado. Evidências privadas em `tmp/revisao-pdf-20261104`.
+O [relatório de cobertura](revisao-pdf-20261104.md) registra também uma
+sobreposição visual do menu, corrigida na etapa autorizada abaixo. Essa etapa
+local ocorreu sem commit, push, merge, deploy, acesso a produção ou alteração
+no Linear; as publicações posteriores são registradas separadamente.
+
+## Correção do menu lateral — 04/11/2026
+
+Reproduzida a sobreposição em 1280 × 738 px antes da alteração. A navegação
+agora rola no espaço disponível, com marca e botão de minimizar reservados
+fora dessa área. A mudança se limita ao CSS de desktop; o layout móvel mantém
+seu comportamento anterior.
+
+Validação no navegador, com dados fictícios e as 13 abas do administrador:
+
+- 1280 × 738, 1024 × 600 e 960 × 480 px: menu aberto e recolhido, sem
+  sobreposição entre os controles visíveis; Administração abre a tela correta.
+- Minimizar e expandir preservam a aba atual. Tab e Shift+Tab percorrem as
+  abas e o botão, com foco visível e rolagem automática; Enter e Espaço funcionam.
+- 920 × 600 e 390 × 844 px: abas acessíveis, sem corte horizontal; botão de
+  minimizar oculto, conforme o layout móvel existente.
+
+Revisão independente do CSS sem achados bloqueantes. Evidências de antes e
+depois, medidas e resultados em `tmp/validacao-menu-20261104`, fora do Git.
+Preview: `http://127.0.0.1:8626/`. O tamanho temporário do navegador foi
+restaurado ao final. A suíte de 19 scripts do semáforo não foi repetida nesta
+etapa, limitada ao CSS; foram executadas as verificações visuais e de interação
+descritas acima. A implementação local ocorreu sem commit, push, merge,
+deploy, produção ou Linear.
+
+Posteriormente, o menu foi integrado pelo [PR #34](https://github.com/Komunick/auditoria-JB/pull/34)
+e publicado pela promoção [#36](https://github.com/Komunick/auditoria-JB/pull/36),
+merge `ef80d37c56a66f03689973958db60fa30ca80c8f`. A validação autenticada
+em 04/11/2026 confirmou Administração acessível, ausência de sobreposição em
+1002 × 884 e 1280 × 738 px e preservação da aba ao minimizar/expandir.
+O semáforo permanece separado dessa publicação.
+
+## Preparação do PR do semáforo — 04/11/2026
+
+Branch `codex/correcao-semaforo-qualidade`, em checkout separado da implementação
+local, baseado em `origin/dev` no SHA
+`101fe047908c7e580bcaff3013e4b6b3526e7e55`. O diff contém três arquivos
+funcionais, três testes e três documentos da spec 022. Menu lateral e ações
+de tarefas já fazem parte da base e não são reaplicados neste patch.
+
+Os seis arquivos de código e testes coincidem com os hashes da correção local
+anteriormente validada. A regressão no novo checkout passou em **21 scripts,
+zero falhas e zero pulados**: os 19 da suíte do semáforo, mais
+`test_tarefas_reativacao_prazo.py` e `test_tarefas_acoes_ui.py`, presentes na
+dev atual. Os manifestos de fontes, interface e testes permaneceram idênticos
+antes e depois da execução. Revisão independente sem achados bloqueantes.
+
+Os testes usam dados sintéticos; variáveis `AUDITORIA_*` e `AWS_*` são removidas
+do ambiente herdado, o SMTP do teste usa loopback e o S3 usa cliente falso.
+Evidências privadas em `tmp/publicacao-semaforo-20261104/regressao`, fora do Git.
+Não houve nova sessão de preview nesta preparação; a conferência visual anterior
+usa os mesmos arquivos funcionais. Nenhuma nova dependência, migração ou
+alteração de permissões.
+
+Esta etapa contempla commit, push do branch e PR para `dev`. Merge e deploy
+dependem de aprovação posterior. Não houve alteração em produção ou no Linear.

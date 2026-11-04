@@ -5,7 +5,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from auditoria_fiscal.core.qualidade_indicadores import calcular_painel, intervalo_relatorio
+from auditoria_fiscal.core.qualidade_indicadores import calcular_painel, intervalo_relatorio, classificar_qualidade
 
 
 def dados():
@@ -49,6 +49,25 @@ def dados():
 
 
 def main():
+    # A mesma classificação alimenta painel, listagem e detalhe da qualidade.
+    referencia = '2026-11-04T02:59:59+00:00'  # Ainda 03/11 em Salvador.
+    base = dict(tipo='erro', criticidade='baixa', situacao='aberta', prazo='2026-11-03')
+    assert classificar_qualidade(base, referencia) == 'amarelo'
+    assert classificar_qualidade(base, '2026-11-04T03:00:00+00:00') == 'vermelho'
+    assert classificar_qualidade(dict(base, tipo='nao_conformidade', prazo='2026-12-01'), referencia) == 'vermelho'
+    assert classificar_qualidade(dict(base, criticidade='critica', prazo='2026-12-01'), referencia) == 'vermelho'
+    for situacao in ('resolvida', 'encerrada', 'validado'):
+        plano = situacao == 'validado'
+        campo = 'validado_em' if plano else 'resolvida_em'
+        for instante, cor in ((referencia, 'verde'), ('2026-11-04T03:00:00+00:00', 'vermelho'), ('', 'neutro')):
+            registro = dict(base, situacao=situacao, **{campo: instante})
+            antes_registro = deepcopy(registro)
+            assert classificar_qualidade(registro, '2026-11-05', plano=plano) == cor
+            painel = calcular_painel([], [] if plano else [registro], [registro] if plano else [], [], hoje='2026-11-05')
+            assert painel['semaforo'][cor] == 1 and sum(painel['semaforo'].values()) == 1
+            assert registro == antes_registro
+        assert classificar_qualidade(dict(base, situacao=situacao, prazo='', **{campo: referencia}), referencia, plano=plano) == 'neutro'
+
     fonte = dados()
     antes = deepcopy(fonte)
     p = calcular_painel(*fonte, hoje=date(2026, 10, 30),
