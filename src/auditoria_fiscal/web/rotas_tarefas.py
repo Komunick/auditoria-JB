@@ -124,12 +124,15 @@ def _dto(s, u, t, usuarios=None, hoje=None):
     def nome(uid):
         return usuarios.get(uid, {}).get('nome', '')
     efetivo = s.responsavel_efetivo(t['setor_id'], t['responsavel_usuario_id'], hoje) if t.get('responsavel_usuario_id') else None
+    gestor = t['setor_id'] in _geridos(s, u, hoje)
     return dict(t, responsavel_efetivo_id=efetivo,
                 responsavel_nome=nome(t.get('responsavel_usuario_id')),
                 responsavel_efetivo_nome=nome(efetivo), concluida_nome=nome(t.get('concluida_por')),
                 conferida_nome=nome(t.get('conferida_por')),
                  pode_executar=bool(_tem(u, 'tarefas.executar') and _propria(s, u, t, hoje)),
-                 pode_gerir=t['setor_id'] in _geridos(s, u, hoje))
+                 pode_gerir=gestor,
+                 pode_reativar=bool(gestor and t['situacao'] == 'dispensada'),
+                 pode_alterar_vencimento=bool(gestor and t['situacao'] in regras.ABERTAS))
 
 
 def _clientes(s, u):
@@ -284,6 +287,12 @@ class SituacaoEntrada(Entrada):
     revision: int
     comentario: str = ''
     motivo: str = ''
+
+
+class VencimentoEntrada(Entrada):
+    vencimento: str = Field(min_length=1)
+    revision: int = Field(strict=True, gt=0)
+    motivo: str = Field(min_length=1, max_length=4000)
 
 
 class ComentarioEntrada(Entrada):
@@ -664,13 +673,23 @@ def situacao(tarefa_id:int,entrada:SituacaoEntrada,request:Request,usuario:Usuar
     with _store(escrita=True) as s:
         t=s.obter_tarefa(tarefa_id,hoje=_hoje())
         gestor=t['setor_id'] in _geridos(s,usuario)
-        if entrada.situacao in ('conferida','devolvida','dispensada'):
+        if entrada.situacao in ('conferida','devolvida','dispensada','a_fazer'):
             _exigir_setor(s,usuario,t['setor_id'])
         elif not (_tem(usuario,'tarefas.executar') and _propria(s,usuario,t)):
             raise HTTPException(403,detail='Você só pode executar as próprias tarefas.')
         resultado=s.mudar_situacao(tarefa_id,entrada.situacao,entrada.revision,
                 motivo=entrada.motivo or entrada.comentario,responsavel_setor=gestor,hoje=_hoje(),**_quem(usuario))
         detalhar(request,f'tarefa {tarefa_id}: {entrada.situacao}')
+        return _dto(s,usuario,resultado)
+
+
+@router.post('/{tarefa_id}/vencimento')
+def vencimento(tarefa_id:int,entrada:VencimentoEntrada,request:Request,usuario:Usuario=Depends(acesso('tarefas.gerir'))):
+    with _store(escrita=True) as s:
+        t=s.obter_tarefa(tarefa_id,hoje=_hoje())
+        _exigir_setor(s,usuario,t['setor_id'])
+        resultado=s.alterar_vencimento(tarefa_id,entrada.vencimento,entrada.revision,entrada.motivo,hoje=_hoje(),**_quem(usuario))
+        detalhar(request,f'vencimento alterado na tarefa {tarefa_id}')
         return _dto(s,usuario,resultado)
 
 

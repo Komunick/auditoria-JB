@@ -88,6 +88,10 @@ def validar_transicao(atual: str, nova: str, exige_conferencia: bool = False,
     """O chamador comprova escopo/permissao; aqui o papel nao pode ser elevado."""
     if atual not in SITUACOES or nova not in SITUACOES:
         raise ErroTarefas("SITUACAO_INVALIDA", "Situação de tarefa desconhecida.")
+    if nova == "a_fazer":
+        if atual != "dispensada" or not responsavel_setor or not str(motivo or "").strip():
+            raise ErroTarefas("TRANSICAO_INVALIDA", "Só o responsável do setor pode reativar uma tarefa dispensada, com motivo.")
+        return nova
     if nova == "dispensada":
         if atual not in ABERTAS or not responsavel_setor or not str(motivo or "").strip():
             raise ErroTarefas("TRANSICAO_INVALIDA", "Só o responsável do setor pode dispensar uma tarefa aberta, com motivo.")
