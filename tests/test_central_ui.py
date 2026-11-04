@@ -82,12 +82,13 @@ const adiar = () => {let resolver, rejeitar; const promise = new Promise((r,j) =
   }});
   container.querySelector=seletor=>nos[seletor.slice(1)]; ctx.document=documento;ctx.container=container;
   ctx.Sessao.usuario={id:1}; ctx.Sessao.pode=p=>p==='aba.tarefas';
-  let catalogo={clientes:[{id:1,nome:'Cliente sintético A'}],setores:[{id:3,nome:'Setor sintético'}],usuarios:[{id:4,nome:'Pessoa sintética',ativo:1}],setores_geridos:[3]};
+  let catalogo={clientes:[{id:1,nome:'Cliente sintético A'}],setores:[{id:3,nome:'Setor sintético'}],usuarios:[{id:4,nome:'Pessoa sintética',ativo:1}],setores_geridos:[],setores_consultaveis:[3]};
   const chamadas=[];
   const painel={hoje:'2026-10-28',alerta_dias:7,resumo:{total:0,pendentes:0},fila:{itens:[],pagina:1,paginas:0,total:0},por_responsavel:[]};
   ctx.api=async url=>{chamadas.push(url);return url==='/api/tarefas/catalogo'?catalogo:painel;};
   const esperar=async()=>{for(let i=0;i<20;i++) await Promise.resolve();};
   assert.strictEqual(run('CentralUI.montar(container)'),true); await esperar();
+  assert.strictEqual(controles.visao.children.some(o=>o.value==='setor'),true,'Membro com consulta compartilhada vê setores sem ser gestor');
   assert.deepStrictEqual(chamadas.map(u=>u.split('?')[0]),['/api/tarefas/catalogo','/api/tarefas/painel']);
   controles.visao.value='setor';controles.cliente_id.value='1';controles.setor_id.value='3';controles.responsavel_usuario_id.value='4';controles.competencia.value='2026-10';controles.texto.value='teste';
   await nos['central-filtros'].emitir('submit');await esperar();
@@ -99,7 +100,7 @@ const adiar = () => {let resolver, rejeitar; const promise = new Promise((r,j) =
   let consulta=new URLSearchParams(chamadas.at(-1).split('?')[1]);
   for(const [k,v] of Object.entries({visao:'setor',cliente_id:'1',setor_id:'3',responsavel_usuario_id:'4',competencia:'2026-10',texto:'teste'})) assert.strictEqual(consulta.get(k),v);
   assert.strictEqual(controles.visao.children.filter(o=>o.value==='setor').length,1,'Reabrir não duplica a opção de escopo');
-  catalogo={...catalogo,clientes:[{id:2,nome:'Cliente sintético B'},{id:5,nome:'Cliente sintético C'}],usuarios:[],setores_geridos:[]};chamadas.length=0;
+  catalogo={...catalogo,clientes:[{id:2,nome:'Cliente sintético B'},{id:5,nome:'Cliente sintético C'}],usuarios:[],setores_geridos:[],setores_consultaveis:[]};chamadas.length=0;
   await nos['central-atualizar'].emitir('click');await esperar();
   assert.deepStrictEqual(chamadas.map(u=>u.split('?')[0]),['/api/tarefas/catalogo','/api/tarefas/painel'],'Atualizar deve refazer catálogo antes do painel');
   assert.strictEqual(controles.cliente_id.children.some(o=>o.value==='5'),true);
