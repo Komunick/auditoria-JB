@@ -172,8 +172,8 @@ const QualidadeUI = {
       head.append(tr); for (const linha of linhas) { const row = u.el("tr"); render(linha, row); body.append(row); }
       t.append(head, body); regiao.append(t); alvo.append(regiao);
     }
-    function celula(linha, texto, secundario) {
-      const c = u.el("td", texto);
+    function celula(linha, texto, secundario, textual = false) {
+      const c = u.el("td", texto, textual ? "qua-celula-texto" : "");
       if (secundario) c.append(u.el("small", secundario, "qua-secundario")); linha.append(c); return c;
     }
     function atualizarNav() {
@@ -273,11 +273,12 @@ const QualidadeUI = {
       const equipe = u.el("section", "", "qua-bloco"); equipe.append(u.el("h3", "Entregas por colaborador"), u.el("p", "Conclusões são atribuídas a quem executou a atividade; não representam uma avaliação automática de pessoas.", "qua-subtitulo"));
       const mostraCusto = pode("custos") && p.custos?.permitido;
       tabela(equipe, ["Colaborador", "Concluídas", "Pendentes", "Horas", ...(mostraCusto ? ["Custo registrado"] : [])], p.por_colaborador || [], (r, tr) => {
-        celula(tr, r.nome); celula(tr, r.tarefas_concluidas); celula(tr, r.tarefas_pendentes); celula(tr, u.numero(r.horas, "horas")); if (mostraCusto) celula(tr, u.moeda(r.custo_total));
+        celula(tr, r.nome, null, true); celula(tr, r.tarefas_concluidas); celula(tr, r.tarefas_pendentes); celula(tr, u.numero(r.horas, "horas")); if (mostraCusto) celula(tr, u.moeda(r.custo_total));
       }); painel.append(equipe);
       const setores = u.el("section", "", "qua-bloco"); setores.append(u.el("h3", "Qualidade por setor"));
       tabela(setores, ["Setor", "Atividades", "Concluídas", "Pendentes", "Atrasadas", "Ocorrências", "Não conformidades abertas"], p.por_setor || [], (r, tr) => {
-        for (const v of [r.nome, r.tarefas, r.concluidas, r.pendentes, r.atrasadas, r.ocorrencias, r.nao_conformidades_abertas]) celula(tr, v);
+        celula(tr, r.nome, null, true);
+        for (const v of [r.tarefas, r.concluidas, r.pendentes, r.atrasadas, r.ocorrencias, r.nao_conformidades_abertas]) celula(tr, v);
       }); painel.append(setores);
       const metodologia = u.el("details", "", "qua-metodologia"); metodologia.append(u.el("summary", "Critérios e limites dos indicadores"));
       for (const texto of p.metodologia || []) metodologia.append(u.el("p", texto)); painel.append(metodologia);
@@ -294,8 +295,8 @@ const QualidadeUI = {
       if (visao === "horas") {
         const custos = pode("custos");
         tabela(conteudo, ["Data / cliente", "Atividade", "Colaborador", "Tempo", ...(custos ? ["Custo"] : []), "Registro"], dados.itens, (r, tr) => {
-          celula(tr, u.data(r.data), r.cliente_nome || nome("clientes", r.cliente_id)); celula(tr, r.descricao, r.setor_nome || nome("setores", r.setor_id));
-          celula(tr, r.usuario_nome || r.responsavel_nome || nome("usuarios", r.usuario_id ?? r.responsavel_usuario_id)); celula(tr, `${r.minutos} min`);
+          celula(tr, u.data(r.data), r.cliente_nome || nome("clientes", r.cliente_id)); celula(tr, r.descricao, r.setor_nome || nome("setores", r.setor_id), true);
+          celula(tr, r.usuario_nome || r.responsavel_nome || nome("usuarios", r.usuario_id ?? r.responsavel_usuario_id), null, true); celula(tr, `${r.minutos} min`);
           if (custos) celula(tr, u.moeda(r.custo_total));
           const a = celula(tr, r.cancelado || r.cancelado_em ? "Cancelado" : "Registrado");
           if (r.pode_cancelar) a.append(botao("Cancelar lançamento", `qua-cancelar-horas-${r.id}`, () => formCancelarHoras(r), "qua-link"));
@@ -303,8 +304,8 @@ const QualidadeUI = {
       } else {
         const entidade = visao === "ocorrencias" ? "ocorrencia" : "plano";
         tabela(conteudo, [visao === "ocorrencias" ? "Ocorrência / cliente" : "Ação / cliente", "Setor / responsável", "Prioridade", "Prazo", "Situação", ""], dados.itens, (r, tr) => {
-          celula(tr, r.descricao, r.cliente_nome || nome("clientes", r.cliente_id));
-          celula(tr, r.setor_nome || nome("setores", r.setor_id), r.responsavel_nome || nome("usuarios", r.responsavel_usuario_id));
+          celula(tr, r.descricao, r.cliente_nome || nome("clientes", r.cliente_id), true);
+          celula(tr, r.setor_nome || nome("setores", r.setor_id), r.responsavel_nome || nome("usuarios", r.responsavel_usuario_id), true);
           celula(tr, visao === "ocorrencias" ? rotulo(r.criticidade) : rotulo(r.tipo)); celula(tr, u.data(r.prazo));
           celula(tr, "").append(badge(rotulo(r.situacao), corRegistro(r)));
           celula(tr, "").append(botao("Ver detalhes", `qua-abrir-${entidade}-${r.id}`, () => abrirDetalhe(entidade, r.id), "qua-link"));
