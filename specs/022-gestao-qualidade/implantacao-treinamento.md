@@ -1,5 +1,14 @@
 # Implantação e treinamento — Gestão da qualidade
 
+Atualização de 05/11/2026: a [spec 024](../024-conclusao-qualidade/spec.md)
+complementa este roteiro com armazenamento privado no servidor, quota e reserva
+de disco, como alternativa explícita ao S3. A cobertura atual e o ensaio
+sintético estão em [validação](../024-conclusao-qualidade/validacao.md); a
+configuração e os cuidados de recuperação estão em
+[operação](../024-conclusao-qualidade/operacao.md). As etapas de instalação inicial
+e schema 4 abaixo são históricas: a 024 não muda dependências, schema ou executor.
+Não reinstalar o controle de deploy apenas por causa dessa mudança.
+
 Este roteiro atende ao item 10 da solicitação de TI descrita na
 [spec 022](spec.md). É uma proposta de implantação para aprovação futura.
 O software foi validado localmente com dados sintéticos. A autorização posterior
@@ -19,7 +28,7 @@ contratadas. Uma reprovação de aceite interrompe o avanço para a etapa seguin
 | Etapa | Previsão sugerida | Responsável | Entrega e condição de avanço |
 |---|---|---|---|
 | Revisão e homologação local | Dias 1–2 | Técnico e gestor | Revisão do código, suíte sintética, preview e aceite dos dez itens; pendências registradas |
-| Preparação operacional | Dia 3 | Técnico e gestor | Matriz de acessos, piloto escolhido, S3 privado e recuperação ensaiada em ambiente isolado; custos e retenção aprovados |
+| Preparação operacional | Dia 3 | Técnico e gestor | Matriz de acessos, piloto escolhido, armazenamento privado configurado e recuperação ensaiada em ambiente isolado; custos e retenção definidos |
 | Treinamento de colaboradores | Dia 4, 60–90 minutos | Líderes e técnico | Exercício completo com clientes e identidades fictícios, sem gravar em produção |
 | Treinamento da gestão | Dia 4, 45–60 minutos | Gestor e técnico | Validação/devolução, leitura dos indicadores, exportações e conferência do acesso a custos |
 | Publicação autorizada e conferência técnica | Janela a aprovar | Técnico | SHA aprovado, executor atualizado, backup verificado, schema 4 e aplicação saudável |
@@ -106,9 +115,10 @@ instalação atual. Não alterar portas, quantidade de processos ou cron neste
 trabalho.
 
 O SMTP permanece desligado, com o drop-in atual preservado. Alertas internos
-podem ser conferidos sem envio de e-mail. Ativação e teste de SMTP dependem de
-outro aceite operacional; não retirar a proteção nem cadastrar credenciais para
-concluir esta entrega.
+podem ser conferidos sem envio de e-mail. A autorização posterior para concluir
+o PDF não fornece as credenciais da conta. A ativação também exige adequar o
+contrato do executor, que hoje rejeita SMTP em produção. Não retirar essa
+proteção para contornar o gate; seguir a dependência registrada na spec 024.
 
 | Variável | Finalidade e regra |
 |---|---|
@@ -118,6 +128,8 @@ concluir esta entrega.
 | `AUDITORIA_QUALIDADE_S3_REGION` | Região opcional do serviço de objetos |
 | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | Nomes reconhecidos pela cadeia padrão do SDK quando esse método de credencial for escolhido; não são os únicos métodos possíveis |
 | `AUDITORIA_QUALIDADE_ANEXOS_LOCAL` | Habilitação explícita exclusivamente para desenvolvimento/teste; manter desabilitada em produção |
+| `AUDITORIA_QUALIDADE_ANEXOS_PRIVADO` | Alternativa da spec 024: valor `1` habilita a pasta privada persistente; não combinar com modo local/S3 |
+| `AUDITORIA_QUALIDADE_ANEXOS_LIMITE_MB`, `AUDITORIA_QUALIDADE_ANEXOS_RESERVA_MB` | Quota total e reserva livre no modo privado; padrão 1024 MiB cada |
 | `AUDITORIA_SMTP_HOST`, `AUDITORIA_SMTP_PORTA`, `AUDITORIA_SMTP_USUARIO`, `AUDITORIA_SMTP_SENHA`, `AUDITORIA_SMTP_REMETENTE`, `AUDITORIA_SMTP_TLS` | Configuração já existente de envio; permanece inativa |
 
 Valores e credenciais ficam em configuração privada do ambiente, nunca no Git,
@@ -125,7 +137,7 @@ na issue, no relatório público ou em comandos registrados no chat. Qualquer
 arquivo novo com credenciais precisa ter acesso restrito e cópia de recuperação
 separada; não o incluir como configuração comum do autodeploy.
 
-O responsável técnico deve comprovar acesso privado ao bucket, TLS, permissões
+Quando S3 for o modo escolhido, o responsável técnico deve comprovar acesso privado ao bucket, TLS, permissões
 restritas ao prefixo de evidências, versionamento, retenção e recuperação.
 Autorizar somente as operações necessárias à aplicação e à compensação de uma
 gravação que não chegou a ser vinculada ao banco. A interface não oferece
@@ -140,7 +152,13 @@ locais usam cliente S3 falso e não comprovam uma configuração externa real.
 
 ### Backup dos objetos e dos metadados
 
-Os bytes do anexo ficam no S3; os vínculos, chave do objeto, tamanho e SHA-256
+No modo privado da spec 024, os bytes ficam na pasta persistente de dados e
+entram na cópia integral do autodeploy com os bancos. É preciso preservar também
+a configuração do modo e ensaiar a recuperação conjunta. Cópia no mesmo servidor
+não equivale a backup externo. Não trocar o backend de uma instalação com
+evidências sem migração e verificação dos objetos.
+
+No modo S3, os bytes do anexo ficam no bucket; os vínculos, chave do objeto, tamanho e SHA-256
 ficam em `qualidade_anexo`, no `clientes.db`. O backup atual do autodeploy copia
 arquivos locais e **não inclui automaticamente os objetos S3**. Configurar e
 ensaiar essa proteção é pré-requisito para liberar anexos reais.

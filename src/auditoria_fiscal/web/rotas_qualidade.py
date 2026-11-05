@@ -10,7 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..core import qualidade as q, tarefas as t
 from ..core.clientes import ErroClientes
-from ..core.qualidade_indicadores import calcular_painel, intervalo_relatorio
+from ..core.qualidade_indicadores import calcular_painel, intervalo_relatorio, classificar_qualidade
 from ..ferramentas.clientes_store import ConcorrenciaError
 from ..ferramentas.qualidade_store import QualidadeStore
 from ..ferramentas import qualidade_anexos as anexos
@@ -167,6 +167,7 @@ def _dto(s, u, r, entidade):
     if entidade == 'horas':
         d['pode_cancelar'] = bool(editar and not r['cancelado'])
         return d
+    d['cor'] = classificar_qualidade(r, t.hoje_salvador(), plano=entidade == 'plano')
     terminal = r['situacao'] in {'encerrada', 'validado'}
     transicoes = sorted(q.TRANSICOES[entidade].get(r['situacao'], set()))
     d.update(pode_editar=bool(editar and not terminal and r['situacao'] not in {'resolvida','aguardando_validacao'}),
