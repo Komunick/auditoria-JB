@@ -209,7 +209,20 @@ def package_digest(source, oid_length):
     return tree(source).hex()
 
 
-def install(source, cofre_env, additional, control_plane_digest, *, dependencies_from_sha=None, dependencies_target_tree=None):
+def verify_smtp_file(path):
+    try:
+        secure_root_path(path)
+        info = path.lstat()
+        parent_mode = path.parent.stat().st_mode
+    except OSError:
+        raise InstallError("Arquivo SMTP privado ausente ou inacessível.") from None
+    if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or
+            stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1 or info.st_size > 8192 or
+            stat.S_IMODE(parent_mode) != 0o700):
+        raise InstallError("SMTP exige arquivo root 0600 em diretório root 0700, sem links.")
+
+
+def install(source, cofre_env, additional, control_plane_digest, *, dependencies_from_sha=None, dependencies_target_tree=None, smtp_env=None):
     if not isinstance(control_plane_digest, str) or not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", control_plane_digest):
         raise InstallError("Informe o OID da árvore devops/autodeploy explicitamente revisada.")
     transition = None
@@ -231,6 +244,13 @@ def install(source, cofre_env, additional, control_plane_digest, *, dependencies
     configuration = configuration_sources(additional)
     if cofre_env in configuration:
         raise InstallError("O arquivo do cofre deve ficar apenas na lista de segredos.")
+    if smtp_env is not None:
+        smtp_env = Path(smtp_env)
+        verify_smtp_file(smtp_env)
+        ordinary = [*configuration, Path(REPOSITORY), Path("/home/ubuntu/komunick/data/auditoria-jb"),
+                    PATHS["state"], PATHS["backup"], PATHS["check_work"]]
+        if smtp_env == cofre_env or any(p == smtp_env or p in smtp_env.parents for p in ordinary):
+            raise InstallError("SMTP deve ficar separado do cofre, dos dados e do backup comum.")
     for destination in PATHS.values():
         secure_root_path(destination)
     # Ler como bytes: o install não importa nem executa o runner fornecido.
@@ -264,6 +284,9 @@ def install(source, cofre_env, additional, control_plane_digest, *, dependencies
     }
     if transition is not None:
         config["dependency_transition"] = transition
+    if smtp_env is not None:
+        config["smtp_env"] = str(smtp_env)
+        config["secret_paths"].append(str(smtp_env))
     sources["config"] = (json.dumps(config, indent=2, sort_keys=True) + "\n").encode()
     sources["guard"] = GUARD.encode()
     with controller_lock():
@@ -309,15 +332,17 @@ def main(argv=None):
     parser.add_argument("--dependencies-from-sha", help="SHA exato do checkout anterior à manutenção de dependências; exige --dependencies-target-tree.")
     parser.add_argument("--dependencies-target-tree", help="OID da árvore completa do candidato aprovado após manutenção de dependências; exige --dependencies-from-sha.")
     parser.add_argument("--cofre-env", type=Path, default=Path("/etc/auditoria-jb/cofre.env"))
+    parser.add_argument("--smtp-env", type=Path, help="Autorizar SMTP pelo arquivo privado root 0600; omitido mantém SMTP desligado.")
     parser.add_argument("--configuration-path", action="append", default=[], type=Path,
                         help="Arquivo adicional root-owned a incluir no backup de configuração; repetível.")
     args = parser.parse_args(argv)
     os.umask(0o077)
     if args.action == "install":
         install(args.source, args.cofre_env, args.configuration_path, args.control_plane_digest,
-                dependencies_from_sha=args.dependencies_from_sha, dependencies_target_tree=args.dependencies_target_tree)
+                dependencies_from_sha=args.dependencies_from_sha, dependencies_target_tree=args.dependencies_target_tree,
+                smtp_env=args.smtp_env)
     elif (args.control_plane_digest or args.configuration_path or args.cofre_env != Path("/etc/auditoria-jb/cofre.env")
-          or args.dependencies_from_sha is not None or args.dependencies_target_tree is not None):
+          or args.dependencies_from_sha is not None or args.dependencies_target_tree is not None or args.smtp_env is not None):
         raise InstallError("Argumentos de configuração só se aplicam a install.")
     else:
         enable()

@@ -275,7 +275,7 @@ def test_exclusao_desktop_explicita_e_restrita(pasta):
 
 def test_saude_urls_e_ambiente():
     h = ad.Host.__new__(ad.Host)
-    h.c = SimpleNamespace(health_url="http://127.0.0.1:8600", data_dir="/srv/dados")
+    h.c = SimpleNamespace(health_url="http://127.0.0.1:8600", data_dir="/srv/dados", smtp_env=None)
     h.service = lambda: dict(MainPID="123", ActiveState="active", SubState="running", ExecMainStartTimestampMonotonic="12345")
     rotas = []
     class Resposta:

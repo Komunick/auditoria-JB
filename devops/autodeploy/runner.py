@@ -61,7 +61,7 @@ class Config:
         backup_dir="/var/backups/auditoria-jb-autodeploy", secrets_backup_dir="/etc/auditoria-jb/autodeploy-backups",
         configuration_paths=[], secret_paths=[], health_url="http://127.0.0.1:8600",
         allowed_skips=[], excluded_tests=[], command_timeout=300, test_timeout=600, total_test_timeout=3600,
-        health_timeout=60, maintenance_timeout=900, dependency_transition=None)
+        health_timeout=60, maintenance_timeout=900, dependency_transition=None, smtp_env=None)
 
     @classmethod
     def from_dict(cls, data):
@@ -80,6 +80,18 @@ class Config:
                 raise DeployError("config_paths")
             for path in paths:
                 cls._path(path)
+        if obj.smtp_env is not None:
+            try:
+                cls._path(obj.smtp_env)
+            except DeployError:
+                raise DeployError("config_smtp") from None
+            secret = PurePosixPath(obj.smtp_env)
+            # Nem o arquivo nem um ancestral podem entrar na copia comum.
+            ordinary = [obj.repository, obj.venv, obj.data_dir, obj.backup_dir, obj.state_dir,
+                        obj.check_work_dir, *obj.configuration_paths]
+            if (obj.smtp_env not in obj.secret_paths or
+                    any(secret == PurePosixPath(p) or PurePosixPath(p) in secret.parents for p in ordinary)):
+                raise DeployError("config_smtp")
         repo = urlparse(obj.repository_url)
         if repo.scheme != "https" or repo.hostname != "github.com" or repo.username or repo.password or repo.query or repo.fragment or not re.fullmatch(r"/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(?:\.git)?", repo.path):
             raise DeployError("config_repository_url")
@@ -113,6 +125,65 @@ class Config:
     def _path(value):
         if not isinstance(value, str) or not value.startswith("/") or value == "/" or any(c.isspace() or c in ":%\\\x00" for c in value) or ".." in PurePosixPath(value).parts or str(PurePosixPath(value)) != value:
             raise DeployError("config_path")
+
+
+SMTP_KEYS = {b"AUDITORIA_SMTP_" + key for key in
+             (b"HOST", b"PORTA", b"USUARIO", b"SENHA", b"REMETENTE", b"TLS")}
+
+
+def parse_smtp_environment(raw):
+    """Subconjunto deliberadamente restrito de EnvironmentFile, nunca shell."""
+    try:
+        if len(raw) > 8192:
+            raise ValueError
+        values = {}
+        for line in raw.decode("ascii").splitlines():
+            if not line or line.startswith("#"):
+                continue
+            key, value = line.split("=", 1)
+            key = key.encode("ascii")
+            if (key not in SMTP_KEYS or key in values or not value or
+                    any(not 33 <= ord(c) <= 126 or c in "\"'\\" for c in value)):
+                raise ValueError
+            values[key] = value.encode("ascii")
+        if set(values) != SMTP_KEYS:
+            raise ValueError
+        host = values[b"AUDITORIA_SMTP_HOST"]
+        if not re.fullmatch(rb"[a-zA-Z0-9](?:[a-zA-Z0-9.-]{0,251}[a-zA-Z0-9])?", host):
+            raise ValueError
+        for key in (b"AUDITORIA_SMTP_USUARIO", b"AUDITORIA_SMTP_REMETENTE"):
+            if not re.fullmatch(rb"[a-zA-Z0-9.!#$%&*+/=?^_`{|}~-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}", values[key]):
+                raise ValueError
+        if (values[b"AUDITORIA_SMTP_TLS"], values[b"AUDITORIA_SMTP_PORTA"]) not in {
+                (b"ssl", b"465"), (b"starttls", b"587")}:
+            raise ValueError
+        return values
+    except (ValueError, UnicodeError):
+        raise DeployError("smtp_environment_invalid") from None
+
+
+def validate_smtp_environment(config, environment):
+    effective = {k: v for k, v in environment.items() if k.startswith(b"AUDITORIA_SMTP_")}
+    if config.smtp_env is None:
+        if effective:
+            raise DeployError("service_environment")
+        return
+    path = Path(config.smtp_env)
+    try:
+        info = path.lstat()
+        if (not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or
+                stat.S_IMODE(info.st_mode) != 0o600 or info.st_nlink != 1 or info.st_size > 8192):
+            raise DeployError("smtp_file_unsafe")
+        for parent in path.parents:
+            info = parent.lstat()
+            if (not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022 or
+                    (parent == path.parent and stat.S_IMODE(info.st_mode) != 0o700)):
+                raise DeployError("smtp_file_unsafe")
+        expected = parse_smtp_environment(path.read_bytes())
+    except OSError:
+        raise DeployError("smtp_file_unsafe") from None
+    if effective != expected:
+        raise DeployError("service_environment")
 
 
 def clean_environment(home, source=None):
@@ -318,7 +389,10 @@ def write_recovery(destination, revision, secrets):
         "O manifesto separado registra crontab_present e crontab_captured_at: ausência de crontab é diferente de um crontab vazio; a captura foi feita antes da manutenção.\n"
         "5. Um banco já migrado não deve receber código antigo sem análise específica. Não restaure o snapshot anterior sobre gravações mais recentes.\n"
         "6. Depois do reparo aprovado, com o timer ainda parado, abra uma janela administrativa controlada: remova o hold e inicie a aplicação. "
-        "Valide serviço, catálogos protegidos, cofre, SMTP desligado, dados e SHA; se falhar, recoloque hold e pare a aplicação. "
+        "Valide serviço, catálogos protegidos, cofre, política SMTP autorizada, dados e SHA; se falhar, recoloque hold e pare a aplicação. "
+        "SMTP fica desligado por padrão. Se smtp_env estiver autorizado, recupere o arquivo somente da cópia separada de segredos "
+        "(root 0600 em diretório 0700) e confira o ambiente efetivo. Voltar ao controlador anterior exige desligar SMTP antes. "
+        "Não apague reservas de envio nem repita mensagens de resultado incerto. "
         "Somente após validação libere explicitamente o estado bloqueado; reative o timer por último.\n\n"
         "SHA observado: " + revision + "\nCópia de segredos: " + str(secrets) + "\n")
     (Path(destination) / "RECUPERACAO.md").write_text(text, encoding="utf-8")
@@ -716,9 +790,9 @@ class Host:
         entries = environment.read_bytes().split(b"\0")
         values = dict(item.split(b"=", 1) for item in entries if b"=" in item)
         if (not values.get(b"AUDITORIA_COFRE_CHAVE", b"").strip()
-                or values.get(b"AUDITORIA_WEB_DADOS") != self.c.data_dir.encode()
-                or any(k.startswith(b"AUDITORIA_SMTP_") for k in values)):
+                or values.get(b"AUDITORIA_WEB_DADOS") != self.c.data_dir.encode()):
             raise DeployError("service_environment")
+        validate_smtp_environment(self.c, values)
         opener = build_opener(ProxyHandler({}))
         for route, expected in (("/api/estado", 200), ("/api/tarefas/catalogo", 401), ("/api/clientes/catalogo", 401)):
             try:

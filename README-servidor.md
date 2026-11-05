@@ -358,10 +358,12 @@ no inventário de backup do executor. Não trocar o backend sem migração dos
 objetos. Procedimento completo e limitações:
 [operação da spec 024](specs/024-conclusao-qualidade/operacao.md).
 
-O executor atual mantém SMTP desligado por contrato; configurar as variáveis
-da seção anterior não basta para ativá-lo com segurança. Alertas internos
-continuam disponíveis. A adequação do executor e a autenticação privada da
-conta são dependências separadas da implementação de anexos.
+O executor mantém SMTP desligado por padrão. A spec 025 prepara a opção
+administrativa `smtp_env`, que exige arquivo privado, autenticação, TLS e
+coincidência com o ambiente do processo. Configurar somente as variáveis não
+basta: o controlador instalado precisa ser atualizado e autorizado separadamente.
+Isso não ativa os envios em produção. Ver
+[preparação e ativação futura do SMTP](specs/025-smtp-explicito/operacao.md).
 
 ## Rodar como serviço no Windows (opcional)
 

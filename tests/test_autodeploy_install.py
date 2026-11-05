@@ -77,6 +77,28 @@ def main():
             else: raise AssertionError("Aceitou caminho não controlado pelo root")
 
     # A conta do sandbox nunca pode coincidir com root/ubuntu ou ganhar grupos.
+    smtp_path = absolute.parent / 'smtp.env'
+    smtp_info = types.SimpleNamespace(st_uid=0, st_mode=stat.S_IFREG|0o600, st_nlink=1, st_size=200)
+    smtp_parent = types.SimpleNamespace(st_uid=0, st_mode=stat.S_IFDIR|0o700)
+    def smtp_stat(path, **kwargs): return smtp_info if path == smtp_path else smtp_parent
+    with patch.object(Path, 'lstat', smtp_stat), patch.object(Path, 'stat', smtp_stat):
+        module.verify_smtp_file(smtp_path)
+        for mode, uid, links in ((stat.S_IFREG|0o644,0,1), (stat.S_IFREG|0o600,1000,1),
+                                 (stat.S_IFLNK|0o600,0,1), (stat.S_IFREG|0o600,0,2)):
+            smtp_info.st_mode, smtp_info.st_uid, smtp_info.st_nlink = mode, uid, links
+            try: module.verify_smtp_file(smtp_path)
+            except module.InstallError: pass
+            else: raise AssertionError('Instalador aceitou segredo SMTP inseguro')
+        smtp_info.st_mode, smtp_info.st_uid, smtp_info.st_nlink = stat.S_IFREG|0o600,0,1
+        smtp_parent.st_mode = stat.S_IFDIR|0o755
+        try: module.verify_smtp_file(smtp_path)
+        except module.InstallError: pass
+        else: raise AssertionError('Instalador aceitou pasta SMTP publica')
+    with patch.object(Path, 'lstat', side_effect=FileNotFoundError):
+        try: module.verify_smtp_file(smtp_path)
+        except module.InstallError: pass
+        else: raise AssertionError('Instalador aceitou arquivo ausente')
+
     check_user = types.SimpleNamespace(pw_uid=997,pw_gid=997,pw_dir="/nonexistent",pw_shell="/usr/sbin/nologin")
     fake_pwd = types.SimpleNamespace(getpwnam=Mock(return_value=check_user))
     fake_grp = types.SimpleNamespace(getgrgid=Mock(return_value=types.SimpleNamespace(gr_name="auditoria-jb-check")),
@@ -150,6 +172,24 @@ def main():
             assert "ConditionPathExists=!/var/lib/auditoria-jb-autodeploy/hold" in paths["guard"].read_text()
             assert not any("enable" in c or "--check" in c or "--once" in c for c in calls), calls
             first = paths["config"].read_bytes()
+            smtp = base / "smtp-private" / "smtp.env"
+            smtp.parent.mkdir(mode=0o700)
+            smtp.write_text("SYNTHETIC_SMTP_SECRET", encoding="utf-8"); smtp.chmod(0o600)
+            with patch.object(module, "verify_smtp_file") as verify_smtp:
+                module.install(source, cofre, [], digest, smtp_env=smtp)
+                verify_smtp.assert_called_once_with(smtp)
+                enabled = json.loads(paths["config"].read_text())
+                assert enabled["smtp_env"] == str(smtp)
+                assert enabled["secret_paths"] == [str(cofre), str(smtp)]
+                assert str(smtp) not in enabled["configuration_paths"]
+                assert "SYNTHETIC_SMTP_SECRET" not in paths["config"].read_text()
+                with patch.object(module, "configuration_sources", return_value=[unit, smtp]):
+                    try: module.install(source, cofre, [], digest, smtp_env=smtp)
+                    except module.InstallError: pass
+                    else: raise AssertionError("SMTP entrou no backup comum")
+                assert json.loads(paths["config"].read_text()) == enabled
+            module.install(source, cofre, [], digest)
+            assert paths["config"].read_bytes() == first
             # Autorizacao administrativa exige origem e arvore exatas, sem escrita parcial.
             for origin, target in (("a" * 40, None), (None, "b" * 40), ("main", "b" * 40),
                                    ("a" * 40, "dev"), ("a" * 40, "b" * 64), ("a" * 40, "B" * 40)):
@@ -222,9 +262,12 @@ def main():
                  "--dependencies-from-sha", "a" * 40, "--dependencies-target-tree", "b" * 40]
     with patch.object(module, "install") as install, patch.object(module, "enable") as enable:
         module.main(arguments)
-        assert install.call_args.kwargs == dict(dependencies_from_sha="a" * 40, dependencies_target_tree="b" * 40)
+        assert install.call_args.kwargs == dict(dependencies_from_sha="a" * 40, dependencies_target_tree="b" * 40, smtp_env=None)
         assert not enable.called
-    for flags in (["--dependencies-from-sha", "a" * 40], ["--dependencies-target-tree", "b" * 40]):
+    with patch.object(module, "install") as install:
+        module.main([str(ROOT), "install", "--smtp-env", "/etc/auditoria-jb/smtp.env"])
+        assert install.call_args.kwargs['smtp_env'] == Path('/etc/auditoria-jb/smtp.env')
+    for flags in (["--smtp-env", "/etc/auditoria-jb/smtp.env"], ["--dependencies-from-sha", "a" * 40], ["--dependencies-target-tree", "b" * 40]):
         with patch.object(module, "enable") as enable:
             try: module.main([str(ROOT), "enable", *flags])
             except module.InstallError: pass
