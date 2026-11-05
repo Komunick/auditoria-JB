@@ -25,7 +25,11 @@ def recusar(fn, *args):
         raise AssertionError('Gravacao deveria ser recusada')
 
 def main():
-    with TemporaryDirectory(prefix='qualidade_privado_sintetico_') as pasta:
+    # copy_tree abre cada ancestral com O_RDONLY/O_DIRECTORY. O TMPDIR do
+    # executor passa por um ancestral 0711 do root, atravessavel mas nao legivel
+    # pela conta de testes. /tmp e privado por PrivateTmp na unit de sandbox.
+    raiz_temporaria = '/tmp' if os.name == 'posix' else None
+    with TemporaryDirectory(prefix='qualidade_privado_sintetico_', dir=raiz_temporaria) as pasta:
         base = Path(pasta) / 'dados'
         base.mkdir()
         ambiente = dict(AUDITORIA_WEB_DADOS=str(base), AUDITORIA_QUALIDADE_ANEXOS_PRIVADO='1',

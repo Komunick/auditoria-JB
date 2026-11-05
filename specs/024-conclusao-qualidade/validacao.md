@@ -91,3 +91,24 @@ Este conjunto incorpora a correção ainda aberta no PR #37. A sobreposição é
 registrada no novo PR para orientar a integração; o PR #37 não foi fechado nem
 alterado nesta preparação. Dados da demonstração, downloads, configuração do
 remetente e evidências locais continuam fora do Git.
+
+## Correção do teste no sandbox do deploy — 05/11/2026
+
+A promoção #43 foi integrada, mas o candidato `2a671617aea56ad2c95bc0c932d5736f644707e7`
+foi recusado em `tests` com `sandbox_failed`, antes de iniciar manutenção.
+O serviço continuou na versão anterior, sem hold. A causa foi o ensaio de
+`copy_tree`: seu acesso seguro abre cada ancestral com `O_RDONLY/O_DIRECTORY`,
+enquanto o `TMPDIR` do sandbox passa por um diretório 0711 do root, atravessável
+mas não legível pela conta restrita de testes.
+
+O teste agora usa `/tmp` em POSIX, que a unit já isola com `PrivateTmp=yes`,
+mantendo o comportamento padrão no Windows. A pasta criada permanece exclusiva
+e temporária. Nenhuma regra da aplicação, permissão de diretório, verificação
+do backup, configuração do executor ou exceção de teste foi alterada.
+
+Ensaio RED/GREEN na arm07 com o `sandbox_command` do executor instalado, a mesma
+conta restrita e todas as proteções: versão anterior reproduziu
+`source_directory_unsafe`; versão corrigida passou em quota, reserva,
+concorrência, integridade e restauração. A área sintética foi removida ao fim.
+O teste também passou no Windows e `git diff --check` foi aprovado. A nova
+promoção deve executar novamente toda a suíte do candidato antes de manutenção.
