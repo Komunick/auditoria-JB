@@ -345,7 +345,25 @@ Prévia de importação ou geração expira após 30 minutos, pertence a quem a
 criou e é de uso único. Se a confirmação falhar ou a agenda mudar, gere uma
 nova prévia. Apenas dados sintéticos devem entrar nos testes e no Git.
 
-## Rodar como serviço (opcional)
+## Evidências da Gestão da qualidade
+
+A spec 024 acrescenta armazenamento privado na pasta persistente do servidor,
+habilitado por `AUDITORIA_QUALIDADE_ANEXOS_PRIVADO=1`. Os padrões são 1024 MiB
+de quota e 1024 MiB de reserva livre; há limites por arquivo e por quantidade,
+download autorizado e verificação de integridade. Não combinar esse modo com
+S3 ou com o modo local exclusivo de desenvolvimento.
+
+Antes de habilitar, conferir evidências existentes e incluir a configuração
+no inventário de backup do executor. Não trocar o backend sem migração dos
+objetos. Procedimento completo e limitações:
+[operação da spec 024](specs/024-conclusao-qualidade/operacao.md).
+
+O executor atual mantém SMTP desligado por contrato; configurar as variáveis
+da seção anterior não basta para ativá-lo com segurança. Alertas internos
+continuam disponíveis. A adequação do executor e a autenticação privada da
+conta são dependências separadas da implementação de anexos.
+
+## Rodar como serviço no Windows (opcional)
 
 Agendador de Tarefas → nova tarefa "Ao iniciar o computador" executando
 `powershell -ExecutionPolicy Bypass -File C:\auditoria-fiscal\servidor.ps1`

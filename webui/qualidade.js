@@ -158,8 +158,6 @@ const QualidadeUI = {
     function badge(texto, cor) {
       return u.el("span", texto, `qua-badge qua-${["verde", "amarelo", "vermelho", "neutro"].includes(cor) ? cor : "neutro"}`);
     }
-    const corRegistro = r => ["encerrada", "resolvida", "validado"].includes(r.situacao) ? "verde"
-      : r.criticidade === "critica" || r.prazo && r.prazo < u.hoje() ? "vermelho" : "amarelo";
     function vazio(alvo, titulo, texto) {
       const caixa = u.el("div", "", "qua-vazio"); caixa.append(u.el("strong", titulo), u.el("p", texto)); alvo.append(caixa);
     }
@@ -307,7 +305,7 @@ const QualidadeUI = {
           celula(tr, r.descricao, r.cliente_nome || nome("clientes", r.cliente_id), true);
           celula(tr, r.setor_nome || nome("setores", r.setor_id), r.responsavel_nome || nome("usuarios", r.responsavel_usuario_id), true);
           celula(tr, visao === "ocorrencias" ? rotulo(r.criticidade) : rotulo(r.tipo)); celula(tr, u.data(r.prazo));
-          celula(tr, "").append(badge(rotulo(r.situacao), corRegistro(r)));
+          celula(tr, "").append(badge(rotulo(r.situacao), r.cor));
           celula(tr, "").append(botao("Ver detalhes", `qua-abrir-${entidade}-${r.id}`, () => abrirDetalhe(entidade, r.id), "qua-link"));
         });
       }
@@ -320,7 +318,7 @@ const QualidadeUI = {
       detalhe.textContent = ""; detalhe.hidden = false;
       detalhe.append(botao("Fechar detalhes", "qua-fechar-detalhe", () => { estado.detalhe++; detalhe.hidden = true; detalhe.textContent = ""; }, "qua-fechar"),
         u.el("p", `${entidade === "ocorrencia" ? "OCORRÊNCIA" : "PLANO DE AÇÃO"} #${registro.id}`, "qua-sobretitulo"),
-        u.el("h3", registro.descricao), badge(rotulo(registro.situacao), corRegistro(registro)));
+        u.el("h3", registro.descricao), badge(rotulo(registro.situacao), registro.cor));
       const info = u.el("dl", "", "qua-ficha");
       for (const [chave, valor] of [["Cliente", registro.cliente_nome || nome("clientes", registro.cliente_id)],
         ["Setor", registro.setor_nome || nome("setores", registro.setor_id)], ["Responsável", registro.responsavel_nome || nome("usuarios", registro.responsavel_usuario_id)],

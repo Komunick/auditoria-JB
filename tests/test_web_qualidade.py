@@ -4,8 +4,9 @@ import gc
 import os
 import sys
 import tempfile
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 _dados = tempfile.TemporaryDirectory(prefix='qualidade_http_')
@@ -13,7 +14,7 @@ for chave in list(os.environ):
     if chave.startswith('AUDITORIA_'):
         del os.environ[chave]
 os.environ['AUDITORIA_WEB_DADOS'] = _dados.name
-os.environ['AUDITORIA_QUALIDADE_ANEXOS_LOCAL'] = '1'
+os.environ['AUDITORIA_QUALIDADE_ANEXOS_PRIVADO'] = '1'
 from fastapi.testclient import TestClient
 from openpyxl import load_workbook
 from auditoria_fiscal.web.servidor import criar_app
@@ -24,6 +25,64 @@ def ok(resposta, status=200):
     if 'json' in resposta.headers.get('content-type', ''):
         return resposta.json()
     return resposta
+
+
+def semaforo_http(adm, pessoa, lider, uid, sid):
+    """Cores vêm do servidor em leituras, mutações e planos da ocorrência."""
+    from auditoria_fiscal.web import rotas_qualidade as rotas
+    api = '/api/qualidade'
+    cid = ok(adm.post('/api/clientes', json={'nome': 'Cliente sintético do semáforo'}))['id']
+    ok(adm.put(f'/api/tarefas/clientes/{cid}/carteira', json={'setor_id': sid, 'responsavel_usuario_id': uid}))
+    relogio = [datetime.fromisoformat('2026-11-03T12:00:00+00:00')]
+    criar_store_original = rotas.criar_store
+
+    def criar_store_controlado():
+        store = criar_store_original()
+        store.agora_fn = lambda: relogio[0]
+        return store
+
+    def conferir_leituras(entidade, registro, cor):
+        assert registro['cor'] == cor, (entidade, registro, cor)
+        detalhe = ok(pessoa.get(f"{api}/{entidade}/{registro['id']}"))
+        lista = ok(pessoa.get(f'{api}/{entidade}', params={'cliente_id': cid}))['itens']
+        assert detalhe['cor'] == cor
+        assert next(r for r in lista if r['id'] == registro['id'])['cor'] == cor
+
+    with patch.object(rotas, 'criar_store', criar_store_controlado), patch.object(
+            rotas.t, 'hoje_salvador', side_effect=lambda: rotas.t.data_salvador(relogio[0])):
+        entrada = dict(data='2026-11-03', cliente_id=cid, setor_id=sid, responsavel_usuario_id=uid,
+                       tipo='nao_conformidade', descricao='Não conformidade sintética', criticidade='baixa', prazo='2026-12-01')
+        oc = ok(pessoa.post(api+'/ocorrencias', json=entrada))
+        conferir_leituras('ocorrencias', oc, 'vermelho')
+        oc = ok(pessoa.patch(f"{api}/ocorrencias/{oc['id']}", json={'tipo': 'erro', 'revision': oc['revision']}))
+        conferir_leituras('ocorrencias', oc, 'amarelo')
+        oc = ok(pessoa.post(f"{api}/ocorrencias/{oc['id']}/comentarios", json={'comentario': 'Acompanhamento sintético', 'revision': oc['revision']}))
+        assert oc['cor'] == 'amarelo'
+
+        # Um segundo de diferença atravessa o prazo no fuso de Salvador.
+        for instante, cor in [('2026-11-04T02:59:59+00:00', 'verde'), ('2026-11-04T03:00:00+00:00', 'vermelho')]:
+            relogio[0] = datetime.fromisoformat('2026-11-03T12:00:00+00:00')
+            oc = ok(pessoa.post(api+'/ocorrencias', json=dict(entrada, tipo='erro', prazo='2026-11-03')))
+            plano = ok(pessoa.post(api+'/planos', json={'ocorrencia_id': oc['id'], 'causa': 'Causa sintética',
+                'descricao': 'Correção sintética', 'tipo': 'corretiva', 'responsavel_usuario_id': uid, 'prazo': '2026-11-03'}))
+            conferir_leituras('planos', plano, 'amarelo')
+            plano = ok(pessoa.post(f"{api}/planos/{plano['id']}/transicao", json={
+                'situacao': 'aguardando_validacao', 'revision': plano['revision'], 'comentario': 'Correção realizada'}))
+            relogio[0] = datetime.fromisoformat(instante)
+            plano = ok(lider.post(f"{api}/planos/{plano['id']}/transicao", json={
+                'situacao': 'validado', 'revision': plano['revision'], 'comentario': 'Solução validada'}))
+            conferir_leituras('planos', plano, cor)
+            detalhe = ok(pessoa.get(f"{api}/ocorrencias/{oc['id']}"))
+            assert detalhe['planos'][0]['cor'] == cor
+            oc = ok(pessoa.post(f"{api}/ocorrencias/{oc['id']}/transicao", json={
+                'situacao': 'resolvida', 'revision': oc['revision'], 'comentario': 'Ocorrência resolvida'}))
+            conferir_leituras('ocorrencias', oc, cor)
+            oc = ok(lider.post(f"{api}/ocorrencias/{oc['id']}/transicao", json={
+                'situacao': 'encerrada', 'revision': oc['revision'], 'comentario': 'Gestão conferiu'}))
+            conferir_leituras('ocorrencias', oc, cor)
+
+        painel = ok(pessoa.get(api+'/painel', params={'cliente_id': cid}))
+        assert painel['semaforo'] == {'verde': 2, 'amarelo': 1, 'vermelho': 2, 'neutro': 0}
 
 
 def main():
@@ -86,7 +145,7 @@ def main():
     hora = dict(cliente_id=cid,setor_id=sid,tarefa_id=tarefa['id'],data=hoje,minutos=90,descricao='Tempo sintético')
     ok(a.post(api+'/horas',json=dict(hora,custo_hora='120.00')),403)
     h = ok(a.post(api+'/horas',json=hora))
-    assert h['responsavel_usuario_id'] == uid and 'custo_total' not in h
+    assert h['responsavel_usuario_id'] == uid and 'custo_total' not in h and 'cor' not in h
     assert ok(b.get(api+'/horas'))['total'] == 0
     ok(b.post(f"{api}/horas/{h['id']}/cancelar",json={'motivo':'Alheio','revision':h['revision']}),403)
     h = ok(a.post(f"{api}/horas/{h['id']}/cancelar",json={'motivo':'Apontamento incorreto','revision':h['revision']}))
@@ -107,16 +166,23 @@ def main():
     aberta = ok(a.post(api+'/ocorrencias',json=dict(entrada,descricao='Anexo sintético')))
     eml = b'From: qa@example.test\r\nTo: teste@example.test\r\nSubject: QA\r\nDate: Fri, 30 Oct 2026 12:00:00 -0300\r\n\r\nEvidencia sintetica.'
     anexo = ok(a.post(f"{api}/ocorrencias/{aberta['id']}/anexos", files={'arquivo':('evidencia.eml',eml,'message/rfc822')}))
+    ok(TestClient(app).get(f"{api}/anexos/{anexo['id']}/download"),401)
     ok(b.get(f"{api}/anexos/{anexo['id']}/download"),403)
     d = ok(a.get(f"{api}/anexos/{anexo['id']}/download"))
     assert d.content == eml and 'attachment' in d.headers['content-disposition']
     assert d.headers['cache-control']=='no-store'
     assert 'chave_objeto' not in anexo
+    antes_anexos = ok(a.get(f"{api}/ocorrencias/{aberta['id']}"))['anexos']
+    with patch.dict(os.environ, {'AUDITORIA_QUALIDADE_ANEXOS_LIMITE_MB': '1'}):
+        ok(a.post(f"{api}/ocorrencias/{aberta['id']}/anexos", files={
+            'arquivo':('sem-quota.eml',eml + b'x' * (1024 * 1024),'message/rfc822')}),503)
+    assert ok(a.get(f"{api}/ocorrencias/{aberta['id']}"))['anexos'] == antes_anexos
     ok(a.post(f"{api}/ocorrencias/{aberta['id']}/anexos", files={'arquivo':('falso.pdf',b'<script>bad</script>','application/pdf')}),422)
     ok(a.get(api+'/ocorrencias',params={'setor_id':sid2}),403)
     trilha = ok(adm.get('/api/admin/historico',params={'limite':500}))['itens']
     eventos = [e for e in trilha if e.get('acao','').startswith('qualidade.')]
     assert eventos and not any('Evidência sintética restrita' in str(e) for e in eventos)
+    semaforo_http(adm, a, lider, uid, sid)
     print('OK - qualidade HTTP: permissões, escopo, revisão, validação, horas, anexos e exportações sintéticas')
     return 0
 

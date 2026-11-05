@@ -37,7 +37,8 @@ const ocorrencia={id:4,revision:7,data:'2026-10-30',cliente_id:1,cliente_nome:'E
  planos:[],anexos:[{id:5,nome:'evidência sintética.pdf',tamanho:250}]};
 const plano={...ocorrencia,id:6,revision:2,ocorrencia_id:4,causa:'Causa sintética',descricao:'Rever processo',tipo:'corretiva',situacao:'aguardando_validacao',transicoes_permitidas:['validado','em_andamento'],pode_editar:false};
 const horas={id:7,revision:3,data:'2026-10-30',cliente_id:1,setor_id:2,usuario_id:3,minutos:90,custo_hora:'66.67',custo_total:'100.01',descricao:'Conferência sintética',pode_cancelar:true};
-function ambiente(permissoes=todas){
+function ambiente(permissoes=todas,registros={}){
+ const ocorrenciaLocal=registros.ocorrencia||ocorrencia,planoLocal=registros.plano||plano;
  const doc={listeners:{},createElement(tag){const classes=new Set();return {tagName:tag,children:[],attributes:{},listeners:{},value:'',files:[],checked:false,disabled:false,hidden:false,_text:'',parent:null,
   set textContent(v){this._text=String(v??'');this.children=[];},get textContent(){return this._text+this.children.map(e=>e.textContent).join('');},
   set innerHTML(v){throw Error('HTML dinâmico não permitido');},
@@ -61,10 +62,10 @@ function ambiente(permissoes=todas){
    if(opcoes.method&&opcoes.method!=='GET'){if(postError)throw postError;return {...ocorrencia,revision:8};}
    if(url.includes('/relatorio.')||url.includes('/download'))return {headers:{get(){return url.includes('/download')?"attachment; filename*=UTF-8''evid%C3%AAncia.pdf":'attachment; filename="sintetico.pdf"';}},blob:async()=>blobDefer?new Promise(resolve=>blobs.push(resolve)):{}};
    if(url.includes('/catalogo')){if(catalogoError)throw catalogoError;return catalogoLocal;}if(url.includes('/painel'))return painel;
-   if(/\/ocorrencias\/4(?:\?|$)/.test(url))return ocorrencia;
-   if(url.includes('/ocorrencias'))return {itens:[ocorrencia],total:1};
-   if(/\/planos\/6(?:\?|$)/.test(url))return plano;
-   if(url.includes('/planos'))return {itens:[plano],total:1};
+   if(/\/ocorrencias\/4(?:\?|$)/.test(url))return ocorrenciaLocal;
+   if(url.includes('/ocorrencias'))return {itens:[ocorrenciaLocal],total:1};
+   if(/\/planos\/6(?:\?|$)/.test(url))return planoLocal;
+   if(url.includes('/planos'))return {itens:[planoLocal],total:1};
    if(url.includes('/horas'))return {itens:[horas],total:1};
    return {itens:[],total:0};},
   apiDownload:async(url)=>{const r=await ctx.api(url);await r.blob();downloads.push('sintetico.pdf');return 'sintetico.pdf';},toast(){},
@@ -170,6 +171,32 @@ const settle=()=>new Promise(resolve=>setImmediate(resolve));
  assert(a.requests.slice(n).some(r=>r.opcoes.method==='PATCH'));
  await a.get('qua-abrir-ocorrencia-4').emit('click');await a.get('qua-comentar').emit('click');a.get('qua-campo-comentario').value='Acompanhamento do gestor';
  a.permis.delete('qualidade.gerir');n=a.requests.length;await a.get('qua-form').emit('submit');assert.strictEqual(a.requests.length,n,'Gestão revogada impede envio do formulário já aberto');
+
+ // Lista e detalhe devem preservar a classificação do servidor, inclusive no
+ // fechamento tardio e nas não conformidades ainda dentro do prazo.
+ const casosCor=[
+  ['ocorrencia','Ocorrência resolvida com atraso',{situacao:'resolvida',prazo:'2026-11-02',resolvida_em:'2026-11-04T12:00:00+00:00',cor:'vermelho'},'vermelho'],
+  ['ocorrencia','Não conformidade aberta',{situacao:'aberta',tipo:'nao_conformidade',criticidade:'baixa',prazo:'2099-11-10',cor:'vermelho'},'vermelho'],
+  ['plano','Plano validado com atraso',{situacao:'validado',prazo:'2026-11-02',validado_em:'2026-11-04T12:00:00+00:00',cor:'vermelho'},'vermelho'],
+  ['ocorrencia','Solução dentro do prazo',{situacao:'resolvida',prazo:'2026-11-10',resolvida_em:'2026-11-04T12:00:00+00:00',cor:'verde'},'verde'],
+  ['plano','Plano em andamento',{situacao:'em_andamento',prazo:'2099-11-10',cor:'amarelo'},'amarelo'],
+  ['ocorrencia','Sem comprovação de pontualidade',{situacao:'resolvida',resolvida_em:'',cor:'neutro'},'neutro'],
+  ['plano','DTO sem classificação',{situacao:'validado'},'neutro'],
+  ['ocorrencia','Classificação não reconhecida',{situacao:'resolvida',cor:'verde classe-indevida'},'neutro'],
+ ];
+ for(const [entidade,descricao,campos,esperada] of casosCor){
+  const registro={...(entidade==='ocorrencia'?ocorrencia:plano),descricao,...campos};
+  a=ambiente(todas,{[entidade]:registro});await a.montar();
+  await a.get(entidade==='ocorrencia'?'qua-tab-ocorrencias':'qua-tab-planos').emit('click');
+  const badges=e=>elementos(e).filter(n=>(n.className||'').split(' ').includes('qua-badge'));
+  let encontrados=badges(a.get('qua-conteudo'));
+  assert.strictEqual(encontrados.length,1,descricao+': um indicador na linha');
+  assert.strictEqual(encontrados[0].className,'qua-badge qua-'+esperada,descricao+': cor da lista');
+  await a.get(`qua-abrir-${entidade}-${registro.id}`).emit('click');
+  encontrados=badges(a.get('qua-detalhe'));
+  assert.strictEqual(encontrados.length,1,descricao+': um indicador no detalhe');
+  assert.strictEqual(encontrados[0].className,'qua-badge qua-'+esperada,descricao+': cor do detalhe');
+ }
  console.log('OK - qualidade UI: painel, escopo, formulários, revisão, downloads e respostas atrasadas');
 })().catch(e=>{console.error(e);process.exitCode=1;});
 '''

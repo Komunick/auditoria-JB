@@ -49,6 +49,7 @@ def main():
     assert wb['Apontamentos'].cell(2, headers['Custo registrado']).value == 15.02
     assert 'R$' in wb['Apontamentos'].cell(2, headers['Custo registrado']).number_format
     assert wb['Planos de ação'].cell(2, 6).value == dados[2][0]['descricao']
+    assert any(c.value == 'Não conformidades identificadas' for row in wb['Indicadores'] for c in row)
     assert any('2026-10-31' in str(c.value) for row in wb['Metodologia'] for c in row)
     wb.close()
     pdf = gerar_pdf(painel, *dados, filtros=filtros)
