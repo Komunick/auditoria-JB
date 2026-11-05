@@ -1,9 +1,11 @@
 """Evidências privadas da qualidade; objetos imutáveis, sem dependência da web.
 
-O modo local é exclusivo de desenvolvimento e precisa ser habilitado explicitamente.
+O modo local é exclusivo de desenvolvimento. O modo privado de servidor exige
+habilitacao explicita e inclui quota e reserva de disco, sem fallback para S3.
 Na implantação, as credenciais S3 seguem a cadeia padrão do SDK e nunca entram nos
 metadados públicos. A verificação de formato não substitui inspeção antimalware.
 """
+from contextlib import contextmanager, nullcontext
 from email import policy
 from email.parser import BytesParser
 from email.utils import parsedate_to_datetime
@@ -14,7 +16,11 @@ from io import BytesIO
 import os
 from pathlib import Path
 import re
+import shutil
+import stat
 import struct
+import threading
+import time
 import unicodedata
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -28,6 +34,8 @@ MIMES = {'.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg',
 _CHAVE = re.compile(r'qualidade/[0-9a-f]{32}\Z')
 _HASH = re.compile(r'[0-9a-f]{64}\Z')
 _INDISPONIVEL = 'Armazenamento de evidências indisponível. Confira a configuração.'
+_TRAVA_PRIVADA = threading.Lock()
+_LIMITE_OBJETOS = 10_000
 
 
 class ErroAnexo(ValueError):
@@ -152,6 +160,21 @@ def _pasta(dados, criar=False):
 
 def _configuracao():
     try:
+        if os.getenv('AUDITORIA_QUALIDADE_ANEXOS_PRIVADO') == '1':
+            if (os.getenv('AUDITORIA_QUALIDADE_ANEXOS_LOCAL') == '1'
+                    or any(os.getenv('AUDITORIA_QUALIDADE_S3_' + k, '').strip()
+                           for k in ('BUCKET', 'ENDPOINT', 'REGION'))):
+                raise ValueError('Modos de armazenamento conflitantes')
+            dados = os.getenv('AUDITORIA_WEB_DADOS', '').strip()
+            if not dados:
+                raise ValueError('Dados nao configurados')
+            def limite(nome):
+                valor = os.getenv('AUDITORIA_QUALIDADE_ANEXOS_' + nome + '_MB', '1024')
+                if not re.fullmatch(r'[0-9]{1,6}', valor) or not 1 <= int(valor) <= 102400:
+                    raise ValueError('Limite de armazenamento invalido')
+                return int(valor) * 1024 * 1024
+            return {'modo': 'privado', 'dados': dados, 'pasta': _pasta(dados),
+                    'limite_bytes': limite('LIMITE'), 'reserva_bytes': limite('RESERVA')}
         if os.getenv('AUDITORIA_QUALIDADE_ANEXOS_LOCAL') == '1':
             dados = os.getenv('AUDITORIA_WEB_DADOS', '').strip()
             if not dados:
@@ -210,21 +233,93 @@ def _arquivo(config, chave, criar=False):
     return arquivo
 
 
+@contextmanager
+def _reservar_espaco(config, tamanho):
+    """Serializa quota e escrita entre threads e processos no mesmo diretorio."""
+    with _TRAVA_PRIVADA:
+        pasta = _pasta(config['dados'], criar=True)
+        trava = pasta / '.gravacao.lock'
+        if trava.is_symlink():
+            raise ErroConfiguracaoAnexos(_INDISPONIVEL)
+        fd = os.open(trava, os.O_RDWR | os.O_CREAT | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+        bloqueado = False
+        try:
+            info = os.fstat(fd)
+            if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+                raise ErroConfiguracaoAnexos(_INDISPONIVEL)
+            if info.st_size == 0:
+                os.write(fd, b'0')
+            if os.name == 'nt':
+                import msvcrt
+                ate = time.monotonic() + 5
+                while True:
+                    try:
+                        os.lseek(fd, 0, os.SEEK_SET)
+                        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                        break
+                    except OSError:
+                        if time.monotonic() >= ate:
+                            raise
+                        time.sleep(0.02)
+            else:
+                import fcntl
+                ate = time.monotonic() + 5
+                while True:
+                    try:
+                        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        break
+                    except BlockingIOError:
+                        if time.monotonic() >= ate:
+                            raise
+                        time.sleep(0.02)
+            bloqueado = True
+            usados = objetos = 0
+            for arquivo in pasta.iterdir():
+                if arquivo.name == '.gravacao.lock':
+                    continue
+                info = arquivo.lstat()
+                if (not re.fullmatch(r'[0-9a-f]{32}', arquivo.name)
+                        or not stat.S_ISREG(info.st_mode) or info.st_nlink != 1):
+                    raise ErroConfiguracaoAnexos(_INDISPONIVEL)
+                objetos += 1
+                usados += info.st_size
+                if objetos >= _LIMITE_OBJETOS or usados + tamanho > config['limite_bytes']:
+                    raise ErroConfiguracaoAnexos(_INDISPONIVEL)
+            if (usados + tamanho > config['limite_bytes']
+                    or shutil.disk_usage(pasta).free - tamanho < config['reserva_bytes']):
+                raise ErroConfiguracaoAnexos(_INDISPONIVEL)
+            yield
+        finally:
+            try:
+                if bloqueado:
+                    if os.name == 'nt':
+                        os.lseek(fd, 0, os.SEEK_SET)
+                        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                    else:
+                        fcntl.flock(fd, fcntl.LOCK_UN)
+            finally:
+                os.close(fd)
+
+
 def salvar(nome, conteudo):
     meta = validar_arquivo(nome, conteudo)
     config = _configuracao()
     chave = 'qualidade/' + uuid4().hex
     try:
-        if config['modo'] == 'local':
-            arquivo = _arquivo(config, chave, criar=True)
-            fd = os.open(arquivo, os.O_WRONLY | os.O_CREAT | os.O_EXCL
-                         | getattr(os, 'O_NOFOLLOW', 0), 0o600)
-            try:
-                with os.fdopen(fd, 'wb') as saida:
-                    saida.write(conteudo)
-            except Exception:
-                arquivo.unlink(missing_ok=True)
-                raise
+        if config['modo'] in {'local', 'privado'}:
+            reserva = _reservar_espaco(config, meta['tamanho']) if config['modo'] == 'privado' else nullcontext()
+            with reserva:
+                arquivo = _arquivo(config, chave, criar=True)
+                fd = os.open(arquivo, os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                             | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+                try:
+                    with os.fdopen(fd, 'wb') as saida:
+                        saida.write(conteudo)
+                        saida.flush()
+                        os.fsync(saida.fileno())
+                except Exception:
+                    arquivo.unlink(missing_ok=True)
+                    raise
         else:
             _cliente(config).put_object(Bucket=config['bucket'], Key=chave, Body=conteudo,
                 ContentLength=meta['tamanho'], ContentType=meta['mime'],
@@ -245,7 +340,7 @@ def ler(meta):
         raise ErroAnexo('Metadados do anexo inválidos.')
     config = _configuracao()
     try:
-        if config['modo'] == 'local':
+        if config['modo'] in {'local', 'privado'}:
             arquivo = _arquivo(config, chave)
             fd = os.open(arquivo, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
             with os.fdopen(fd, 'rb') as entrada:
@@ -270,7 +365,7 @@ def excluir(chave):
     chave = _chave(chave)
     config = _configuracao()
     try:
-        if config['modo'] == 'local':
+        if config['modo'] in {'local', 'privado'}:
             _arquivo(config, chave).unlink(missing_ok=True)
         else:
             _cliente(config).delete_object(Bucket=config['bucket'], Key=chave)
