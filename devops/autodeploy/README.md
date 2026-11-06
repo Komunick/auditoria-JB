@@ -89,6 +89,23 @@ O cofre padrão é `/etc/auditoria-jb/cofre.env`, privado do root. A opção
 seu conteúdo não é lido pelo instalador nem impresso. Não usar `bash -x`,
 `systemctl show` sem seleção de propriedades, nem publicar arquivos de ambiente.
 
+SMTP permanece desligado quando `smtp_env` está ausente ou é `null`. A opção
+administrativa `install --smtp-env /etc/auditoria-jb/smtp.env` permite um arquivo
+root 0600 em diretório root 0700, sem links. O instalador adiciona o caminho
+somente a `secret_paths` e não configura o serviço de e-mail. O preflight do
+runner instalado exige seis variáveis completas, SSL/465 ou STARTTLS/587,
+autenticação e valores idênticos no arquivo e no processo. Qualquer variável
+SMTP extra ou divergente bloqueia o ciclo. Sem a opção, inclusive variáveis
+SMTP vazias continuam proibidas. A reinstalação sem a opção remove a autorização;
+desligue SMTP no serviço antes de voltar a esse modo.
+
+Essa mudança altera o OID de `devops/autodeploy`: a promoção do código, sozinha,
+será bloqueada com `control_plane_requires_install` até a manutenção administrativa
+do executor. Não contornar a proteção editando apenas o digest. Preservar os
+drop-ins de anexos e demais configurações existentes. Procedimento, senha de
+aplicativo, teste autorizado e recuperação:
+[operação SMTP](../../specs/025-smtp-explicito/operacao.md).
+
 Uma reinstalação exige timer pausado e executor encerrado. O lock recusa
 concorrência. Antes de substituir arquivos instalados, suas versões anteriores
 são copiadas para uma pasta única, datada, em
