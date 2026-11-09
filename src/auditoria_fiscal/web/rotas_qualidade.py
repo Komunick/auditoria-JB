@@ -22,11 +22,11 @@ from .infra import caminho_db_clientes
 
 router = APIRouter(prefix='/api/qualidade', tags=['qualidade'])
 MODELOS = [
-    {'setor': 'Fiscal', 'atividades': ['Apuração de tributos e guias', 'Obrigações acessórias', 'Conferência de notas', 'Atendimento a intimações e malhas', 'Pendências de documentos']},
-    {'setor': 'Contábil', 'atividades': ['Conciliação bancária', 'Classificação e lançamentos', 'Fechamento mensal', 'Balancete, balanço e DRE', 'Revisão contábil']},
-    {'setor': 'Departamento Pessoal', 'atividades': ['Folha de pagamento', 'Admissões e rescisões', 'Férias e décimo terceiro', 'Obrigações trabalhistas e eSocial', 'Convenções e prazos']},
-    {'setor': 'Legalização', 'atividades': ['Abertura, alteração e baixa', 'Processos em órgãos públicos', 'Alvarás e licenças', 'Inscrições e cadastros', 'Protocolos e exigências']},
-    {'setor': 'Administrativo', 'atividades': ['Atendimento e solicitações', 'Organização de documentos', 'Demandas internas', 'Distribuição de atividades', 'Acompanhamento de qualidade']},
+    {'setor': 'Fiscal', 'atividades': ['Apuração de impostos e emissão de guias', 'Entrega das obrigações acessórias', 'Conferência de notas fiscais', 'Acompanhamento de notificações e malhas fiscais', 'Controle de pendências fiscais dos clientes', 'Monitoramento de prazos e vencimentos']},
+    {'setor': 'Contábil', 'atividades': ['Conciliações bancárias', 'Classificação e lançamentos contábeis', 'Fechamento mensal', 'Elaboração de balancetes, balanços e DRE', 'Controle de documentos pendentes', 'Conferência e validação dos serviços executados']},
+    {'setor': 'Departamento Pessoal', 'atividades': ['Processamento da folha de pagamento', 'Controle de admissões e rescisões', 'Férias e décimo terceiro salário', 'Obrigações trabalhistas e previdenciárias', 'Conferência das informações enviadas ao eSocial', 'Acompanhamento de atualização de convenção coletiva', 'Controle de prazos e pendências']},
+    {'setor': 'Legalização', 'atividades': ['Abertura, alteração e baixa de empresas', 'Acompanhamento de processos nos órgãos públicos', 'Controle de alvarás, inscrições e licenças', 'Regularização cadastral', 'Monitoramento de protocolos e exigências', 'Acompanhamento dos prazos de conclusão']},
+    {'setor': 'Administrativo', 'atividades': ['Atendimento e solicitações dos clientes', 'Controle de documentos recebidos e pendentes', 'Acompanhamento das demandas internas', 'Distribuição de atividades', 'Monitoramento da produtividade e qualidade do atendimento']},
 ]
 
 
@@ -212,13 +212,20 @@ def _filtros(request, s, u, entidade=None):
     return f
 
 
-def _filtrar(itens, f, entidade):
+def _filtrar(s, itens, f, entidade):
     resultado=[]
     for r in itens:
         dia = r.get('data') or r.get('vencimento') or r.get('inicio') or ''
         if f.get('de') and (not dia or dia < f['de']): continue
         if f.get('ate') and (not dia or dia > f['ate']): continue
-        if any(r.get(k) != f[k] for k in ('cliente_id','setor_id','responsavel_usuario_id','situacao','tipo','criticidade','ocorrencia_id') if k in f): continue
+        if any(r.get(k) != f[k] for k in ('cliente_id','setor_id','situacao','tipo','criticidade','ocorrencia_id') if k in f): continue
+        if 'responsavel_usuario_id' in f:
+            titular = r.get('responsavel_usuario_id')
+            responsavel = titular
+            if entidade == 'tarefa': responsavel = r.get('responsavel_efetivo_id', titular)
+            elif entidade in {'ocorrencia','plano'}:
+                responsavel = s.responsavel_efetivo(r['setor_id'], titular, t.hoje_salvador()) if titular else None
+            if responsavel != f['responsavel_usuario_id']: continue
         resultado.append(r)
     return resultado
 
@@ -245,12 +252,12 @@ def catalogo(u: Usuario = Depends(acesso('qualidade.consultar'))):
 
 
 def _conjunto(s,u,f):
-    tarefas=_filtrar(_tarefas(s,u),f,'tarefa')
+    tarefas=_filtrar(s,_tarefas(s,u),f,'tarefa')
     listas=[tarefas]
     for entidade,metodo in [('ocorrencia',s.listar_ocorrencias),('plano',s.listar_planos),('horas',s.listar_horas)]:
         # Filtro de status aplica-se a todas as entidades; horas têm apenas data/autoria.
         ff={k:v for k,v in f.items() if k!='situacao'} if entidade=='horas' else f
-        listas.append([_dto(s,u,r,entidade) for r in _filtrar(metodo(),ff,entidade) if _visivel(s,u,r,entidade)])
+        listas.append([_dto(s,u,r,entidade) for r in _filtrar(s,metodo(),ff,entidade) if _visivel(s,u,r,entidade)])
     cfg=s.configuracao()
     painel=calcular_painel(*listas,hoje=t.hoje_salvador(),
         usuarios={p['id']:p['nome'] for p in auth.listar_usuarios()},
@@ -269,7 +276,7 @@ def _lista(entidade,request,u):
     with _store() as s:
         f=_filtros(request,s,u,entidade)
         nome={'ocorrencia':'ocorrencias','plano':'planos','horas':'horas'}[entidade]
-        itens=[_dto(s,u,r,entidade) for r in _filtrar(getattr(s,'listar_'+nome)(),f,entidade) if _visivel(s,u,r,entidade)]
+        itens=[_dto(s,u,r,entidade) for r in _filtrar(s,getattr(s,'listar_'+nome)(),f,entidade) if _visivel(s,u,r,entidade)]
         return {'itens':itens,'total':len(itens)}
 
 
