@@ -6,8 +6,9 @@ seis páginas, dez seções). A fonte privada permanece fora do repositório pú
 
 Escopo desta etapa: auditoria independente do que as specs 022, 023 e 024 afirmam
 estar pronto, correção das lacunas de software encontradas e lista objetiva do que
-depende da JB. Sem produção, sem carga real, sem merge, deploy ou Linear. Publicação
-só por PR para `dev`, com autorização própria.
+depende da JB. Sem carga real e sem Linear. Publicação por PR #48 para `dev`; merge e
+promoção para a `main` autorizados pela direção para 09/11/2026, às 12h. O resultado
+do deploy automático precisa ser conferido no servidor.
 
 ## Método
 
