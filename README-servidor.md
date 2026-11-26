@@ -196,6 +196,53 @@ ficar com metade do sistema velho depois de uma atualização.
 As tabelas novas (permissões e histórico) entram sozinhas na primeira
 execução — o banco existente não perde nada.
 
+### Conferir a versão e os ciclos do agendador (spec 015)
+
+No início do processo, a linha INFO `aplicacao_inicio` registra o SHA Git
+completo observado, sua origem e o estado da árvore. Compare esse SHA com o
+commit autorizado para o deploy e confira o horário da inicialização. A
+captura acontece uma única vez: atualizar o checkout com o processo ligado
+não muda o valor anunciado. Reinicie o mesmo serviço após atualizar o código.
+
+Com uma sessão de **administrador autenticado**, `GET /api/estado` acrescenta
+o objeto `operacao`. Não é uma rota separada. Seus campos são:
+
+- `versao.sha`: SHA completo ou `null` quando indisponível;
+- `versao.origem`: `git` ou `indisponivel`;
+- `versao.arvore`: `limpa`, `alterada` ou `desconhecida`;
+- `versao.iniciado_em`: instante UTC da inicialização;
+- `agendador`: diagnóstico agregado do último ciclo, inicialmente em estado
+  `aguardando`.
+
+A resposta de usuários comuns ou anônimos conserva os campos anteriores e
+não inclui `operacao`. Não forneça senha, cookie ou token de administrador em
+comandos compartilhados. A versão e o diagnóstico não expõem caminhos,
+branches, remotes, ambiente, destinatários ou dados de clientes.
+
+Cada ciclo do agendador registra uma linha INFO de sucesso, **inclusive com
+zero setores ou tarefas**, com horário, competência, duração e contagens
+agregadas de gerações, tarefas criadas e resultados de envio. O intervalo
+continua sendo de 15 minutos, com no máximo quatro resumos por hora por
+processo. Antes do horário de envio, `envios` pode ser `null`. Falhas registram
+somente horário, etapa controlada e código fixo; não há mensagem da exceção
+ou traceback. Falha ao fechar a conexão também impede anunciar sucesso.
+O diagnóstico administrativo mostra o último ciclo, enquanto o histórico de
+ciclos fica nos logs do serviço.
+
+Na instalação com systemd, consulte o journal da unidade efetivamente usada,
+desde a inicialização verificada; na execução manual, veja a saída do Uvicorn.
+A configuração padrão INFO do Uvicorn já recebe essas linhas. Não é preciso
+criar variável de ambiente, handler, timer, cron, serviço ou porta. A frequência
+do agendador e as regras de geração e envio permanecem as mesmas.
+
+**Limites da verificação.** O SHA identifica o checkout observado na
+inicialização; não é uma atestação criptográfica dos módulos em memória.
+Árvore `alterada` ou `desconhecida` não comprova execução exata de um commit.
+Sem Git, sem repositório válido ou diante de timeout, a versão fica
+`indisponivel` e a aplicação continua iniciando. Não substitua essa ausência
+por um SHA informado manualmente. Os logs não comprovam entrega ou leitura
+de e-mails e não substituem a auditoria do domínio.
+
 ## Dados do servidor
 
 Tudo em `dados_web\` (fora do git):
@@ -223,7 +270,8 @@ Tudo em `dados_web\` (fora do git):
   alterações e a de **quem viu cada senha** (append-only, por trigger) e as
   senhas **cifradas**. A chave fica fora desta pasta (`AUDITORIA_COFRE_CHAVE`)
   Também guarda setores, carteira, obrigações, tarefas, eventos, gerações e
-  registros dos resumos por e-mail (spec 013, schema 2).
+  registros dos resumos por e-mail (spec 013), com ocorrências de tarefas
+  introduzidas pela spec 014, no schema 3.
 - `conciliacao\origens\<sha256>.xlsx` — os relatórios da SEFAZ **originais**,
   imutáveis, nomeados pelo hash do conteúdo. São a evidência de cada número
   exibido: sem eles, a proveniência aponta para o vazio
@@ -245,7 +293,18 @@ uma falha visível. Duas formas seguras:
    criados).
 
 Backup online automatizado é uma feature à parte; não presuma que a cópia
-simples do diretório dá um snapshot consistente.
+simples do diretório dá um snapshot consistente. Backups online de bancos
+separados também não representam necessariamente o mesmo instante entre
+eles. Para implantação com migração, prefira parar o serviço e copiar a pasta
+inteira, com os seis bancos, arquivos `-wal`/`-shm` presentes e demais arquivos.
+Preserve código, venv e configuração anteriores; arquivos com a chave do cofre
+devem ter cópia protegida separada dos dados.
+
+Valide a recuperação em uma **cópia de trabalho do backup**, mantendo o
+original preservado. Construtores de Stores podem migrar bancos ao abrir;
+não os use para apenas inspecionar produção ou o backup original. Verifique
+integridade e chaves estrangeiras dos seis bancos e compare contagens
+agregadas, sem expor registros ou valores do cofre.
 
 ## Variáveis de ambiente (opcionais)
 
@@ -269,11 +328,26 @@ sessão do outro. Mantenha um worker até que a fila seja externalizada.
 
 ## Tarefas e prazos (aba 10)
 
-A primeira inicialização migra `clientes.db` para o schema 2, de forma
-aditiva, preservando clientes, certificados, cofre e trilhas existentes.
-`auditoria_web.db` ganha o e-mail opcional dos usuários. Faça backup dos
-dois bancos antes de atualizar. Instale os requisitos atualizados: `xlrd>=2.0`
-permite ler as carteiras antigas em `.xls`; `.xlsx` continua usando openpyxl.
+A primeira inicialização migra `clientes.db` para o **schema 3**, de forma
+aditiva e transacional, preservando clientes, certificados, cofre, IDs e
+trilhas existentes. A migração da spec 013 cria as tabelas de tarefas; a spec
+014 acrescenta `tarefa.ocorrencia`, conserva tarefas anteriores como ocorrência
+1 e amplia o índice de unicidade para cliente, obrigação, competência e
+ocorrência. `auditoria_web.db` conserva a migração da spec 013 que acrescenta
+o e-mail opcional dos usuários. Não altere os schemas manualmente.
+
+Antes de atualizar, faça o backup consistente da pasta completa descrito
+acima, incluindo os seis bancos. Instale os requisitos atualizados:
+`xlrd>=2.0` permite ler as carteiras antigas em `.xls`; `.xlsx` continua usando
+openpyxl. A spec 014 não exige novas dependências.
+
+Se houver falha após iniciar a versão nova, pare o serviço e preserve também
+uma cópia consistente desse estado antes de recuperar. **Não volte a executar
+o código da spec 013 sobre `clientes.db` já migrado para schema 3.** Não faça
+downgrade manual nem restauração cega: o agendador ou os usuários podem ter
+gravado dados desde o backup. A recuperação precisa considerar em conjunto
+código, venv, configuração e dados compatíveis; qualquer restauração que
+descarte gravações posteriores exige avaliação e autorização específica.
 
 Primeiro uso, pela administração e pela configuração da aba 10:
 
