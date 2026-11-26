@@ -119,6 +119,30 @@ ficam em `dados/nfse/xsd/v1.01` (no Git, sem alteração).
 `Secure`, checagem de Origin/Host, limite de tentativas de login) tem de estar
 no ar — a constituição exige isso para exposição fora da rede interna.
 
+## Antecipação e DIFAL do ICMS-BA (aba 11)
+
+Somente web (spec 027). O administrador libera `aba.antecipacao` e,
+separadamente, `antecipacao.importar`, `.revisar`, `.aprovar`, `.configurar` e
+`.exportar`. Nenhum desses slugs entra no padrão de usuário novo: importar,
+revisar e aprovar são passos de pessoas que podem ser diferentes.
+
+- Entrada: XML de NF-e (vários por envio). A chave de acesso sozinha não traz
+  os produtos; a consulta à SEFAZ pela chave **não** faz parte desta versão.
+- Toda nota nasce **em revisão**. Item com exceção (ST, isenção, redução de
+  base, FCP, CFOP interno, dado faltante, sem destaque) fica sem decisão até
+  alguém decidir, com motivo. Só nota **aprovada** entra no total a recolher.
+- Dois métodos de cálculo convivem (a especificação do Fiscal e a diferença
+  simples). O método fica gravado em cada nota e a memória mostra o outro.
+  **A equipe fiscal precisa homologar o método, as hipóteses de crédito de
+  referência e os componentes da base antes do uso em produção**
+  (`specs/027-antecipacao-icms-ba/spec.md`, pendências P-01 a P-08).
+- A tabela de alíquotas (interna por NCM e vigência; interestadual por UF) é
+  semeada na primeira abertura do `antecipacao.db` e mantida pela tela. Linha
+  de alíquota não muda de valor: cadastra-se nova vigência.
+
+O schema do `antecipacao.db` é criado sozinho na primeira abertura. Não há
+dependência nova nem variável de ambiente nova.
+
 ## Patrimônio (aba 7)
 
 Somente web. O administrador libera `aba.patrimonio` e, separadamente,
@@ -224,6 +248,11 @@ Tudo em `dados_web\` (fora do git):
   senhas **cifradas**. A chave fica fora desta pasta (`AUDITORIA_COFRE_CHAVE`)
   Também guarda setores, carteira, obrigações, tarefas, eventos, gerações e
   registros dos resumos por e-mail (spec 013, schema 2).
+- `antecipacao.db` — Antecipação e DIFAL do ICMS-BA: tabela de alíquotas por
+  vigência, empresas e regime, notas, memória de cálculo por item, decisões e
+  a trilha do domínio (append-only, protegida por trigger)
+- `antecipacao\origens\<sha256>.xml` — os XML das notas importadas, imutáveis,
+  nomeados pelo hash do conteúdo (fonte da memória de cálculo e do DANFE)
 - `conciliacao\origens\<sha256>.xlsx` — os relatórios da SEFAZ **originais**,
   imutáveis, nomeados pelo hash do conteúdo. São a evidência de cada número
   exibido: sem eles, a proveniência aponta para o vazio
@@ -240,8 +269,8 @@ uma falha visível. Duas formas seguras:
 1. Parar o `servidor.ps1`, copiar a pasta, subir de novo (mais simples); ou
 2. Com o site no ar, usar a API de backup do SQLite em cada `.db`:
    `.\.venv\Scripts\python.exe -c "import sqlite3; o=sqlite3.connect(r'dados_web\conciliacao.db'); d=sqlite3.connect(r'backup\conciliacao.db'); o.backup(d); d.close(); o.close()"`
-   (o mesmo para `patrimonio.db`, `nfse.db` e `clientes.db`) e copiar `conciliacao\origens\`
-   e `nfse\origens\` normalmente (os arquivos lá nunca mudam depois de
+   (o mesmo para `patrimonio.db`, `nfse.db`, `clientes.db` e `antecipacao.db`) e copiar
+   `conciliacao\origens\`, `nfse\origens\` e `antecipacao\origens\` normalmente (os arquivos lá nunca mudam depois de
    criados).
 
 Backup online automatizado é uma feature à parte; não presuma que a cópia

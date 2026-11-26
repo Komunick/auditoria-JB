@@ -258,6 +258,24 @@ ACOES: dict[str, Acao] = dict((
        CAT_COFRE, "admin.historico"),
 
     # ------------------------------------------------------------------
+    # Antecipacao e DIFAL do ICMS-BA (spec 027). Trilha de USO; a trilha
+    # fiscal (quem decidiu o que em cada nota) mora em antecipacao.db, na
+    # mesma transacao da mudanca. O detalhe evita valores: leva chave e id.
+    _a("antecipacao.importar", "Importou XML para a Antecipacao ICMS-BA",
+       CAT_PROCESSAMENTO, "antecipacao.importar", "antecipacao"),
+    _a("antecipacao.revisar", "Revisou nota da Antecipacao ICMS-BA",
+       CAT_MUTACAO, "antecipacao.revisar", "antecipacao"),
+    _a("antecipacao.aprovar", "Aprovou ou reabriu nota da Antecipacao ICMS-BA",
+       CAT_MUTACAO, "antecipacao.aprovar", "antecipacao"),
+    _a("antecipacao.configurar",
+       "Alterou aliquotas ou parametros da Antecipacao ICMS-BA",
+       CAT_MUTACAO, "antecipacao.configurar", "antecipacao"),
+    _a("antecipacao.exportar", "Exportou a apuracao da Antecipacao ICMS-BA",
+       CAT_DOWNLOAD, "antecipacao.exportar", "antecipacao"),
+    _a("antecipacao.danfe", "Abriu o DANFE de nota da Antecipacao ICMS-BA",
+       CAT_DOWNLOAD, aba="antecipacao"),
+
+    # ------------------------------------------------------------------
     # Administracao
     _a("admin.usuario_criado", "Criou um usuario", CAT_ADMIN,
        "admin.usuarios"),

@@ -1168,3 +1168,14 @@ label.permissao input { margin-top: 3px; }
   .tar-previa-geracao { min-width: 640px; }
   .tar-config-linha { align-items: flex-start; }
 }
+
+/* --------------------------------------------------------------------
+   Aba 11 - Antecipacao ICMS-BA: a memoria de calculo cabe na largura da
+   tela. Texto quebra; numero nao. */
+.conc-bloco table.ant-itens td { white-space: normal; vertical-align: top; }
+.conc-bloco table.ant-itens td.conc-num { white-space: nowrap; }
+.conc-bloco table.ant-itens th { white-space: normal; }
+.conc-bloco table.ant-itens td.conc-num .dica { white-space: normal; }
+.ant-itens .ant-produto { min-width: 190px; }
+.ant-itens .ant-situacao { min-width: 200px; }
+.ant-itens .dica { margin: 2px 0 0; }

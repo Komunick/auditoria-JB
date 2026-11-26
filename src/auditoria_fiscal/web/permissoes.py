@@ -32,6 +32,7 @@ GRUPO_PATRIMONIO = "Patrimonio"
 GRUPO_NFSE = "Emissao de NFS-e"
 GRUPO_CLIENTES = "Clientes e cofre de senhas"
 GRUPO_TAREFAS = "Tarefas e prazos"
+GRUPO_ANTECIPACAO = "Antecipacao e DIFAL (ICMS-BA)"
 GRUPO_ADMIN = "Administracao"
 
 
@@ -247,6 +248,35 @@ CATALOGO: tuple[Permissao, ...] = (
     Permissao("tarefas.configurar", "Configurar tarefas e carteira", GRUPO_TAREFAS),
     Permissao("setores.administrar", "Administrar setores e substituições", GRUPO_TAREFAS),
     Permissao("tarefas.exportar", "Exportar tarefas em Excel", GRUPO_TAREFAS),
+
+    # ------------------------------------------------------------------
+    # Antecipacao e DIFAL do ICMS-BA (spec 027). Importar, revisar e aprovar
+    # sao passos separados de proposito: quem importa nao libera, sozinho, o
+    # valor a recolher. Nenhum slug entra no padrao de usuario novo.
+    Permissao("aba.antecipacao", "11. Antecipacao ICMS-BA", GRUPO_ABAS,
+              "Abrir a aba, consultar notas, totais e a memoria de calculo, "
+              "usar a calculadora e conferir chaves."),
+    Permissao("antecipacao.importar", "Importar XML de NF-e",
+              GRUPO_ANTECIPACAO,
+              "Enviar os XML das compras interestaduais. A nota nasce em "
+              "revisao."),
+    Permissao("antecipacao.revisar", "Revisar notas e itens",
+              GRUPO_ANTECIPACAO,
+              "Definir finalidade, metodo, credito de referencia, regime da "
+              "empresa e decidir os itens com excecao; excluir nota em "
+              "revisao."),
+    Permissao("antecipacao.aprovar", "Aprovar e reabrir notas",
+              GRUPO_ANTECIPACAO,
+              "Aprovar a nota (o valor passa a contar no total a recolher) "
+              "e reabrir uma nota aprovada, com motivo."),
+    Permissao("antecipacao.configurar", "Manter aliquotas e parametros",
+              GRUPO_ANTECIPACAO,
+              "Cadastrar aliquotas por vigencia, UF e produto e mudar os "
+              "parametros de calculo."),
+    Permissao("antecipacao.exportar", "Exportar a apuracao (Excel)",
+              GRUPO_ANTECIPACAO,
+              "Baixar a planilha com a memoria de calculo por item e os "
+              "totais por empresa e periodo."),
 
     # Administracao
     Permissao("admin.usuarios", "Administrar usuarios e permissoes",
