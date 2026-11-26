@@ -91,4 +91,5 @@ Na Central (`inicio.js`) e em todas as ferramentas (`tarefas`, `qualidade`, `cli
 
 - O servidor continua servindo `webui/` diretamente via `WebuiSemCache(StaticFiles)` sem alterações de backend ou novas rotas.
 - O branch de trabalho é `028-redesign-visual` derivado de `origin/dev`, respeitando o fluxo de PR para `dev` sem merge/push automático.
+- Publicação por PR #51 para `dev`; merge na `dev` e promoção para a `main` autorizados pela direção em 26/11/2026. O resultado do deploy automático precisa ser conferido no servidor.
 - As 13 abas atuais de `origin/dev` permanecem no mesmo conjunto de permissões (`aba.*`, `admin.*`) já conhecidas pelo backend.

@@ -33,3 +33,8 @@
 - [x] T010 Executar `tests/test_redesign_ui.py` e toda a suíte `tests/test_*.py` do repositório (**115 total · 113 PASS · 2 SKIP [Firebird ausente] · 0 FAIL**)
 - [x] T011 Subir o servidor em porta descartável (`8699`) com pasta de dados isolada e validar visualmente no navegador real (claro/escuro, desktop 1440px e mobile 390px) login, Central, paleta `Ctrl+K`, gaveta e ferramentas principais (0 erros de console, 0 exceções, 0 overflow horizontal)
 - [x] T012 Atualizar `tasks.md` e validar conformidade final do diff (sem dados reais, sem CDN, sem build, sem regressões)
+
+## Phase 6: Publicação
+
+- [x] T013 PR #51 aberto para `dev`. Merge na `dev` e promoção para a `main` autorizados pela direção em 26/11/2026; sem Linear.
+- [ ] T014 Conferir o ciclo do deploy automático na arm07 (SHA da `main` em `last_deploy`) e a interface nova no ar.
