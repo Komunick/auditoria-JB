@@ -398,6 +398,7 @@ const PALAVRAS_ABAS = {
   produtos: "auditoria produtos tributacao ncm cest cst fdb firebird",
   conciliacao: "conciliacao fiscal sefaz receita dimp quadro 50",
   nfse: "emissao nfse dps sefin nacional recibo",
+  antecipacao: "antecipacao parcial difal icms bahia ba xml nfe cfop aliquota interestadual",
   patrimonio: "patrimonio bens etiqueta inventario termo responsabilidade",
   admin: "administracao usuarios permissoes historico acessos trilha",
 };

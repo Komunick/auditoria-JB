@@ -1338,3 +1338,9 @@ label.permissao input { margin-top: 3px; }
 .ant-itens .ant-produto { min-width: 190px; }
 .ant-itens .ant-situacao { min-width: 200px; }
 .ant-itens .dica { margin: 2px 0 0; }
+/* Titulos internos com respiro (o .conc-bloco h3 zera a margem de cima);
+   texto corrido das pendencias e botoes de tabela na fonte da interface,
+   nao na fonte de dados. */
+#aba-antecipacao .conc-bloco h3.pat-titulo { margin-top: 22px; }
+.conc-bloco table.ant-itens td.ant-situacao { font-family: var(--fonte-ui); font-size: 12.5px; }
+#aba-antecipacao td button { font-family: var(--fonte-ui); }

@@ -55,6 +55,21 @@ chaves, abrir a tabela de alíquotas e a Central. Nenhum erro de JavaScript; as
 duas únicas mensagens de console são as respostas 409 e 422 provocadas de
 propósito. Temas claro e escuro.
 
+## Integração com o redesign (27/11/2026)
+
+Base: `origin/dev` em `65458ec` (redesign da spec 028), juntada à branch por
+merge. Mesmo ambiente.
+
+| Critério | Verificação | Resultado |
+|---|---|---|
+| Suíte depois do merge | 118 scripts `tests/test_*.py` | 116 OK, 2 pulados (Firebird), 0 falhas |
+| Aba 11 no menu novo | `test_web_antecipacao.py`: grupo fiscal, `data-numero="11"`, selo `11` e palavras-chave em `app.js` | Passou; o teste falha com o botão em outro grupo e sem as palavras-chave |
+| Tela no visual novo | Chromium sem interface gráfica, servidor local (127.0.0.1), três notas sintéticas: lista, memória de cálculo, tema escuro, busca "icms" e gaveta em 390 px | Título "Antecipação ICMS-BA" no cabeçalho, botão ativo no grupo "Fiscal & Emissão", busca acha a aba 11, sem rolagem horizontal da página, nenhum erro de console |
+| Ajustes visuais | Mesma conferência, antes e depois do CSS | Títulos internos com espaço acima; pendências e botão "Selecionar itens" na fonte da interface |
+
+A tela de celular passou a ser conferida (390 px); a tabela de notas rola na
+horizontal dentro do próprio quadro.
+
 ## Não testado
 
 - **XML reais.** Tudo foi feito com XML sintético. Notas reais têm variações de
@@ -66,7 +81,7 @@ propósito. Temas claro e escuro.
   homologação da equipe fiscal (P-01 a P-08).
 - **Volume.** Não houve medição com centenas de notas grandes num envio.
 - **Navegador do usuário.** A conferência foi em Chromium; não houve teste em
-  outro navegador nem em tela de celular.
+  outro navegador nem em celular de verdade (só na largura de 390 px).
 - **Servidor de produção.** Nada foi implantado.
 
 ## Observação sobre a ordem dos testes

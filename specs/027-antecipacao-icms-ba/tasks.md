@@ -45,6 +45,19 @@ repositório. Evidências em `validacao.md`.
   (lista de testes).
 - [x] A014 Suíte completa antes e depois.
 
+## Fase 6 — Integração com o redesign (spec 028)
+
+- [x] A019 Merge da `dev` com o redesign (`65458ec`) na branch; conflitos em
+  `webui/index.html` e `webui/estilo.css` resolvidos pelo lado do redesign,
+  com a aba 11 no grupo "Fiscal & Emissão", número 11, e palavras-chave na
+  busca rápida (`Ctrl+K`, `webui/app.js`).
+- [x] A020 Teste de regressão em `test_web_antecipacao.py`: grupo, número e
+  palavras-chave da aba 11 no menu novo.
+- [x] A021 Ajustes visuais da memória de cálculo: espaço acima dos títulos
+  internos, pendências e botões da tabela na fonte da interface.
+- [x] A022 Suíte completa e conferência no navegador (desktop e celular,
+  temas claro e escuro).
+
 ## Pendente (não é desta entrega)
 
 - [ ] A015 Homologação pela equipe fiscal da JB: P-01 a P-08 da spec.

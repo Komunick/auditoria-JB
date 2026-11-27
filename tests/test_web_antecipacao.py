@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import io
 import os
+import re
 import sys
 import tempfile
 
@@ -463,6 +464,17 @@ def main() -> int:
     pagina = adm.get("/").text
     checar('data-aba="antecipacao"' in pagina and "antecipacao.js" in pagina,
            "a aba deveria estar no index.html")
+    # No menu do redesign (spec 028): grupo Fiscal & Emissao, numero 11 e
+    # palavras-chave na busca rapida (Ctrl+K).
+    grupo = re.search(r'<div class="nav-grupo" data-grupo="fiscal".*?</div>',
+                      pagina, re.S)
+    checar(grupo is not None
+           and 'data-aba="antecipacao" data-numero="11"' in grupo.group(0)
+           and '<span class="nav-num" aria-hidden="true">11</span>' in grupo.group(0),
+           "a aba 11 deveria estar no grupo fiscal do menu, com o numero 11")
+    checar(re.search(r'^\s*antecipacao: "[^"]*\bicms\b[^"]*",\r?$',
+                     adm.get("/app.js").text, re.M) is not None,
+           "a busca rapida deveria ter as palavras-chave da aba 11")
     checar(adm.get("/antecipacao.js").status_code == 200, "antecipacao.js")
     checar(adm.post("/api/eventos/aba",
                     json={"aba": "antecipacao"}).status_code == 200,
