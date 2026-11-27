@@ -48,8 +48,11 @@ function cartaoDaFerramenta(nome) {
     document.querySelector(`.abas button[data-aba="${nome}"]`);
   if (!botaoLateral) return null;
 
-  const rotulo = botaoLateral.textContent.trim();
+  const rotuloEl = typeof botaoLateral.querySelector === "function"
+    ? botaoLateral.querySelector(".nav-rotulo") : null;
+  const rotulo = (rotuloEl ? rotuloEl.textContent : botaoLateral.textContent).trim();
   const numerada = rotulo.match(/^(\d+)\.\s*(.+)$/);
+  const numero = (botaoLateral.dataset && botaoLateral.dataset.numero) || (numerada ? numerada[1] : "");
 
   const cartao = document.createElement("button");
   cartao.type = "button";
@@ -77,7 +80,7 @@ function cartaoDaFerramenta(nome) {
   cartao.querySelector(".atalho-texto").textContent =
     RESUMO_FERRAMENTAS[nome] || "";
   cartao.querySelector(".atalho-numero").textContent =
-    numerada ? numerada[1] : "";
+    numero ? String(numero).padStart(2, "0") : "";
 
   cartao.addEventListener("click", () => Abas.abrir(nome));
   return cartao;
@@ -98,7 +101,9 @@ function montarInicio(container) {
         <h2 class="capa-titulo"></h2>
         <p class="capa-linha"></p>
       </div>
-      <img class="capa-selo" src="logo.jpg" alt="" width="72" height="72">
+      <div class="capa-selo-marca" aria-hidden="true">
+        <img src="img/symbol-256.png" alt="" width="44" height="42">
+      </div>
     </section>
 
     <div id="inicio-central"></div>
