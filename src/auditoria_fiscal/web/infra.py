@@ -94,6 +94,23 @@ def caminho_db_clientes() -> str:
     return os.path.join(pasta_dados_web(), "clientes.db")
 
 
+def caminho_db_antecipacao() -> str:
+    """Banco proprio da Antecipacao/DIFAL do ICMS-BA (spec 027): tabela de
+    aliquotas por vigencia, notas, memoria de calculo por item e trilha.
+    Entra no backup junto dos outros bancos de dominio."""
+    return os.path.join(pasta_dados_web(), "antecipacao.db")
+
+
+def pasta_origens_antecipacao() -> str:
+    """XML das notas importadas, imutaveis, nomeados pelo SHA-256.
+
+    Fora de `sessoes/`, que pode ser limpa a qualquer momento: a memoria de
+    calculo aponta para o arquivo e o DANFE e' gerado a partir dele."""
+    pasta = os.path.join(pasta_dados_web(), "antecipacao", "origens")
+    os.makedirs(pasta, exist_ok=True)
+    return pasta
+
+
 def caminho_historico_produtos() -> str:
     return os.path.join(pasta_dados_web(), "historico_produtos.csv")
 

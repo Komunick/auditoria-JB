@@ -463,6 +463,11 @@ definida devem permanecer inativos até a configuração pelo escritório.
 .\.venv\Scripts\python.exe tests\test_fdb_reader.py       # leitor de .FDB (pula sem Firebird)
 .\.venv\Scripts\python.exe tests\test_web_permissoes.py   # permissoes + historico
 .\.venv\Scripts\python.exe tests\test_web_nfse.py         # aba 8 na web (fluxo, permissoes, sem rede)
+.\.venv\Scripts\python.exe tests\test_web_antecipacao.py  # aba 11 na web (acesso, importacao, revisao, saidas)
+
+# Antecipacao e DIFAL do ICMS-BA (aba 11): nucleo e banco
+.\.venv\Scripts\python.exe tests\test_antecipacao_ba.py    # formulas dos exemplos, pendencias, tabela, chave e leitor
+.\.venv\Scripts\python.exe tests\test_antecipacao_store.py # duplicidade, revisao, aprovacao, totais e trilha
 
 # Emissao de NFS-e (aba 8): nucleo, banco e saidas
 .\.venv\Scripts\python.exe tests\test_documentos_br.py    # CPF, CNPJ, decimal e pacote xlsx compartilhados

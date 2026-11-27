@@ -23,6 +23,7 @@ from .auth import Usuario, exigir_usuario
 from .infra import raiz_projeto
 from .sessoes import criar_sessao, descartar_sessao, obter_job, obter_sessao
 from .rotas_admin import router as rotas_admin
+from .rotas_antecipacao import router as rotas_antecipacao
 from .rotas_clientes import router as rotas_clientes
 from .rotas_conciliacao import router as rotas_conciliacao
 from .rotas_conferencia import router as rotas_conferencia
@@ -288,6 +289,7 @@ def criar_app() -> FastAPI:
     app.include_router(rotas_clientes)
     app.include_router(rotas_tarefas)
     app.include_router(rotas_qualidade)
+    app.include_router(rotas_antecipacao)
 
     # O mount estatico e' curinga em "/": tem de ser o ULTIMO. Registrado
     # antes, engoliria /api/conciliacao/** e a ferramenta responderia 404 do

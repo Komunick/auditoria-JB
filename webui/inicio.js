@@ -20,6 +20,9 @@ const RESUMO_FERRAMENTAS = {
   patrimonio: "Controla bens, responsáveis, movimentações e inventário.",
   nfse: "Importa a lista do cliente, confere cada nota, gera a DPS do padrão "
       + "nacional e a transmite à produção restrita (sem valor fiscal).",
+  antecipacao: "Lê os XML das compras de fora do estado, separa por CFOP e "
+             + "alíquota e calcula a antecipação/DIFAL do ICMS da Bahia, com "
+             + "memória de cálculo e revisão antes de aprovar.",
   clientes: "Cadastro dos clientes com as senhas de portais no cofre "
           + "criptografado e o aviso de vencimento dos certificados digitais.",
   tarefas: "Organiza a carteira, gera a agenda de obrigações e acompanha os prazos e as conferências.",
